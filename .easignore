@@ -1,0 +1,14 @@
+# Exclude original icon source folder from builds
+ICON/
+
+# Development files
+*.log
+.DS_Store
+
+# IDE files
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.temp 

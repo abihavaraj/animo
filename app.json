@@ -1,42 +1,52 @@
 {
   "expo": {
-    "name": "PilatesStudioApp",
+    "name": "ANIMO Pilates Studio",
     "slug": "PilatesStudioApp",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "pilatesstudioapp",
+    "scheme": "animopilatesstudio",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.animo.pilatesstudio",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
-      },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.animo.pilatesstudio"
     },
     "web": {
       "bundler": "metro",
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "output": "static"
     },
     "plugins": [
-      "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/react-logo.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#F5F2B8"
         }
-      ]
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#F5F2B8",
+          "defaultChannel": "animo-notifications"
+        }
+      ],
+      "expo-router",
+      "expo-web-browser"
     ],
-    "experiments": {
-      "typedRoutes": true
-    }
+    "extra": {
+      "eas": {
+        "projectId": "d4bdbfc4-ecbc-40d7-aabb-ad545c836ab3"
+      }
+    },
+    "owner": "argjendi96"
   }
 }
