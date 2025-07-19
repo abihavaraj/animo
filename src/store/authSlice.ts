@@ -1,5 +1,6 @@
 import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { authService, LoginRequest, RegisterRequest, UpdateProfileRequest, User } from '../services/authService';
+import { devError, devLog } from '../utils/devUtils';
 
 export type UserRole = 'client' | 'instructor' | 'admin' | 'reception';
 
@@ -80,9 +81,7 @@ const authSlice = createSlice({
   initialState,
   reducers: {
     logout: (state) => {
-      if (__DEV__) {
-        console.log('🚪 Logging out user');
-      }
+      devLog('🚪 Logging out user');
       
       // Use a more direct approach to reset state
       state.isLoggedIn = false;
@@ -95,9 +94,7 @@ const authSlice = createSlice({
       try {
         authService.setToken(null);
       } catch (error) {
-        if (__DEV__) {
-          console.error('Error clearing auth token:', error);
-        }
+        devError('Error clearing auth token:', error);
       }
     },
     // Action to reset all app state when logging out

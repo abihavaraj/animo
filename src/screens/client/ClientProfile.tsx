@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, Dimensions, Linking, RefreshControl, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { Avatar, Button, Card, Chip, Modal, Portal, ProgressBar, Surface } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
@@ -21,7 +21,7 @@ interface NotificationSettings {
   classUpdates: boolean;
 }
 
-function ClientProfile() {
+function ClientProfile({ navigation }: any) {
   const { user } = useSelector((state: RootState) => state.auth);
   const { currentSubscription, isLoading } = useSelector((state: RootState) => state.subscriptions);
   const dispatch = useDispatch<AppDispatch>();
@@ -61,6 +61,8 @@ function ClientProfile() {
     }, [dispatch])
   );
 
+
+
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
@@ -75,7 +77,7 @@ function ClientProfile() {
     }
   };
 
-  // Safe subscription data access - only create object if subscription exists
+  // Enhanced subscription data processing with expiration check
   const subscriptionData = currentSubscription ? {
     planName: currentSubscription.plan_name || 'Unknown Plan',
     remainingClasses: Math.max(0, currentSubscription.remaining_classes || 0),
@@ -92,7 +94,19 @@ function ClientProfile() {
       Math.floor((new Date().getTime() - new Date(currentSubscription.start_date).getTime()) / (1000 * 60 * 60 * 24)) : 0,
     daysUntilEnd: currentSubscription.end_date ? 
       Math.max(0, Math.ceil((new Date(currentSubscription.end_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))) : 0,
+    // Add expiration check
+    isExpired: currentSubscription.end_date ? new Date(currentSubscription.end_date) < new Date() : false,
   } : null;
+
+  // If subscription is expired but still showing, trigger immediate refresh
+  useEffect(() => {
+    if (subscriptionData && subscriptionData.isExpired && subscriptionData.status === 'active') {
+      console.log('⚠️ Detected expired subscription still showing as active - forcing refresh');
+      setTimeout(() => {
+        dispatch(fetchCurrentSubscription());
+      }, 1000);
+    }
+  }, [subscriptionData, dispatch]);
 
   const getProgressValue = () => {
     if (!subscriptionData) return 0;
@@ -249,7 +263,7 @@ function ClientProfile() {
       }
     >
       {/* Header */}
-      <View style={[styles.headerImproved, { backgroundColor: primaryColor }]}>
+      <View style={[styles.headerImproved, { backgroundColor: surfaceColor, borderBottomWidth: 1, borderBottomColor: textMutedColor }]}>
         <View style={styles.headerContent}>
           <Avatar.Text 
             size={60} 
@@ -257,11 +271,11 @@ function ClientProfile() {
             style={styles.avatarImproved}
           />
           <View style={styles.headerText}>
-            <H1 style={styles.nameImproved}>{user?.name || 'User'}</H1>
-            <Body style={styles.emailImproved}>{user?.email || 'No email'}</Body>
+            <H1 style={{...styles.nameImproved, color: textColor }}>{user?.name || 'User'}</H1>
+            <Body style={{...styles.emailImproved, color: textSecondaryColor }}>{user?.email || 'No email'}</Body>
             <Chip 
-              style={styles.roleChip}
-              textStyle={styles.roleChipText}
+              style={[styles.roleChip, { backgroundColor: 'transparent', borderColor: accentColor }]}
+              textStyle={{...styles.roleChipText, color: accentColor }}
               icon="account"
             >
               {user?.role || 'client'}
@@ -514,7 +528,13 @@ function ClientProfile() {
           </View>
           
           <View style={styles.buttonContainer}>
-            <Button mode="outlined" style={{ ...styles.editButton, borderColor: accentColor }} textColor={accentColor} icon="account-edit">
+            <Button 
+              mode="outlined" 
+              style={{ ...styles.editButton, borderColor: accentColor }} 
+              textColor={accentColor} 
+              icon="account-edit"
+              onPress={() => navigation.navigate('EditProfile')}
+            >
               Edit Profile
             </Button>
             <Button 
@@ -670,7 +690,6 @@ const styles = StyleSheet.create({
   headerImproved: { 
     padding: 24, 
     paddingTop: 60, 
-    backgroundColor: AppColors.light.primary 
   },
   headerContent: { 
     flexDirection: 'row', 
@@ -686,11 +705,9 @@ const styles = StyleSheet.create({
     flex: 1 
   },
   nameImproved: { 
-    color: AppColors.light.textOnAccent, 
     marginBottom: 4 
   },
   emailImproved: { 
-    color: `${AppColors.light.textOnAccent}CC`, 
     marginBottom: 8 
   },
   roleChip: { 

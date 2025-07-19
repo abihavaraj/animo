@@ -1,89 +1,183 @@
 import React, { useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
-import { Button, Card, Paragraph, Title } from 'react-native-paper';
-import { testBackendConnection } from '../utils/testConnection';
+import { Alert, StyleSheet, Text, View } from 'react-native';
+import { Button } from 'react-native-paper';
+import { getApiUrl, logApiConfig } from '../config/api.config';
+import { createTimeoutSignal } from '../utils/devUtils';
 
-const ConnectionTest = () => {
-  const [isLoading, setIsLoading] = useState(false);
-  const [result, setResult] = useState<string>('');
+export const ConnectionTest: React.FC = () => {
+  const [testing, setTesting] = useState(false);
+  const [lastResult, setLastResult] = useState<string>('');
 
-  const handleTest = async () => {
-    setIsLoading(true);
-    setResult('Testing connection...');
+  const testConnection = async () => {
+    setTesting(true);
+    setLastResult('Testing...');
     
     try {
-      const testResult = await testBackendConnection();
+      // Log current API configuration
+      logApiConfig();
       
-      if (testResult.success) {
-        const plansCount = Array.isArray(testResult.plans?.data) ? testResult.plans.data.length : 
-                          Array.isArray(testResult.plans) ? testResult.plans.length : 0;
-        const message = `✅ Connection successful!\n\nHealth: ${JSON.stringify(testResult.health, null, 2)}\n\nPlans count: ${plansCount}`;
-        setResult(message);
-        Alert.alert('Success!', 'Backend connection is working!');
+      const apiUrl = getApiUrl();
+      const healthUrl = apiUrl.replace('/api', '/health');
+      
+      console.log('🔍 Testing connection to:', healthUrl);
+      
+      // Test health endpoint
+      const response = await fetch(healthUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        // Add timeout for better error handling
+        signal: createTimeoutSignal(10000), // 10 second timeout
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        const result = `✅ Connection successful!\nAPI: ${apiUrl}\nStatus: ${response.status}\nEnvironment: ${data.environment}\nTimestamp: ${data.timestamp}`;
+        console.log('✅ Connection test passed:', data);
+        setLastResult(result);
+        Alert.alert('✅ Connection Test', result);
       } else {
-        const errorMessage = `❌ Connection failed!\n\nError: ${testResult.error}`;
-        setResult(errorMessage);
-        Alert.alert('Connection Failed', testResult.error || 'Unknown error');
+        const error = `❌ API Error: ${response.status}\n${data.message || 'Unknown error'}`;
+        console.error('❌ Connection test failed:', data);
+        setLastResult(error);
+        Alert.alert('❌ Connection Test Failed', error);
       }
-    } catch (error) {
-      const errorMessage = `❌ Test failed!\n\nError: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      setResult(errorMessage);
-      Alert.alert('Test Failed', error instanceof Error ? error.message : 'Unknown error');
+    } catch (error: any) {
+      const errorMsg = `❌ Network Error: ${error.message || 'Connection failed'}\nAPI URL: ${getApiUrl()}`;
+      console.error('❌ Connection error:', error);
+      setLastResult(errorMsg);
+      Alert.alert('❌ Connection Error', errorMsg);
     } finally {
-      setIsLoading(false);
+      setTesting(false);
+    }
+  };
+
+  const testApiEndpoint = async () => {
+    setTesting(true);
+    setLastResult('Testing API...');
+    
+    try {
+      const apiUrl = getApiUrl();
+      const plansUrl = `${apiUrl}/plans`;
+      
+      console.log('🔍 Testing API endpoint:', plansUrl);
+      
+      const response = await fetch(plansUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        signal: createTimeoutSignal(10000),
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        const result = `✅ API Test successful!\nEndpoint: ${plansUrl}\nPlans found: ${data.data?.length || 0}`;
+        console.log('✅ API test passed:', data);
+        setLastResult(result);
+        Alert.alert('✅ API Test', result);
+      } else {
+        const error = `❌ API Error: ${response.status}\n${data.message || data.error || 'Unknown error'}`;
+        console.error('❌ API test failed:', data);
+        setLastResult(error);
+        Alert.alert('❌ API Test Failed', error);
+      }
+    } catch (error: any) {
+      const errorMsg = `❌ API Error: ${error.message || 'Request failed'}\nEndpoint: ${getApiUrl()}/plans`;
+      console.error('❌ API error:', error);
+      setLastResult(errorMsg);
+      Alert.alert('❌ API Error', errorMsg);
+    } finally {
+      setTesting(false);
     }
   };
 
   return (
-    <Card style={styles.card}>
-      <Card.Content>
-        <Title>Backend Connection Test</Title>
-        <Paragraph style={styles.subtitle}>
-          Test the connection to your backend API
-        </Paragraph>
-        
-        <Button
-          mode="contained"
-          onPress={handleTest}
-          loading={isLoading}
-          disabled={isLoading}
+    <View style={styles.container}>
+      <Text style={styles.title}>🔧 Connection Diagnostics</Text>
+      <Text style={styles.info}>Current API: {getApiUrl()}</Text>
+      
+      <View style={styles.buttonContainer}>
+        <Button 
+          mode="contained" 
+          onPress={testConnection}
+          loading={testing}
+          disabled={testing}
           style={styles.button}
         >
-          Test Connection
+          Test Health
         </Button>
         
-        {result && (
-          <View style={styles.resultContainer}>
-            <Paragraph style={styles.result}>{result}</Paragraph>
-          </View>
-        )}
-      </Card.Content>
-    </Card>
+        <Button 
+          mode="contained" 
+          onPress={testApiEndpoint}
+          loading={testing}
+          disabled={testing}
+          style={styles.button}
+        >
+          Test API
+        </Button>
+      </View>
+      
+      {lastResult ? (
+        <View style={styles.resultContainer}>
+          <Text style={styles.resultTitle}>Last Result:</Text>
+          <Text style={styles.result}>{lastResult}</Text>
+        </View>
+      ) : null}
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  card: {
-    margin: 20,
-    elevation: 4,
+  container: {
+    padding: 16,
+    backgroundColor: '#f5f5f5',
+    margin: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
   },
-  subtitle: {
+  title: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  info: {
+    fontSize: 12,
     color: '#666',
-    marginBottom: 20,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 12,
   },
   button: {
-    marginBottom: 20,
+    flex: 1,
+    marginHorizontal: 4,
   },
   resultContainer: {
-    backgroundColor: '#f5f5f5',
-    padding: 15,
-    borderRadius: 8,
+    marginTop: 8,
+    padding: 8,
+    backgroundColor: '#fff',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#eee',
+  },
+  resultTitle: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginBottom: 4,
   },
   result: {
+    fontSize: 11,
     fontFamily: 'monospace',
-    fontSize: 12,
-    lineHeight: 18,
+    color: '#333',
   },
-});
-
-export default ConnectionTest; 
+}); 

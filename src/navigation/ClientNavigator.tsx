@@ -1,12 +1,17 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import React from 'react';
+import { createStackNavigator } from '@react-navigation/stack';
 import { Text, View } from 'react-native';
+import CrashTest from '../components/CrashTest';
+import { SupabaseTest } from '../components/SupabaseTest';
+import ApiTestScreen from '../screens/ApiTestScreen';
 import BookingHistory from '../screens/client/BookingHistory';
 import ClassesView from '../screens/client/ClassesView';
 import ClientDashboard from '../screens/client/ClientDashboard';
 import ClientProfile from '../screens/client/ClientProfile';
+import EditProfile from '../screens/client/EditProfile';
 
 const Tab = createBottomTabNavigator();
+const Stack = createStackNavigator();
 
 // Pilates-themed custom icon component
 const PilatesIcon = ({ name, size, color }: { name: string; size: number; color: string }) => {
@@ -224,7 +229,8 @@ const PilatesIcon = ({ name, size, color }: { name: string; size: number; color:
   }
 };
 
-export default function ClientNavigator() {
+// Tab Navigator Component
+function ClientTabNavigator() {
   return (
     <Tab.Navigator
       screenOptions={({ route }: any) => ({
@@ -271,5 +277,61 @@ export default function ClientNavigator() {
       <Tab.Screen name="History" component={BookingHistory} />
       <Tab.Screen name="Profile" component={ClientProfile} />
     </Tab.Navigator>
+  );
+}
+
+export default function ClientNavigator() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="ClientMain" component={ClientTabNavigator} />
+      <Stack.Screen 
+        name="EditProfile" 
+        component={EditProfile}
+        options={{
+          headerShown: true,
+          title: 'Edit Profile',
+          headerStyle: {
+            backgroundColor: '#6B8E7F',
+          },
+          headerTintColor: '#ffffff',
+        }}
+      />
+      <Stack.Screen 
+        name="CrashTest" 
+        component={CrashTest}
+        options={{
+          headerShown: true,
+          title: '🛡️ Crash Prevention Test',
+          headerStyle: {
+            backgroundColor: '#6B8E7F',
+          },
+          headerTintColor: '#ffffff',
+        }}
+      />
+      <Stack.Screen 
+        name="ApiTest" 
+        component={ApiTestScreen}
+        options={{
+          headerShown: true,
+          title: '🔧 API Configuration Test',
+          headerStyle: {
+            backgroundColor: '#6B8E7F',
+          },
+          headerTintColor: '#ffffff',
+        }}
+      />
+      <Stack.Screen 
+        name="SupabaseTest" 
+        component={SupabaseTest}
+        options={{
+          headerShown: true,
+          title: '🛡️ Supabase Test',
+          headerStyle: {
+            backgroundColor: '#6B8E7F',
+          },
+          headerTintColor: '#ffffff',
+        }}
+      />
+    </Stack.Navigator>
   );
 } 

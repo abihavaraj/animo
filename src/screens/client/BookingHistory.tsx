@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { ActivityIndicator, Button, Card, Chip } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
@@ -261,7 +261,7 @@ function BookingHistory() {
                           <H2 style={{ ...styles.className, color: textColor }}>{className}</H2>
                           <Chip 
                             style={[styles.statusChip, { backgroundColor: getStatusColor(bookingStatus) }]}
-                            textStyle={styles.chipText}
+                            textStyle={{ ...styles.chipText, color: backgroundColor }}
                           >
                             {getStatusText(bookingStatus, classDate, classTime)}
                           </Chip>
@@ -320,7 +320,7 @@ function BookingHistory() {
                           <H2 style={{ ...styles.className, color: textColor }}>{className}</H2>
                           <Chip 
                             style={[styles.statusChip, { backgroundColor: getStatusColor(bookingStatus) }]}
-                            textStyle={styles.chipText}
+                            textStyle={{ ...styles.chipText, color: backgroundColor }}
                           >
                             {getStatusText(bookingStatus, classDate, classTime)}
                           </Chip>
@@ -423,10 +423,10 @@ const styles = StyleSheet.create({
     marginLeft: spacing.sm,
     borderRadius: 12,
   },
-  chipText: { 
-    color: 'white', 
+  chipText: {
+    // color will be overridden by inline style based on theme
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   instructor: { 
     marginBottom: 4,

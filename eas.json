@@ -1,21 +1,43 @@
 {
   "cli": {
     "version": ">= 16.7.0",
-    "appVersionSource": "remote"
+    "appVersionSource": "remote",
+    "promptToConfigurePushNotifications": false
   },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
       "ios": {
-        "resourceClass": "m-medium"
+        "resourceClass": "m-medium",
+        "buildConfiguration": "Debug",
+        "simulator": true
       },
       "android": {
         "resourceClass": "medium"
+      },
+      "env": {
+        "NODE_ENV": "development"
+      }
+    },
+    "debug": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "resourceClass": "m-medium",
+        "buildConfiguration": "Debug",
+        "simulator": false
+      },
+      "android": {
+        "resourceClass": "medium"
+      },
+      "env": {
+        "NODE_ENV": "development",
+        "EXPO_DEBUG": "true"
       }
     },
     "preview": {
-      "distribution": "internal",
+      "distribution": "store",
       "ios": {
         "resourceClass": "m-medium"
       },

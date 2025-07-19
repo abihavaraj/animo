@@ -1,11 +1,11 @@
 import { getApiUrl } from '../config/api.config';
+import { createTimeoutSignal, devLog } from '../utils/devUtils';
+import { handleNetworkError } from '../utils/errorHandler';
 
 // API Configuration and Base Service
 const API_BASE_URL = getApiUrl();
 
-if (__DEV__) {
-  console.log('API Service initialized with:', API_BASE_URL);
-}
+devLog('API Service initialized with:', API_BASE_URL);
 
 interface ApiResponse<T = any> {
   success: boolean;
@@ -32,8 +32,8 @@ class ApiService {
   ): Promise<ApiResponse<T>> {
     const url = `${this.baseURL}${endpoint}`;
     
-    if (__DEV__ && Math.random() < 0.1) {
-      console.log(`📡 ${options.method || 'GET'} ${endpoint}`);
+    if (Math.random() < 0.1) {
+      devLog(`📡 ${options.method || 'GET'} ${endpoint}`);
     }
     
     const config: RequestInit = {
@@ -43,42 +43,92 @@ class ApiService {
         ...(this.token && { Authorization: `Bearer ${this.token}` }),
         ...options.headers,
       },
+      // Add timeout and better error handling for iOS
+      signal: createTimeoutSignal(30000), // 30 second timeout
     };
 
     try {
       const response = await fetch(url, config);
-      const data = await response.json();
       
-      if (!response.ok) {
-        if (__DEV__) {
-          console.error(`❌ API Error (${response.status}):`, data.message || response.statusText);
-        }
+      // Safely check if response is JSON
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const errorMessage = `Server returned non-JSON response: ${response.status} ${response.statusText}`;
+        console.error(`❌ Non-JSON response from ${endpoint}:`, response.status, response.statusText);
+        handleNetworkError(new Error(errorMessage), endpoint);
         return {
           success: false,
-          error: data.message || `HTTP ${response.status}: ${response.statusText}`,
+          error: errorMessage,
+        };
+      }
+      
+      // Safely parse JSON response
+      let data;
+      try {
+        const responseText = await response.text();
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch (parseError) {
+        const errorMessage = 'Failed to parse server response as JSON';
+        console.error(`❌ JSON parse error for ${endpoint}:`, parseError);
+        handleNetworkError(parseError as Error, endpoint);
+        return {
+          success: false,
+          error: errorMessage,
+        };
+      }
+      
+      if (!response.ok) {
+        const errorMessage = data.message || data.error || response.statusText;
+        console.error(`❌ API Error (${response.status}) for ${endpoint}:`, errorMessage);
+        
+        // Handle specific error cases
+        if (response.status === 401) {
+          console.warn('🔑 Authentication failed - token may be expired');
+          // Could trigger logout here if needed
+        } else if (response.status >= 500) {
+          console.error('🔥 Server error detected');
+        }
+        
+        // Use network error handler for non-success responses
+        handleNetworkError(new Error(`HTTP ${response.status}: ${errorMessage}`), endpoint);
+        
+        return {
+          success: false,
+          error: errorMessage,
         };
       }
       
       // Handle backend response format: {success: true, data: [...]}
       if (data.success !== undefined && 'data' in data) {
-        return {
-          success: true,
-          data: data.data,
-        };
+        return data as ApiResponse<T>;
       }
       
+      // Handle direct data response
       return {
         success: true,
-        data,
+        data: data as T,
       };
-    } catch (error) {
-      if (__DEV__) {
-        console.error(`🚫 Network Error for ${endpoint}:`, error instanceof Error ? error.message : 'Unknown error');
+      
+    } catch (error: any) {
+      console.error(`❌ Network error for ${endpoint}:`, error);
+      
+      // Enhanced error handling for different error types
+      let errorMessage = 'Network request failed';
+      
+      if (error.name === 'AbortError') {
+        errorMessage = 'Request timeout - please check your connection';
+      } else if (error.message?.includes('Network request failed')) {
+        errorMessage = 'No internet connection - please check your network';
+      } else if (error.message) {
+        errorMessage = error.message;
       }
+      
+      // Use network error handler
+      handleNetworkError(error, endpoint);
       
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Network error',
+        error: errorMessage,
       };
     }
   }

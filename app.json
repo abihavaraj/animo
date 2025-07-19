@@ -6,47 +6,64 @@
     "orientation": "portrait",
     "scheme": "animopilatesstudio",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.animo.pilatesstudio",
+      "buildNumber": "1",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCalendarsUsageDescription": "ANIMO Pilates Studio uses calendar access to help you schedule and manage your pilates classes and appointments.",
+        "NSCameraUsageDescription": "This app may need camera access for profile photos.",
+        "NSMicrophoneUsageDescription": "This app may need microphone access for video features.",
+        "NSPhotoLibraryUsageDescription": "This app may need photo library access for profile photos.",
+        "UIBackgroundModes": ["remote-notification"],
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": false,
+          "NSAllowsArbitraryLoadsInWebContent": false,
+          "NSExceptionDomains": {
+            "animo-pilates-backend.fly.dev": {
+              "NSExceptionAllowsInsecureHTTPLoads": false,
+              "NSExceptionMinimumTLSVersion": "1.2",
+              "NSExceptionRequiresForwardSecrecy": true,
+              "NSIncludesSubdomains": true
+            },
+            "localhost": {
+              "NSExceptionAllowsInsecureHTTPLoads": true,
+              "NSExceptionMinimumTLSVersion": "1.0",
+              "NSExceptionRequiresForwardSecrecy": false
+            }
+          }
+        }
       }
-    },
-    "android": {
-      "edgeToEdgeEnabled": true,
-      "package": "com.animo.pilatesstudio"
     },
     "web": {
       "bundler": "metro",
-      "output": "static"
+      "output": "single"
     },
     "plugins": [
-      [
-        "expo-splash-screen",
-        {
-          "image": "./assets/images/react-logo.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#F5F2B8"
-        }
-      ],
       [
         "expo-notifications",
         {
           "color": "#F5F2B8",
-          "defaultChannel": "animo-notifications"
+          "defaultChannel": "animo-notifications",
+          "mode": "development"
         }
       ],
-      "expo-router",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "The app needs to access your calendar to manage class schedules."
+        }
+      ]
     ],
     "extra": {
       "eas": {
         "projectId": "d4bdbfc4-ecbc-40d7-aabb-ad545c836ab3"
       }
     },
-    "owner": "argjendi96"
+    "android": {
+      "package": "com.animo.pilatesstudio"
+    }
   }
 }

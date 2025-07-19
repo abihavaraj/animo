@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import { Badge, Button, Card, Chip, Searchbar, SegmentedButtons } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
@@ -385,6 +385,12 @@ You&apos;ll be notified if a spot becomes available.`,
                         <MaterialIcons name="person" size={16} color={textSecondaryColor} />
                         {class_.instructor_name}
                       </Body>
+                      {class_.room && (
+                        <Body style={{ ...styles.instructor, color: textSecondaryColor }}>
+                          <MaterialIcons name="room" size={16} color={textSecondaryColor} />
+                          {class_.room}
+                        </Body>
+                      )}
                     </View>
                     <View style={styles.classTime}>
                       <Body style={{ ...styles.date, color: textColor }}>{formatDate(class_.date)}</Body>
@@ -397,7 +403,7 @@ You&apos;ll be notified if a spot becomes available.`,
                     <View style={styles.chips}>
                       <Chip 
                         style={[styles.chip, { backgroundColor: getEquipmentTypeColor(class_.equipment_type) }]}
-                        textStyle={{ ...styles.chipText, color: 'white' }}
+                        textStyle={{ ...styles.chipText, color: backgroundColor }}
                       >
                         {class_.equipment_type.charAt(0).toUpperCase() + class_.equipment_type.slice(1)}
                       </Chip>
@@ -597,8 +603,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   chipText: {
-    color: 'white',
+    // color will be overridden by inline style based on theme
     fontSize: 12,
+    fontWeight: '600',
   },
   availability: {
     alignItems: 'flex-end',

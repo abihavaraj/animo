@@ -3,7 +3,7 @@ import { Colors } from '@/constants/Colors';
 import { layout, spacing } from '@/constants/Spacing';
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Dimensions, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Dimensions, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import {
     ActivityIndicator,
@@ -22,10 +22,12 @@ import {
     Switch,
     TextInput
 } from 'react-native-paper';
+import { useSelector } from 'react-redux';
 import { apiService } from '../../services/api';
 import { bookingService } from '../../services/bookingService';
 import { BackendClass, classService, CreateClassRequest, UpdateClassRequest } from '../../services/classService';
 import { BackendUser, userService } from '../../services/userService';
+import { RootState } from '../../store';
 import { shadows } from '../../utils/shadows';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -37,6 +39,9 @@ interface CalendarClass extends BackendClass {
 }
 
 function PCClassManagement() {
+  // Redux state
+  const { user } = useSelector((state: RootState) => state.auth);
+  
   // State management
   const [classes, setClasses] = useState<BackendClass[]>([]);
   const [instructors, setInstructors] = useState<BackendUser[]>([]);
@@ -1064,6 +1069,20 @@ function PCClassManagement() {
   };
 
   const handleDeleteClass = (classId: number) => {
+    console.log('🗑️ Delete class button clicked for class ID:', classId);
+    
+    // For web platform, use browser confirm instead of Alert
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm('Are you sure you want to delete this class?');
+      if (confirmed) {
+        console.log('🗑️ Delete confirmed for class ID:', classId);
+        performDeleteClass(classId);
+      } else {
+        console.log('🗑️ Delete cancelled by user');
+      }
+      return;
+    }
+    
     Alert.alert(
       'Delete Class',
       'Are you sure you want to delete this class?',
@@ -1072,22 +1091,50 @@ function PCClassManagement() {
         { 
           text: 'Delete', 
           style: 'destructive',
-          onPress: async () => {
-            try {
-              const response = await classService.deleteClass(classId);
-              if (response.success) {
-                await loadClasses();
-                Alert.alert('Success', 'Class deleted successfully');
-              } else {
-                Alert.alert('Error', response.error || 'Failed to delete class');
-              }
-            } catch (error) {
-              Alert.alert('Error', 'Failed to delete class');
-            }
-          }
+          onPress: () => performDeleteClass(classId)
         }
       ]
     );
+  };
+
+  const performDeleteClass = async (classId: number) => {
+    console.log('🗑️ Delete confirmed for class ID:', classId);
+    
+    // Debug authentication
+    console.log('🔍 Current user:', user);
+    console.log('🔍 User role:', user?.role);
+    console.log('🔍 User ID:', user?.id);
+    
+    try {
+      console.log('🗑️ Calling classService.deleteClass...');
+      const response = await classService.deleteClass(classId);
+      console.log('🗑️ Delete response:', response);
+      if (response.success) {
+        console.log('🗑️ Delete successful, reloading classes...');
+        await loadClasses();
+        if (Platform.OS === 'web') {
+          window.alert('Class deleted successfully');
+        } else {
+          Alert.alert('Success', 'Class deleted successfully');
+        }
+      } else {
+        console.error('🗑️ Delete failed:', response.error);
+        const errorMsg = response.error || 'Failed to delete class';
+        if (Platform.OS === 'web') {
+          window.alert('Error: ' + errorMsg);
+        } else {
+          Alert.alert('Error', errorMsg);
+        }
+      }
+    } catch (error) {
+      console.error('🗑️ Delete error:', error);
+      const errorMsg = 'Failed to delete class';
+      if (Platform.OS === 'web') {
+        window.alert('Error: ' + errorMsg);
+      } else {
+        Alert.alert('Error', errorMsg);
+      }
+    }
   };
 
   if (loading) {

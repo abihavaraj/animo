@@ -23,7 +23,7 @@ export const Colors = {
   light: {
     // Base Colors
     text: charcoal,
-    background: softBeige,             // App background 01
+    background: neutralWhite,             // App background 01
     surface: neutralWhite,             // Card / Surface 00
     
     // Navigation & UI
@@ -34,7 +34,7 @@ export const Colors = {
     
     // Brand Colors
     primary: warmTaupe,                // Brand primary 02
-    secondary: softBeige,              // Background variant
+    secondary: neutralWhite,           // Background variant
     accent: accent,                    // Primary CTAs, Success
     
     // Action Colors
@@ -61,18 +61,18 @@ export const Colors = {
   },
   dark: {
     // Base Colors
-    text: '#F8F6F3',
+    text: '#FFFFFF',
     background: '#1A1A1A',
     surface: '#2C2C2C',
     
     // Navigation & UI
-    tint: '#F8F6F3',
+    tint: '#FFFFFF',
     icon: '#CCCCCC',
     tabIconDefault: '#999999',
-    tabIconSelected: '#F8F6F3',
+    tabIconSelected: '#FFFFFF',
     
     // Brand Colors
-    primary: '#F8F6F3',
+    primary: '#2C2C2C',
     secondary: '#2C2C2C',
     accent: accent,
     

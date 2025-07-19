@@ -2,7 +2,7 @@ import { Colors } from '@/constants/Colors';
 import { spacing } from '@/constants/Spacing';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import {
     ActivityIndicator,
@@ -282,16 +282,20 @@ function UserManagement() {
           style: 'destructive',
           onPress: async () => {
             try {
+              console.log('🗑️ Deleting user:', user.name, user.id);
               const response = await userService.deleteUser(user.id);
+              console.log('🗑️ Delete response:', response);
+              
               if (response.success) {
                 Alert.alert('Success', 'User deleted successfully');
                 await loadUsers();
               } else {
+                console.error('❌ Delete failed:', response.error);
                 Alert.alert('Error', response.error || 'Failed to delete user');
               }
             } catch (error) {
-              console.error('Error deleting user:', error);
-              Alert.alert('Error', 'Failed to delete user');
+              console.error('❌ Error deleting user:', error);
+              Alert.alert('Error', 'Failed to delete user. Please try again.');
             }
           }
         }
@@ -302,38 +306,155 @@ function UserManagement() {
   const handleToggleUserStatus = async (user: BackendUser) => {
     try {
       const newStatus = user.status === 'active' ? 'inactive' : 'active';
+      console.log('🔄 Toggling user status:', user.name, 'from', user.status, 'to', newStatus);
+      
       const response = await userService.updateUser(user.id, { status: newStatus });
+      console.log('🔄 Status update response:', response);
       
       if (response.success) {
         await loadUsers();
+        Alert.alert('Success', `User status updated to ${newStatus}`);
       } else {
+        console.error('❌ Status update failed:', response.error);
         Alert.alert('Error', response.error || 'Failed to update user status');
       }
     } catch (error) {
-      console.error('Error updating user status:', error);
-      Alert.alert('Error', 'Failed to update user status');
+      console.error('❌ Error updating user status:', error);
+      Alert.alert('Error', 'Failed to update user status. Please try again.');
     }
   };
 
   const handleSuspendUser = async (user: BackendUser) => {
-    try {
-      const response = await userService.updateUser(user.id, { status: 'suspended' });
-      
-      if (response.success) {
-        await loadUsers();
-      } else {
-        Alert.alert('Error', response.error || 'Failed to suspend user');
-      }
-    } catch (error) {
-      console.error('Error suspending user:', error);
-      Alert.alert('Error', 'Failed to suspend user');
-    }
+    Alert.alert(
+      'Suspend User',
+      `Are you sure you want to suspend ${user.name}? They will not be able to access the system.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Suspend', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              console.log('⏸️ Suspending user:', user.name, user.id);
+              const response = await userService.updateUser(user.id, { status: 'suspended' });
+              console.log('⏸️ Suspend response:', response);
+              
+              if (response.success) {
+                await loadUsers();
+                Alert.alert('Success', 'User suspended successfully');
+              } else {
+                console.error('❌ Suspend failed:', response.error);
+                Alert.alert('Error', response.error || 'Failed to suspend user');
+              }
+            } catch (error) {
+              console.error('❌ Error suspending user:', error);
+              Alert.alert('Error', 'Failed to suspend user. Please try again.');
+            }
+          }
+        }
+      ]
+    );
   };
+
+  const handleDeactivateUser = async (user: BackendUser) => {
+    Alert.alert(
+      'Deactivate User',
+      `Are you sure you want to deactivate ${user.name}? They will be marked as inactive.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Deactivate', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              console.log('💤 Deactivating user:', user.name, user.id);
+              const response = await userService.updateUser(user.id, { status: 'inactive' });
+              console.log('💤 Deactivate response:', response);
+              
+              if (response.success) {
+                await loadUsers();
+                Alert.alert('Success', 'User deactivated successfully');
+              } else {
+                console.error('❌ Deactivate failed:', response.error);
+                Alert.alert('Error', response.error || 'Failed to deactivate user');
+              }
+            } catch (error) {
+              console.error('❌ Error deactivating user:', error);
+              Alert.alert('Error', 'Failed to deactivate user. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+     const handleActivateUser = async (user: BackendUser) => {
+     Alert.alert(
+       'Activate User',
+       `Are you sure you want to activate ${user.name}? They will be able to access the system.`,
+       [
+         { text: 'Cancel', style: 'cancel' },
+         { 
+           text: 'Activate', 
+           onPress: async () => {
+             try {
+               console.log('✅ Activating user:', user.name, user.id);
+               const response = await userService.updateUser(user.id, { status: 'active' });
+               console.log('✅ Activate response:', response);
+               
+               if (response.success) {
+                 await loadUsers();
+                 Alert.alert('Success', 'User activated successfully');
+               } else {
+                 console.error('❌ Activate failed:', response.error);
+                 Alert.alert('Error', response.error || 'Failed to activate user');
+               }
+             } catch (error) {
+               console.error('❌ Error activating user:', error);
+               Alert.alert('Error', 'Failed to activate user. Please try again.');
+             }
+           }
+         }
+       ]
+     );
+   };
+
+   const handleArchiveUser = async (user: BackendUser) => {
+     Alert.alert(
+       'Archive User',
+       `Are you sure you want to archive ${user.name}? This will mark them as archived but not delete their data.`,
+       [
+         { text: 'Cancel', style: 'cancel' },
+         { 
+           text: 'Archive', 
+           style: 'destructive',
+           onPress: async () => {
+             try {
+               console.log('📦 Archiving user:', user.name, user.id);
+               const response = await userService.updateUser(user.id, { status: 'inactive' });
+               console.log('📦 Archive response:', response);
+               
+               if (response.success) {
+                 await loadUsers();
+                 Alert.alert('Success', 'User archived successfully');
+               } else {
+                 console.error('❌ Archive failed:', response.error);
+                 Alert.alert('Error', response.error || 'Failed to archive user');
+               }
+             } catch (error) {
+               console.error('❌ Error archiving user:', error);
+               Alert.alert('Error', 'Failed to archive user. Please try again.');
+             }
+           }
+         }
+       ]
+     );
+   };
 
   // Filter users on frontend for search
   const safeUsers = Array.isArray(users) ? users : [];
   
-  if (__DEV__ && !Array.isArray(users)) {
+  if (!Array.isArray(users)) {
     console.warn('⚠️ Users is not an array:', typeof users, users);
   }
   
@@ -484,6 +605,71 @@ function UserManagement() {
                     View Profile
                   </Button>
                 )}
+                
+                {/* Status Management Buttons */}
+                {user.status === 'active' && (
+                  <>
+                    <Button
+                      mode="outlined"
+                      onPress={() => handleSuspendUser(user)}
+                      style={[styles.actionButton, styles.suspendButton]}
+                      icon="block"
+                      compact
+                      textColor="#f44336"
+                    >
+                      Suspend
+                    </Button>
+                    <Button
+                      mode="outlined"
+                      onPress={() => handleDeactivateUser(user)}
+                      style={[styles.actionButton, styles.deactivateButton]}
+                      icon="pause"
+                      compact
+                      textColor="#ff9800"
+                    >
+                      Deactivate
+                    </Button>
+                  </>
+                )}
+                
+                {user.status === 'suspended' && (
+                  <Button
+                    mode="outlined"
+                    onPress={() => handleActivateUser(user)}
+                    style={[styles.actionButton, styles.activateButton]}
+                    icon="check-circle"
+                    compact
+                    textColor="#4caf50"
+                  >
+                    Activate
+                  </Button>
+                )}
+                
+                {user.status === 'inactive' && (
+                  <Button
+                    mode="outlined"
+                    onPress={() => handleActivateUser(user)}
+                    style={[styles.actionButton, styles.activateButton]}
+                    icon="check-circle"
+                    compact
+                    textColor="#4caf50"
+                  >
+                    Activate
+                  </Button>
+                )}
+
+                {/* Archive Button - available for all users */}
+                <Button
+                  mode="outlined"
+                  onPress={() => handleArchiveUser(user)}
+                  style={[styles.actionButton, styles.archiveButton]}
+                  icon="archive"
+                  compact
+                  textColor="#9e9e9e"
+                >
+                  Archive
+                </Button>
+                
                 <Button
                   mode="outlined"
                   onPress={() => handleEditUser(user)}
@@ -997,6 +1183,18 @@ const styles = StyleSheet.create({
   },
   zeroCreditBalanceText: {
     color: '#c62828',
+  },
+  suspendButton: {
+    borderColor: '#f44336',
+  },
+  deactivateButton: {
+    borderColor: '#ff9800',
+  },
+  activateButton: {
+    borderColor: '#4caf50',
+  },
+  archiveButton: {
+    borderColor: '#9e9e9e',
   },
 });
 

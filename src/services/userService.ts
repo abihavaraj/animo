@@ -10,7 +10,7 @@ export interface BackendUser {
   medical_conditions?: string;
   referral_source?: string;
   join_date: string;
-  status: 'active' | 'inactive' | 'suspended';
+  status: 'active' | 'inactive' | 'suspended' | 'archived';
   created_at: string;
   currentSubscription?: any;
   credit_balance?: number;
@@ -33,7 +33,7 @@ export interface UpdateUserRequest {
   email?: string;
   phone?: string;
   role?: 'client' | 'instructor' | 'admin' | 'reception';
-  status?: 'active' | 'inactive' | 'suspended';
+  status?: 'active' | 'inactive' | 'suspended' | 'archived';
   emergencyContact?: string;
   medicalConditions?: string;
 }

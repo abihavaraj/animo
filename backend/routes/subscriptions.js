@@ -229,10 +229,22 @@ router.post('/purchase', authenticateToken, [
       // If user has an existing active subscription, cancel it first
       if (existingSubscription) {
         await db.run(
-          'UPDATE user_subscriptions SET status = "cancelled", updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          'UPDATE user_subscriptions SET status = "cancelled", remaining_classes = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
           [existingSubscription.id]
         );
         console.log(`Cancelled existing subscription ${existingSubscription.id} for user ${req.user.id}`);
+        
+        // Log the cancellation activity
+        await db.run(`
+          INSERT INTO client_activity_log (
+            client_id, activity_type, description, performed_by
+          ) VALUES (?, ?, ?, ?)
+        `, [
+          req.user.id,
+          'subscription_cancellation',
+          `Previous subscription cancelled to start new subscription. ${existingSubscription.remaining_classes > 0 ? `${existingSubscription.remaining_classes} remaining classes cleared.` : ''}`,
+          req.user.id
+        ]);
       }
 
       // Calculate start and end dates
@@ -909,10 +921,22 @@ router.post('/assign', authenticateToken, requireAdminOrReception, [
         // If user has an existing active subscription, cancel it first
         if (existingSubscription) {
           await db.run(
-            'UPDATE user_subscriptions SET status = "cancelled", updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            'UPDATE user_subscriptions SET status = "cancelled", remaining_classes = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
             [existingSubscription.id]
           );
           console.log(`🎫 Reception cancelled existing subscription ${existingSubscription.id} for user ${userId}`);
+          
+          // Log the cancellation activity
+          await db.run(`
+            INSERT INTO client_activity_log (
+              client_id, activity_type, description, performed_by
+            ) VALUES (?, ?, ?, ?)
+          `, [
+            userId,
+            'subscription_cancellation',
+            `Previous subscription cancelled by ${req.user.role} to assign new subscription. ${existingSubscription.remaining_classes > 0 ? `${existingSubscription.remaining_classes} remaining classes cleared.` : ''}`,
+            req.user.id
+          ]);
         }
 
         // Calculate start and end dates

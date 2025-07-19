@@ -1,5 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
     Alert,
     Modal,
@@ -439,6 +439,68 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
     setShowSubscriptionModal(true); // Return to subscription modal
   };
 
+  const handleDeleteUser = (user: BackendUser) => {
+    console.log('🗑️ PC - Delete button clicked for user:', user.name, user.id);
+    
+    // For PC/Web environment, use browser confirm
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm(`Are you sure you want to delete ${user.name}? This action cannot be undone.`);
+      if (confirmed) {
+        console.log('🗑️ PC - User confirmed delete action for:', user.name);
+        deleteUserAction(user);
+      } else {
+        console.log('🗑️ PC - User cancelled delete action');
+      }
+      return;
+    }
+
+    Alert.alert(
+      'Delete User',
+      `Are you sure you want to delete ${user.name}? This action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete', 
+          style: 'destructive',
+          onPress: () => deleteUserAction(user)
+        }
+      ]
+    );
+  };
+
+  const deleteUserAction = async (user: BackendUser) => {
+    try {
+      console.log('🗑️ PC - Deleting user:', user.name, user.id);
+      const response = await userService.deleteUser(user.id);
+      console.log('🗑️ PC - Delete response:', response);
+      
+      if (response.success) {
+        if (typeof window !== 'undefined') {
+          window.alert('User deleted successfully');
+        } else {
+          Alert.alert('Success', 'User deleted successfully');
+        }
+        await loadUsers();
+      } else {
+        console.error('❌ PC - Delete failed:', response.error);
+        const errorMsg = response.error || 'Failed to delete user';
+        if (typeof window !== 'undefined') {
+          window.alert('Error: ' + errorMsg);
+        } else {
+          Alert.alert('Error', errorMsg);
+        }
+      }
+    } catch (error) {
+      console.error('❌ PC - Error deleting user:', error);
+      const errorMsg = 'Failed to delete user. Please try again.';
+      if (typeof window !== 'undefined') {
+        window.alert('Error: ' + errorMsg);
+      } else {
+        Alert.alert('Error', errorMsg);
+      }
+    }
+  };
+
   const handleDeleteSelected = () => {
     if (selectedUsers.size === 0) return;
     
@@ -467,22 +529,182 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
     );
   };
 
+  const handleUpdateUserStatus = async (user: BackendUser, newStatus: 'active' | 'inactive' | 'suspended') => {
+    try {
+      console.log('🔄 PC - Starting handleUpdateUserStatus...');
+      console.log('🔄 PC - User:', user.name, 'ID:', user.id);
+      console.log('🔄 PC - Status change:', user.status, '->', newStatus);
+      
+      // Check if we have the userService
+      if (!userService) {
+        console.error('❌ PC - userService is not available!');
+        Alert.alert('Error', 'User service not available');
+        return;
+      }
+      
+      console.log('🔄 PC - Calling userService.updateUser...');
+      const response = await userService.updateUser(user.id, { status: newStatus });
+      console.log('🔄 PC - Raw response received:', response);
+      
+      if (response && response.success) {
+        console.log('✅ PC - Status update successful!');
+        if (typeof window !== 'undefined') {
+          window.alert(`Success: User status updated to ${newStatus}`);
+        } else {
+          Alert.alert('Success', `User status updated to ${newStatus}`);
+        }
+        console.log('🔄 PC - Reloading users...');
+        await loadUsers();
+        console.log('✅ PC - Users reloaded successfully');
+      } else {
+        console.error('❌ PC - Status update failed:', response);
+        const errorMessage = response?.error || response?.message || 'Failed to update user status';
+        console.error('❌ PC - Error message:', errorMessage);
+        if (typeof window !== 'undefined') {
+          window.alert(`Error: ${errorMessage}`);
+        } else {
+          Alert.alert('Error', errorMessage);
+        }
+      }
+    } catch (error) {
+      console.error('❌ PC - Exception in handleUpdateUserStatus:', error);
+      console.error('❌ PC - Error details:', error);
+      const errorMsg = `Failed to update user status: ${error}`;
+      if (typeof window !== 'undefined') {
+        window.alert(`Error: ${errorMsg}`);
+      } else {
+        Alert.alert('Error', errorMsg);
+      }
+    }
+  };
+
+  const handleSuspendUser = (user: BackendUser) => {
+    console.log('🛑 PC - Suspend button clicked for user:', user.name, user.id);
+    console.log('🛑 PC - About to show confirmation dialog...');
+    
+    // For PC/Web environment, use browser confirm instead of React Native Alert
+    if (typeof window !== 'undefined') {
+      console.log('🛑 PC - Using browser confirm dialog');
+      const confirmed = window.confirm(`Are you sure you want to suspend ${user.name}'s account?`);
+      if (confirmed) {
+        console.log('🛑 PC - User confirmed suspend action for:', user.name);
+        handleUpdateUserStatus(user, 'suspended');
+      } else {
+        console.log('🛑 PC - User cancelled suspend action');
+      }
+      return;
+    }
+    
+    // Fallback to React Native Alert for mobile
+    try {
+      Alert.alert(
+        'Suspend Account',
+        `Are you sure you want to suspend ${user.name}'s account?`,
+        [
+          { 
+            text: 'Cancel', 
+            style: 'cancel',
+            onPress: () => console.log('🛑 PC - User cancelled suspend action')
+          },
+          { 
+            text: 'Suspend', 
+            style: 'destructive',
+            onPress: () => {
+              console.log('🛑 PC - User confirmed suspend action for:', user.name);
+              console.log('🛑 PC - Calling handleUpdateUserStatus...');
+              handleUpdateUserStatus(user, 'suspended');
+            }
+          }
+        ]
+      );
+      console.log('🛑 PC - Alert.alert called successfully');
+    } catch (error) {
+      console.error('🛑 PC - Error showing alert:', error);
+      // Fallback: direct call without confirmation
+      console.log('🛑 PC - Fallback: calling handleUpdateUserStatus directly');
+      handleUpdateUserStatus(user, 'suspended');
+    }
+  };
+
+  const handleDeactivateUser = (user: BackendUser) => {
+    console.log('⏸️ PC - Deactivate button clicked for user:', user.name, user.id);
+    
+    // For PC/Web environment, use browser confirm
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm(`Are you sure you want to deactivate ${user.name}'s account?`);
+      if (confirmed) {
+        console.log('⏸️ PC - User confirmed deactivate action for:', user.name);
+        handleUpdateUserStatus(user, 'inactive');
+      } else {
+        console.log('⏸️ PC - User cancelled deactivate action');
+      }
+      return;
+    }
+
+    Alert.alert(
+      'Deactivate Account',
+      `Are you sure you want to deactivate ${user.name}'s account?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Deactivate', 
+          style: 'destructive',
+          onPress: () => {
+            console.log('⏸️ PC - Confirming deactivate for user:', user.name);
+            handleUpdateUserStatus(user, 'inactive');
+          }
+        }
+      ]
+    );
+  };
+
+  const handleActivateUser = (user: BackendUser) => {
+    console.log('✅ PC - Activate button clicked for user:', user.name, user.id);
+    
+    // For PC/Web environment, use browser confirm
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm(`Are you sure you want to activate ${user.name}'s account?`);
+      if (confirmed) {
+        console.log('✅ PC - User confirmed activate action for:', user.name);
+        handleUpdateUserStatus(user, 'active');
+      } else {
+        console.log('✅ PC - User cancelled activate action');
+      }
+      return;
+    }
+
+    Alert.alert(
+      'Activate Account',
+      `Are you sure you want to activate ${user.name}'s account?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Activate', 
+          onPress: () => {
+            console.log('✅ PC - Confirming activate for user:', user.name);
+            handleUpdateUserStatus(user, 'active');
+          }
+        }
+      ]
+    );
+  };
+
   const getRoleColor = (role: UserRole) => {
     switch (role) {
-      case 'client': return '#2196F3';
-      case 'instructor': return '#FF9800';
-      case 'reception': return '#4CAF50';
-      case 'admin': return '#9C27B0';
-      default: return '#666';
+      case 'client': return '#6B8E7F'; // Studio accent
+      case 'instructor': return '#D4A574'; // Studio warning
+      case 'reception': return '#7DCEA0'; // Studio success
+      case 'admin': return '#4A90E2'; // Studio primary
+      default: return '#999999'; // Muted text
     }
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'active': return '#4CAF50';
-      case 'inactive': return '#9E9E9E';
-      case 'suspended': return '#F44336';
-      default: return '#666';
+      case 'active': return '#7DCEA0'; // Studio success
+      case 'inactive': return '#999999'; // Muted text
+      case 'suspended': return '#C47D7D'; // Studio error
+      default: return '#999999'; // Muted text
     }
   };
 
@@ -496,7 +718,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
         <MaterialIcons 
           name={sortDirection === 'asc' ? 'keyboard-arrow-up' : 'keyboard-arrow-down'} 
           size={16} 
-          color="#666" 
+          color="#666666" 
         />
       )}
     </TouchableOpacity>
@@ -505,236 +727,272 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <MaterialIcons name="hourglass-empty" size={48} color="#9B8A7D" />
+        <MaterialIcons name="hourglass-empty" size={48} color="#6B8E7F" />
         <Text style={styles.loadingText}>Loading users...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <div style={webStyles.container}>
       {/* Header Section */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.title}>User Management</Text>
-          <Text style={styles.subtitle}>
+      <div style={webStyles.header}>
+        <div style={webStyles.headerLeft}>
+          <h1 style={webStyles.headerTitle}>User Management</h1>
+          <p style={webStyles.headerSubtitle}>
             {`${processedUsers.length} user${processedUsers.length !== 1 ? 's' : ''} found`}
-          </Text>
-        </View>
-        <View style={styles.headerRight}>
-          <TouchableOpacity 
-            style={styles.createButton} 
-            onPress={handleCreateUser}
+          </p>
+        </div>
+        <div style={webStyles.headerRight}>
+          <button 
+            style={webStyles.createButton} 
+            onClick={handleCreateUser}
           >
-            <MaterialIcons name="person-add" size={20} color="#fff" />
-            <Text style={styles.createButtonText}>Create User</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+            <MaterialIcons name="person-add" size={20} color="#FFFFFF" />
+            <span style={webStyles.createButtonText}>Create User</span>
+          </button>
+        </div>
+      </div>
 
       {/* Filters and Search */}
-      <View style={styles.filtersContainer}>
-        <View style={styles.searchContainer}>
-          <MaterialIcons name="search" size={20} color="#666" style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
+      <div style={webStyles.filtersContainer}>
+        <div style={webStyles.searchContainer}>
+                     <MaterialIcons name="search" size={20} color="#666666" />
+          <input
+            style={webStyles.searchInput}
             placeholder="Search users by name, email, or phone..."
             value={searchQuery}
-            onChangeText={setSearchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
           />
-        </View>
+        </div>
         
-        <View style={styles.filterRow}>
-          <View style={styles.filterGroup}>
-            <Text style={styles.filterLabel}>Role:</Text>
-            <View style={styles.filterButtons}>
+        <div style={webStyles.filterRow}>
+          <div style={webStyles.filterGroup}>
+            <label style={webStyles.filterLabel}>Role:</label>
+            <div style={webStyles.filterButtons}>
               {['all', 'client', 'instructor', 'reception', 'admin'].map(role => (
-                <TouchableOpacity
+                <button
                   key={role}
-                  style={[
-                    styles.filterButton,
-                    filterRole === role && styles.filterButtonActive
-                  ]}
-                  onPress={() => setFilterRole(role)}
+                  style={{
+                    ...webStyles.filterButton,
+                    ...(filterRole === role ? webStyles.filterButtonActive : {})
+                  }}
+                  onClick={() => setFilterRole(role)}
                 >
-                  <Text style={[
-                    styles.filterButtonText,
-                    filterRole === role && styles.filterButtonTextActive
-                  ]}>
+                  <span style={{
+                    ...webStyles.filterButtonText,
+                    ...(filterRole === role ? webStyles.filterButtonTextActive : {})
+                  }}>
                     {role === 'all' ? 'All' : role.charAt(0).toUpperCase() + role.slice(1)}
-                  </Text>
-                </TouchableOpacity>
+                  </span>
+                </button>
               ))}
-            </View>
-          </View>
-
-          <View style={styles.filterGroup}>
-            <Text style={styles.filterLabel}>Status:</Text>
-            <View style={styles.filterButtons}>
+            </div>
+          </div>
+          
+          <div style={webStyles.filterGroup}>
+            <label style={webStyles.filterLabel}>Status:</label>
+            <div style={webStyles.filterButtons}>
               {['all', 'active', 'inactive', 'suspended'].map(status => (
-                <TouchableOpacity
+                <button
                   key={status}
-                  style={[
-                    styles.filterButton,
-                    filterStatus === status && styles.filterButtonActive
-                  ]}
-                  onPress={() => setFilterStatus(status)}
+                  style={{
+                    ...webStyles.filterButton,
+                    ...(filterStatus === status ? webStyles.filterButtonActive : {})
+                  }}
+                  onClick={() => setFilterStatus(status)}
                 >
-                  <Text style={[
-                    styles.filterButtonText,
-                    filterStatus === status && styles.filterButtonTextActive
-                  ]}>
+                  <span style={{
+                    ...webStyles.filterButtonText,
+                    ...(filterStatus === status ? webStyles.filterButtonTextActive : {})
+                  }}>
                     {status === 'all' ? 'All' : status.charAt(0).toUpperCase() + status.slice(1)}
-                  </Text>
-                </TouchableOpacity>
+                  </span>
+                </button>
               ))}
-            </View>
-          </View>
-        </View>
-      </View>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Bulk Actions */}
       {selectedUsers.size > 0 && (
-        <View style={styles.bulkActionsContainer}>
-          <Text style={styles.bulkActionsText}>
+        <div style={webStyles.bulkActionsContainer}>
+          <span style={webStyles.bulkActionsText}>
             {`${selectedUsers.size} user${selectedUsers.size !== 1 ? 's' : ''} selected`}
-          </Text>
-          <TouchableOpacity 
-            style={styles.bulkActionButton}
-            onPress={handleDeleteSelected}
+          </span>
+          <button 
+            style={webStyles.bulkActionButton}
+            onClick={handleDeleteSelected}
           >
-            <MaterialIcons name="delete" size={18} color="#F44336" />
-            <Text style={styles.bulkActionButtonText}>Delete Selected</Text>
-          </TouchableOpacity>
-        </View>
+            <MaterialIcons name="delete" size={18} color="#C47D7D" />
+            <span style={webStyles.bulkActionButtonText}>Delete Selected</span>
+          </button>
+        </div>
       )}
 
       {/* Data Table */}
-      <View style={styles.tableContainer}>
-        {/* Table Header */}
-        <View style={styles.tableHeaderRow}>
-          <TouchableOpacity 
-            style={styles.checkboxHeader}
-            onPress={handleSelectAll}
-          >
-            <MaterialIcons 
-              name={selectedUsers.size === paginatedUsers.length && paginatedUsers.length > 0 
-                ? "check-box" : "check-box-outline-blank"} 
-              size={20} 
-              color="#9B8A7D" 
-            />
-          </TouchableOpacity>
-          <SortableHeader field="name" title="Name" />
-          <SortableHeader field="email" title="Email" />
-          <SortableHeader field="role" title="Role" />
-          <SortableHeader field="status" title="Status" />
-          <SortableHeader field="join_date" title="Joined" />
-          <View style={styles.tableHeader}>
-            <Text style={styles.tableHeaderText}>Actions</Text>
-          </View>
-        </View>
-
-        {/* Table Body */}
-        <ScrollView 
-          style={styles.tableBody} 
-          contentContainerStyle={styles.tableBodyContent}
-          showsVerticalScrollIndicator={true}
-          nestedScrollEnabled={true}
-        >
-          {paginatedUsers.map((user) => (
-            <View key={user.id} style={styles.tableRow}>
-              <TouchableOpacity 
-                style={styles.checkbox}
-                onPress={() => handleSelectUser(user.id)}
-              >
+      <div style={webStyles.tableContainer}>
+        <div style={webStyles.tableContent}>
+          {/* Table Header */}
+          <div style={webStyles.tableHeaderRow}>
+            <div style={webStyles.checkboxHeader}>
+              <button onClick={handleSelectAll}>
                 <MaterialIcons 
-                  name={selectedUsers.has(user.id) ? "check-box" : "check-box-outline-blank"} 
+                  name={selectedUsers.size === processedUsers.length && processedUsers.length > 0 
+                    ? "check-box" : "check-box-outline-blank"} 
                   size={20} 
-                  color="#9B8A7D" 
+                  color="#666666" 
                 />
-              </TouchableOpacity>
-              
-              <View style={styles.tableCell}>
-                <Text style={styles.userName}>{user.name}</Text>
-                <Text style={styles.userPhone}>{user.phone}</Text>
-              </View>
-              
-              <View style={styles.tableCell}>
-                <Text style={styles.userEmail}>{user.email}</Text>
-              </View>
-              
-              <View style={styles.tableCell}>
-                <View style={[styles.roleTag, { backgroundColor: getRoleColor(user.role) }]}>
-                  <Text style={styles.roleTagText}>{user.role}</Text>
-                </View>
-              </View>
-              
-              <View style={styles.tableCell}>
-                <View style={[styles.statusTag, { backgroundColor: getStatusColor(user.status) }]}>
-                  <Text style={styles.statusTagText}>{user.status}</Text>
-                </View>
-              </View>
-              
-              <View style={styles.tableCell}>
-                <Text style={styles.joinDate}>
-                  {new Date(user.join_date).toLocaleDateString()}
-                </Text>
-              </View>
-              
-              <View style={styles.actionsCell}>
-                {user.role === 'client' && (
-                  <>
-                    <TouchableOpacity 
-                      style={styles.actionButton}
-                      onPress={() => handleViewProfile(user)}
-                    >
-                      <MaterialIcons name="visibility" size={18} color="#2196F3" />
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                      style={styles.actionButton}
-                      onPress={() => handleAssignSubscription(user)}
-                    >
-                      <MaterialIcons name="card-membership" size={18} color="#4CAF50" />
-                    </TouchableOpacity>
-                  </>
-                )}
-                <TouchableOpacity 
-                  style={styles.actionButton}
-                  onPress={() => handleEditUser(user)}
-                >
-                  <MaterialIcons name="edit" size={18} color="#FF9800" />
-                </TouchableOpacity>
-              </View>
-            </View>
-          ))}
-        </ScrollView>
-      </View>
+              </button>
+            </div>
+            <div style={webStyles.tableHeader}>
+              <span style={webStyles.tableHeaderText}>Name</span>
+            </div>
+            <div style={webStyles.tableHeader}>
+              <span style={webStyles.tableHeaderText}>Email</span>
+            </div>
+            <div style={webStyles.tableHeader}>
+              <span style={webStyles.tableHeaderText}>Role</span>
+            </div>
+            <div style={webStyles.tableHeader}>
+              <span style={webStyles.tableHeaderText}>Status</span>
+            </div>
+            <div style={webStyles.tableHeader}>
+              <span style={webStyles.tableHeaderText}>Joined</span>
+            </div>
+            <div style={webStyles.tableHeader}>
+              <span style={webStyles.tableHeaderText}>Actions</span>
+            </div>
+          </div>
+
+          {/* Table Body */}
+          <div style={webStyles.tableBody}>
+            {processedUsers.map((user) => (
+              <div key={user.id} style={webStyles.tableRow}>
+                <div style={webStyles.checkbox}>
+                  <button onClick={() => handleSelectUser(user.id)}>
+                    <MaterialIcons 
+                      name={selectedUsers.has(user.id) ? "check-box" : "check-box-outline-blank"} 
+                      size={20} 
+                      color="#666666" 
+                    />
+                  </button>
+                </div>
+                
+                <div style={webStyles.tableCell}>
+                  <div style={webStyles.userName}>{user.name}</div>
+                  {user.phone && <div style={webStyles.userPhone}>{user.phone}</div>}
+                </div>
+                
+                <div style={webStyles.tableCell}>
+                  <div style={webStyles.userEmail}>{user.email}</div>
+                </div>
+                
+                <div style={webStyles.tableCell}>
+                  <span style={{
+                    ...webStyles.roleTag,
+                    backgroundColor: getRoleColor(user.role)
+                  }}>
+                    <span style={webStyles.roleTagText}>{user.role}</span>
+                  </span>
+                </div>
+                
+                <div style={webStyles.tableCell}>
+                  <span style={{
+                    ...webStyles.statusTag,
+                    backgroundColor: getStatusColor(user.status)
+                  }}>
+                    <span style={webStyles.statusTagText}>{user.status}</span>
+                  </span>
+                </div>
+                
+                <div style={webStyles.tableCell}>
+                  <div style={webStyles.joinDate}>
+                    {new Date(user.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+                
+                <div style={webStyles.actionsCell}>
+                  {/* Action buttons */}
+                  <button style={webStyles.actionButton} onClick={() => handleViewProfile(user)}>
+                    <MaterialIcons name="visibility" size={18} color="#6B8E7F" />
+                  </button>
+                  <button style={webStyles.actionButton} onClick={() => handleEditUser(user)}>
+                    <MaterialIcons name="edit" size={18} color="#D4A574" />
+                  </button>
+                  
+                  {/* Client-specific actions */}
+                  {user.role === 'client' && (
+                    <button style={webStyles.actionButton} onClick={() => handleAssignSubscription(user)}>
+                      <MaterialIcons name="card-membership" size={18} color="#6B8E7F" />
+                    </button>
+                  )}
+                  
+                  {/* Status management buttons */}
+                  {user.status === 'active' && (
+                    <>
+                      <button style={webStyles.actionButton} onClick={() => handleSuspendUser(user)}>
+                        <MaterialIcons name="pause" size={18} color="#D4A574" />
+                      </button>
+                      <button style={webStyles.actionButton} onClick={() => handleDeactivateUser(user)}>
+                        <MaterialIcons name="block" size={18} color="#C47D7D" />
+                      </button>
+                    </>
+                  )}
+                  
+                  {user.status === 'suspended' && (
+                    <button style={webStyles.actionButton} onClick={() => handleActivateUser(user)}>
+                      <MaterialIcons name="play-arrow" size={18} color="#7DCEA0" />
+                    </button>
+                  )}
+                  
+                  {user.status === 'inactive' && (
+                    <button style={webStyles.actionButton} onClick={() => handleActivateUser(user)}>
+                      <MaterialIcons name="play-arrow" size={18} color="#7DCEA0" />
+                    </button>
+                  )}
+                  
+                  <button style={webStyles.actionButton} onClick={() => handleDeleteUser(user)}>
+                    <MaterialIcons name="delete" size={18} color="#C47D7D" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <View style={styles.paginationContainer}>
-          <TouchableOpacity
-            style={[styles.paginationButton, currentPage === 1 && styles.paginationButtonDisabled]}
-            onPress={() => setCurrentPage(Math.max(1, currentPage - 1))}
-            disabled={currentPage === 1}
-          >
-            <MaterialIcons name="chevron-left" size={20} color={currentPage === 1 ? "#ccc" : "#666"} />
-          </TouchableOpacity>
-          
-          <Text style={styles.paginationText}>
-            {`Page ${currentPage} of ${totalPages}`}
-          </Text>
-          
-          <TouchableOpacity
-            style={[styles.paginationButton, currentPage === totalPages && styles.paginationButtonDisabled]}
-            onPress={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-            disabled={currentPage === totalPages}
-          >
-            <MaterialIcons name="chevron-right" size={20} color={currentPage === totalPages ? "#ccc" : "#666"} />
-          </TouchableOpacity>
-        </View>
-      )}
+      <div style={webStyles.paginationContainer}>
+        <button 
+          style={{
+            ...webStyles.paginationButton,
+            ...(currentPage === 1 ? webStyles.paginationButtonDisabled : {})
+          }}
+          onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+          disabled={currentPage === 1}
+        >
+          <MaterialIcons name="chevron-left" size={20} color="#666666" />
+        </button>
+        
+        <span style={webStyles.paginationText}>
+          Page {currentPage} of {totalPages}
+        </span>
+        
+        <button 
+          style={{
+            ...webStyles.paginationButton,
+            ...(currentPage === totalPages ? webStyles.paginationButtonDisabled : {})
+          }}
+          onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+          disabled={currentPage === totalPages}
+        >
+          <MaterialIcons name="chevron-right" size={20} color="#666666" />
+        </button>
+      </div>
 
+      {/* Modals remain the same using React Native components */}
       {/* Create/Edit User Modal */}
       <Modal visible={showCreateModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
@@ -744,28 +1002,28 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                 {editingUser ? 'Edit User' : 'Create New User'}
               </Text>
               <TouchableOpacity 
-                style={styles.modalCloseButton}
+                style={styles.closeButton}
                 onPress={() => setShowCreateModal(false)}
               >
-                <MaterialIcons name="close" size={24} color="#666" />
+                <MaterialIcons name="close" size={24} color="#666666" />
               </TouchableOpacity>
             </View>
 
             <ScrollView style={styles.modalContent}>
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Name *</Text>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Name *</Text>
                 <TextInput
-                  style={styles.formInput}
+                  style={styles.input}
                   value={formData.name}
                   onChangeText={(text) => setFormData({...formData, name: text})}
                   placeholder="Enter full name"
                 />
               </View>
 
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Email *</Text>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Email *</Text>
                 <TextInput
-                  style={styles.formInput}
+                  style={styles.input}
                   value={formData.email}
                   onChangeText={(text) => setFormData({...formData, email: text})}
                   placeholder="Enter email address"
@@ -774,10 +1032,10 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                 />
               </View>
 
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Phone *</Text>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Phone *</Text>
                 <TextInput
-                  style={styles.formInput}
+                  style={styles.input}
                   value={formData.phone}
                   onChangeText={(text) => setFormData({...formData, phone: text})}
                   placeholder="Enter phone number"
@@ -785,12 +1043,12 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                 />
               </View>
 
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>
                   Password {!editingUser && '*'}
                 </Text>
                 <TextInput
-                  style={styles.formInput}
+                  style={styles.input}
                   value={formData.password}
                   onChangeText={(text) => setFormData({...formData, password: text})}
                   placeholder={editingUser ? "Leave blank to keep current password" : "Enter password"}
@@ -798,8 +1056,8 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                 />
               </View>
 
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Role *</Text>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Role *</Text>
                 <View style={styles.roleSelector}>
                   {(['client', 'instructor', 'reception', 'admin'] as UserRole[]).map(role => (
                     <TouchableOpacity
@@ -823,20 +1081,20 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
 
               {formData.role === 'client' && (
                 <>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Emergency Contact</Text>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Emergency Contact</Text>
                     <TextInput
-                      style={styles.formInput}
+                      style={styles.input}
                       value={formData.emergencyContact}
                       onChangeText={(text) => setFormData({...formData, emergencyContact: text})}
                       placeholder="Enter emergency contact"
                     />
                   </View>
 
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Medical Conditions</Text>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Medical Conditions</Text>
                     <TextInput
-                      style={[styles.formInput, styles.textArea]}
+                      style={[styles.input, styles.textArea]}
                       value={formData.medicalConditions}
                       onChangeText={(text) => setFormData({...formData, medicalConditions: text})}
                       placeholder="Enter any medical conditions or notes..."
@@ -845,8 +1103,8 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                     />
                   </View>
 
-                  <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>How did they hear about us?</Text>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>How did they hear about us?</Text>
                     <View style={styles.dropdownContainer}>
                       <TouchableOpacity 
                         style={styles.dropdown}
@@ -858,17 +1116,17 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                             REFERRAL_SOURCES.find(s => s.value === formData.referralSource)?.label || 'Not specified'
                           }
                         </Text>
-                        <MaterialIcons name="arrow-drop-down" size={24} color="#666" />
+                        <MaterialIcons name="arrow-drop-down" size={24} color="#666666" />
                       </TouchableOpacity>
                     </View>
                   </View>
 
                   {/* Custom referral text input when "other" is selected */}
                   {formData.referralSource === 'other' && (
-                    <View style={styles.formGroup}>
-                      <Text style={styles.formLabel}>Please specify how they heard about us</Text>
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Please specify how they heard about us</Text>
                       <TextInput
-                        style={[styles.formInput, styles.textArea]}
+                        style={[styles.input, styles.textArea]}
                         value={customReferralText}
                         onChangeText={setCustomReferralText}
                         placeholder="e.g., Local gym recommendation, doctor referral, etc."
@@ -881,19 +1139,19 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
               )}
             </ScrollView>
 
-            <View style={styles.modalFooter}>
+            <View style={styles.modalActions}>
               <TouchableOpacity 
-                style={styles.modalCancelButton}
+                style={styles.modalButton}
                 onPress={() => setShowCreateModal(false)}
               >
-                <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                <Text style={styles.modalButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity 
-                style={[styles.modalSaveButton, saving && styles.modalSaveButtonDisabled]}
+                style={[styles.modalButton, styles.modalButtonPrimary, saving && styles.modalButtonDisabled]}
                 onPress={handleSaveUser}
                 disabled={saving}
               >
-                <Text style={styles.modalSaveButtonText}>
+                <Text style={[styles.modalButtonText, styles.modalButtonTextPrimary]}>
                   {saving ? 'Saving...' : (editingUser ? 'Update' : 'Create')}
                 </Text>
               </TouchableOpacity>
@@ -911,17 +1169,17 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                 Assign Subscription to {assigningSubscriptionUser?.name}
               </Text>
               <TouchableOpacity 
-                style={styles.modalCloseButton}
+                style={styles.closeButton}
                 onPress={() => setShowSubscriptionModal(false)}
               >
-                <MaterialIcons name="close" size={24} color="#666" />
+                <MaterialIcons name="close" size={24} color="#666666" />
               </TouchableOpacity>
             </View>
 
             <ScrollView style={styles.modalContent}>
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Select Subscription Plan *</Text>
-                <ScrollView style={styles.planSelector} nestedScrollEnabled={true}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Select Subscription Plan *</Text>
+                <ScrollView style={styles.plansList} nestedScrollEnabled={true}>
                   {subscriptionPlans.map((plan) => (
                     <TouchableOpacity
                       key={plan.id}
@@ -935,8 +1193,8 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                         <View style={styles.planOptionContent}>
                           <View style={styles.planOptionHeader}>
                             <Text style={[
-                              styles.planOptionTitle,
-                              selectedPlanId === plan.id && styles.planOptionTitleActive
+                              styles.planOptionName,
+                              selectedPlanId === plan.id && styles.planOptionNameActive
                             ]}>
                               {plan.name}
                             </Text>
@@ -975,7 +1233,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                           </View>
                         </View>
                         {selectedPlanId === plan.id && (
-                          <MaterialIcons name="check-circle" size={24} color="#4CAF50" />
+                          <MaterialIcons name="check-circle" size={24} color="#7DCEA0" />
                         )}
                       </View>
                     </TouchableOpacity>
@@ -983,10 +1241,10 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                 </ScrollView>
               </View>
 
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Notes (Optional)</Text>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Notes (Optional)</Text>
                 <TextInput
-                  style={[styles.formInput, styles.textArea]}
+                  style={[styles.input, styles.textArea]}
                   value={subscriptionNotes}
                   onChangeText={setSubscriptionNotes}
                   placeholder="Add any notes about this assignment..."
@@ -996,19 +1254,19 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
               </View>
             </ScrollView>
 
-            <View style={styles.modalFooter}>
+            <View style={styles.modalActions}>
               <TouchableOpacity 
-                style={styles.modalCancelButton}
+                style={styles.modalButton}
                 onPress={() => setShowSubscriptionModal(false)}
               >
-                <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                <Text style={styles.modalButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity 
-                style={[styles.modalSaveButton, saving && styles.modalSaveButtonDisabled]}
+                style={[styles.modalButton, styles.modalButtonPrimary, saving && styles.modalButtonDisabled]}
                 onPress={handleSaveSubscriptionAssignment}
                 disabled={saving || !selectedPlanId}
               >
-                <Text style={styles.modalSaveButtonText}>
+                <Text style={[styles.modalButtonText, styles.modalButtonTextPrimary]}>
                   {saving ? 'Assigning...' : 'Assign Subscription'}
                 </Text>
               </TouchableOpacity>
@@ -1033,10 +1291,10 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>How did they hear about us?</Text>
               <TouchableOpacity 
-                style={styles.modalCloseButton}
+                style={styles.closeButton}
                 onPress={() => setShowReferralModal(false)}
               >
-                <MaterialIcons name="close" size={24} color="#666" />
+                <MaterialIcons name="close" size={24} color="#666666" />
               </TouchableOpacity>
             </View>
 
@@ -1063,7 +1321,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                     {source.label}
                   </Text>
                   {formData.referralSource === source.value && (
-                    <MaterialIcons name="check" size={20} color="#9B8A7D" />
+                    <MaterialIcons name="check" size={20} color="#666666" />
                   )}
                 </TouchableOpacity>
               ))}
@@ -1071,89 +1329,102 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
           </View>
         </View>
       </Modal>
-    </View>
+    </div>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
-    padding: 20,
+    backgroundColor: '#F8F6F3', // Studio background
+    padding: 0, // Remove padding to use full screen
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#F8F6F3',
   },
   loadingText: {
     marginTop: 12,
     fontSize: 16,
-    color: '#9B8A7D',
+    color: '#6B8E7F',
     fontWeight: '500',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 32,
+    paddingVertical: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E8E6E3',
+    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
+    elevation: 2,
   },
   headerLeft: {
     flex: 1,
   },
-  title: {
+  headerTitle: {
     fontSize: 28,
-    fontWeight: 'bold',
-    color: '#1F2937',
+    fontWeight: '700',
+    color: '#2C2C2C',
     marginBottom: 4,
   },
-  subtitle: {
+  headerSubtitle: {
     fontSize: 16,
-    color: '#6B7280',
+    color: '#666666',
   },
   headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    marginLeft: 24,
   },
   createButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#9B8A7D',
-    paddingHorizontal: 20,
+    backgroundColor: '#6B8E7F',
+    paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
     gap: 8,
+    boxShadow: '0 2px 4px rgba(107, 142, 127, 0.2)',
+    elevation: 2,
   },
   createButtonText: {
-    color: '#fff',
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
   },
   filtersContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 24,
+    marginVertical: 16,
     borderRadius: 12,
-    padding: 20,
-    marginBottom: 20,
-    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)',
-    elevation: 3,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#E8E6E3',
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
+    elevation: 1,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#FAFAF9',
     borderRadius: 8,
-    paddingHorizontal: 12,
-    marginBottom: 16,
+    paddingHorizontal: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#E8E6E3',
   },
   searchIcon: {
-    marginRight: 8,
+    marginRight: 12,
   },
   searchInput: {
     flex: 1,
     paddingVertical: 12,
     fontSize: 16,
-    color: '#374151',
+    color: '#2C2C2C',
+    backgroundColor: 'transparent',
   },
   filterRow: {
     flexDirection: 'row',
@@ -1165,8 +1436,8 @@ const styles = StyleSheet.create({
   filterLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#374151',
-    marginBottom: 8,
+    color: '#2C2C2C',
+    marginBottom: 12,
   },
   filterButtons: {
     flexDirection: 'row',
@@ -1174,68 +1445,75 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   filterButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 6,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#FAFAF9',
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: '#E8E6E3',
   },
   filterButtonActive: {
-    backgroundColor: '#9B8A7D',
-    borderColor: '#9B8A7D',
+    backgroundColor: '#6B8E7F',
+    borderColor: '#6B8E7F',
   },
   filterButtonText: {
     fontSize: 14,
-    color: '#374151',
+    color: '#666666',
     fontWeight: '500',
   },
   filterButtonTextActive: {
-    color: '#fff',
+    color: '#FFFFFF',
   },
   bulkActionsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#FEF3C7',
+    backgroundColor: 'rgba(212, 165, 116, 0.1)',
+    marginHorizontal: 24,
     borderRadius: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingVertical: 12,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 165, 116, 0.3)',
   },
   bulkActionsText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#92400E',
+    color: '#D4A574',
   },
   bulkActionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
   },
   bulkActionButtonText: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#F44336',
+    color: '#C47D7D',
   },
   tableContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 24,
+    marginBottom: 24,
     borderRadius: 12,
     overflow: 'hidden',
     flex: 1,
-    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)',
+    borderWidth: 1,
+    borderColor: '#E8E6E3',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
     elevation: 3,
   },
   tableHeaderRow: {
     flexDirection: 'row',
-    backgroundColor: '#f9fafb',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    backgroundColor: '#FAFAF9',
+    borderBottomWidth: 2,
+    borderBottomColor: '#E8E6E3',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
   },
   checkboxHeader: {
-    width: 40,
+    width: 50,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1244,16 +1522,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 8,
+    paddingHorizontal: 12,
+    minWidth: 120, // Ensure minimum column width
   },
   tableHeaderText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
+    fontWeight: '700',
+    color: '#2C2C2C',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   tableBody: {
     flex: 1,
-    maxHeight: 400, // Set maximum height for scrolling
+    maxHeight: 600, // Increased height for better viewing
   },
   tableBodyContent: {
     flexGrow: 1,
@@ -1261,148 +1542,385 @@ const styles = StyleSheet.create({
   tableRow: {
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    borderBottomColor: '#F0EFED',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
     alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  tableRowHover: {
+    backgroundColor: '#FAFAF9',
   },
   checkbox: {
-    width: 40,
+    width: 50,
     alignItems: 'center',
     justifyContent: 'center',
   },
   tableCell: {
     flex: 1,
-    paddingHorizontal: 8,
+    paddingHorizontal: 12,
+    minWidth: 120, // Ensure minimum column width
   },
   userName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1F2937',
+    color: '#2C2C2C',
     marginBottom: 2,
   },
   userPhone: {
     fontSize: 12,
-    color: '#6B7280',
+    color: '#999999',
   },
   userEmail: {
     fontSize: 14,
-    color: '#374151',
+    color: '#666666',
   },
   roleTag: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16, // More rounded for modern look
     alignSelf: 'flex-start',
   },
   roleTagText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#fff',
+    color: '#FFFFFF',
     textTransform: 'capitalize',
   },
   statusTag: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16, // More rounded for modern look
     alignSelf: 'flex-start',
   },
   statusTagText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#fff',
     textTransform: 'capitalize',
   },
   joinDate: {
     fontSize: 14,
-    color: '#6B7280',
+    color: '#666666',
   },
   actionsCell: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    width: 120,
+    width: 200, // Increased width for better spacing
+    justifyContent: 'flex-end',
   },
   actionButton: {
-    padding: 6,
-    borderRadius: 4,
-    backgroundColor: '#f3f4f6',
+    padding: 8,
+    borderRadius: 6,
+    backgroundColor: '#FAFAF9',
+    borderWidth: 1,
+    borderColor: '#E8E6E3',
   },
   paginationContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 16,
-    gap: 16,
+    gap: 12,
+    backgroundColor: '#FAFAF9',
+    borderTopWidth: 1,
+    borderTopColor: '#E8E6E3',
   },
   paginationButton: {
-    padding: 8,
-    borderRadius: 4,
-    backgroundColor: '#f3f4f6',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E8E6E3',
+    minWidth: 40,
+    alignItems: 'center',
+  },
+  paginationButtonActive: {
+    backgroundColor: '#6B8E7F',
+    borderColor: '#6B8E7F',
   },
   paginationButtonDisabled: {
     opacity: 0.5,
   },
   paginationText: {
     fontSize: 14,
-    color: '#374151',
+    color: '#666666',
     fontWeight: '500',
   },
+  paginationTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  
   // Modal Styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 24,
   },
   modalContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     width: '100%',
     maxWidth: 600,
     maxHeight: '90%',
     overflow: 'hidden',
+    boxShadow: '0 20px 40px rgba(0, 0, 0, 0.15)',
+    elevation: 10,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
+    padding: 24,
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: '#E8E6E3',
+    backgroundColor: '#FAFAF9',
   },
   modalTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1F2937',
+    fontWeight: '700',
+    color: '#2C2C2C',
   },
-  modalCloseButton: {
-    padding: 4,
+  closeButton: {
+    padding: 8,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E8E6E3',
   },
   modalContent: {
-    padding: 20,
+    padding: 24,
+    gap: 20,
+  },
+  modalScrollView: {
     maxHeight: 400,
   },
-  formGroup: {
-    marginBottom: 16,
+  inputGroup: {
+    gap: 8,
   },
-  formLabel: {
+  inputLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#374151',
-    marginBottom: 6,
+    color: '#2C2C2C',
   },
-  formInput: {
+  input: {
     borderWidth: 1,
-    borderColor: '#d1d5db',
+    borderColor: '#E8E6E3',
     borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     fontSize: 16,
-    color: '#374151',
-    backgroundColor: '#fff',
+    color: '#2C2C2C',
+    backgroundColor: '#FFFFFF',
   },
+  inputFocused: {
+    borderColor: '#6B8E7F',
+    backgroundColor: '#FFFFFF',
+  },
+  pickerContainer: {
+    borderWidth: 1,
+    borderColor: '#E8E6E3',
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+  },
+  picker: {
+    height: 50,
+    color: '#2C2C2C',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+    padding: 24,
+    borderTopWidth: 1,
+    borderTopColor: '#E8E6E3',
+    backgroundColor: '#FAFAF9',
+  },
+  modalButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    minWidth: 100,
+    alignItems: 'center',
+  },
+  modalButtonPrimary: {
+    backgroundColor: '#6B8E7F',
+  },
+  modalButtonSecondary: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E8E6E3',
+  },
+  modalButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666666',
+  },
+  modalButtonTextPrimary: {
+    color: '#FFFFFF',
+  },
+  
+  // Subscription Modal Specific
+  subscriptionHeader: {
+    marginBottom: 20,
+  },
+  subscriptionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#2C2C2C',
+    marginBottom: 8,
+  },
+  subscriptionSubtitle: {
+    fontSize: 14,
+    color: '#666666',
+  },
+  plansList: {
+    gap: 12,
+  },
+  planOption: {
+    borderWidth: 1,
+    borderColor: '#E8E6E3',
+    borderRadius: 8,
+    padding: 16,
+    backgroundColor: '#FFFFFF',
+  },
+  planOptionActive: {
+    borderColor: '#6B8E7F',
+    backgroundColor: 'rgba(107, 142, 127, 0.05)',
+  },
+  planOptionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  planOptionName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2C2C2C',
+  },
+  planOptionPrice: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B8E7F',
+  },
+  planOptionDescription: {
+    fontSize: 14,
+    color: '#666666',
+    marginBottom: 8,
+  },
+  planOptionDescriptionActive: {
+    color: '#2C2C2C',
+  },
+  planOptionDetails: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  planOptionDetail: {
+    fontSize: 12,
+    color: '#999999',
+  },
+  planOptionDetailActive: {
+    color: '#6B8E7F',
+  },
+  planOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  conflictMessage: {
+    fontSize: 16,
+    color: '#2C2C2C',
+    marginBottom: 20,
+    lineHeight: 24,
+  },
+  conflictActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  conflictActionButton: {
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#6B8E7F',
+  },
+  conflictActionButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  dropdownContainer: {
+    borderWidth: 1,
+    borderColor: '#E8E6E3',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dropdown: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flex: 1,
+  },
+  dropdownText: {
+    fontSize: 16,
+    color: '#2C2C2C',
+    marginRight: 12,
+  },
+  referralOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0EFED',
+  },
+  referralOptionActive: {
+    backgroundColor: '#FAFAF9',
+  },
+  referralOptionText: {
+    fontSize: 16,
+    color: '#2C2C2C',
+    fontWeight: '500',
+  },
+  referralOptionTextActive: {
+    color: '#6B8E7F',
+  },
+  statusButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    backgroundColor: '#FAFAF9',
+    borderWidth: 1,
+    borderColor: '#E8E6E3',
+  },
+  actionButtonText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#666666',
+  },
+  horizontalScrollContainer: {
+    flex: 1,
+  },
+  horizontalScrollContent: {
+    flexGrow: 1,
+  },
+  tableContent: {
+    minWidth: 1200, // Optimized minimum width
+  },
+  
+  // Missing styles that were referenced but not defined
   textArea: {
     height: 80,
     textAlignVertical: 'top',
@@ -1416,180 +1934,342 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 6,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#FAFAF9',
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: '#E8E6E3',
   },
   roleOptionActive: {
-    backgroundColor: '#9B8A7D',
-    borderColor: '#9B8A7D',
+    backgroundColor: '#6B8E7F',
+    borderColor: '#6B8E7F',
   },
   roleOptionText: {
     fontSize: 14,
-    color: '#374151',
+    color: '#666666',
     fontWeight: '500',
   },
   roleOptionTextActive: {
-    color: '#fff',
+    color: '#FFFFFF',
   },
-  modalFooter: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    padding: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-    gap: 12,
-  },
-  modalCancelButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 6,
-    backgroundColor: '#f3f4f6',
-  },
-  modalCancelButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
-  },
-  modalSaveButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 6,
-    backgroundColor: '#9B8A7D',
-  },
-  modalSaveButtonDisabled: {
+  modalButtonDisabled: {
     opacity: 0.6,
-  },
-  modalSaveButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  planSelector: {
-    maxHeight: 200,
-  },
-  planOption: {
-    padding: 12,
-    borderWidth: 2,
-    borderColor: '#e5e7eb',
-    borderRadius: 6,
-    marginBottom: 8,
-  },
-  planOptionActive: {
-    borderColor: '#9B8A7D',
   },
   planOptionContent: {
     flexDirection: 'column',
     flex: 1,
   },
-  planOptionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  planOptionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
-  },
-  planOptionTitleActive: {
-    color: '#9B8A7D',
-  },
-  planOptionPrice: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#6B7280',
+  planOptionNameActive: {
+    color: '#6B8E7F',
   },
   planOptionPriceActive: {
-    color: '#9B8A7D',
-  },
-  planOptionDescription: {
-    fontSize: 14,
-    color: '#374151',
-    marginBottom: 8,
-  },
-  planOptionDescriptionActive: {
-    color: '#1F2937',
-  },
-  planOptionDetails: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  planOptionDetail: {
-    fontSize: 12,
-    color: '#6B7280',
-  },
-  planOptionDetailActive: {
-    color: '#9B8A7D',
-  },
-  planOptionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  conflictMessage: {
-    fontSize: 16,
-    color: '#374151',
-    marginBottom: 20,
-  },
-  conflictActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  conflictActionButton: {
-    padding: 12,
-    borderRadius: 6,
-    backgroundColor: '#9B8A7D',
-  },
-  conflictActionButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  dropdownContainer: {
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: '#fff',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  dropdown: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    flex: 1,
-  },
-  dropdownText: {
-    fontSize: 16,
-    color: '#374151',
-    marginRight: 8,
-  },
-  referralOption: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
-  },
-  referralOptionActive: {
-    backgroundColor: '#f3f4f6',
-  },
-  referralOptionText: {
-    fontSize: 16,
-    color: '#374151',
-    fontWeight: '500',
-  },
-  referralOptionTextActive: {
-    color: '#9B8A7D',
+    color: '#6B8E7F',
   },
 });
+
+// Web-specific styles to avoid React Native Web CSS conflicts
+const webStyles = {
+  container: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    minHeight: '100vh',
+    backgroundColor: '#F8F6F3',
+    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    padding: '24px 32px',
+    borderBottom: '1px solid #E8E6E3',
+    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
+  },
+  headerLeft: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: '28px',
+    fontWeight: '700',
+    color: '#2C2C2C',
+    margin: '0 0 4px 0',
+  },
+  headerSubtitle: {
+    fontSize: '16px',
+    color: '#666666',
+    margin: 0,
+  },
+  headerRight: {
+    marginLeft: '24px',
+  },
+  createButton: {
+    display: 'flex',
+    alignItems: 'center',
+    backgroundColor: '#6B8E7F',
+    padding: '12px 24px',
+    borderRadius: '8px',
+    border: 'none',
+    cursor: 'pointer',
+    boxShadow: '0 2px 4px rgba(107, 142, 127, 0.2)',
+    transition: 'all 0.2s ease',
+  } as React.CSSProperties,
+  createButtonText: {
+    color: '#FFFFFF',
+    fontSize: '16px',
+    fontWeight: '600',
+    marginLeft: '8px',
+  },
+  filtersContainer: {
+    backgroundColor: '#FFFFFF',
+    margin: '16px 24px',
+    borderRadius: '12px',
+    padding: '24px',
+    border: '1px solid #E8E6E3',
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
+  },
+  searchContainer: {
+    display: 'flex',
+    alignItems: 'center',
+    backgroundColor: '#FAFAF9',
+    borderRadius: '8px',
+    padding: '0 16px',
+    marginBottom: '20px',
+    border: '1px solid #E8E6E3',
+  },
+  searchIcon: {
+    marginRight: '12px',
+  },
+  searchInput: {
+    flex: 1,
+    padding: '12px 0',
+    fontSize: '16px',
+    color: '#2C2C2C',
+    backgroundColor: 'transparent',
+    border: 'none',
+    outline: 'none',
+  } as React.CSSProperties,
+  filterRow: {
+    display: 'flex',
+    gap: '32px',
+    flexWrap: 'wrap' as const,
+  },
+  filterGroup: {
+    flex: 1,
+    minWidth: '200px',
+  },
+  filterLabel: {
+    fontSize: '14px',
+    fontWeight: '600',
+    color: '#2C2C2C',
+    marginBottom: '12px',
+    display: 'block',
+  },
+  filterButtons: {
+    display: 'flex',
+    flexWrap: 'wrap' as const,
+    gap: '8px',
+  },
+  filterButton: {
+    padding: '8px 16px',
+    borderRadius: '6px',
+    backgroundColor: '#FAFAF9',
+    border: '1px solid #E8E6E3',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+  } as React.CSSProperties,
+  filterButtonActive: {
+    backgroundColor: '#6B8E7F',
+    borderColor: '#6B8E7F',
+  },
+  filterButtonText: {
+    fontSize: '14px',
+    color: '#666666',
+    fontWeight: '500',
+  },
+  filterButtonTextActive: {
+    color: '#FFFFFF',
+  },
+  bulkActionsContainer: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'rgba(212, 165, 116, 0.1)',
+    margin: '0 24px 16px',
+    borderRadius: '8px',
+    padding: '12px 20px',
+    border: '1px solid rgba(212, 165, 116, 0.3)',
+  },
+  bulkActionsText: {
+    fontSize: '14px',
+    fontWeight: '600',
+    color: '#D4A574',
+  },
+  bulkActionButton: {
+    display: 'flex',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+    border: 'none',
+    cursor: 'pointer',
+    gap: '6px',
+  } as React.CSSProperties,
+  bulkActionButtonText: {
+    fontSize: '14px',
+    fontWeight: '500',
+    color: '#C47D7D',
+  },
+  tableContainer: {
+    backgroundColor: '#FFFFFF',
+    margin: '0 24px 24px',
+    borderRadius: '12px',
+    overflow: 'hidden',
+    flex: 1,
+    border: '1px solid #E8E6E3',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+  },
+  tableContent: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    minWidth: '1200px',
+  },
+  tableHeaderRow: {
+    display: 'flex',
+    backgroundColor: '#FAFAF9',
+    borderBottom: '2px solid #E8E6E3',
+    padding: '16px 20px',
+  },
+  checkboxHeader: {
+    width: '50px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tableHeader: {
+    flex: 1,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '0 12px',
+    minWidth: '120px',
+  },
+  tableHeaderText: {
+    fontSize: '14px',
+    fontWeight: '700',
+    color: '#2C2C2C',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.5px',
+  },
+  tableBody: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    maxHeight: '600px',
+    overflowY: 'auto' as const,
+  },
+  tableRow: {
+    display: 'flex',
+    borderBottom: '1px solid #F0EFED',
+    padding: '16px 20px',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    transition: 'background-color 0.2s ease',
+  } as React.CSSProperties,
+  checkbox: {
+    width: '50px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tableCell: {
+    flex: 1,
+    padding: '0 12px',
+    minWidth: '120px',
+  },
+  userName: {
+    fontSize: '16px',
+    fontWeight: '600',
+    color: '#2C2C2C',
+    marginBottom: '2px',
+  },
+  userPhone: {
+    fontSize: '12px',
+    color: '#999999',
+  },
+  userEmail: {
+    fontSize: '14px',
+    color: '#666666',
+  },
+  roleTag: {
+    display: 'inline-block',
+    padding: '6px 12px',
+    borderRadius: '16px',
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#FFFFFF',
+    textTransform: 'capitalize' as const,
+  },
+  roleTagText: {
+    color: '#FFFFFF',
+  },
+  statusTag: {
+    display: 'inline-block',
+    padding: '6px 12px',
+    borderRadius: '16px',
+    fontSize: '12px',
+    fontWeight: '600',
+    textTransform: 'capitalize' as const,
+  },
+  statusTagText: {
+    color: '#FFFFFF',
+  },
+  joinDate: {
+    fontSize: '14px',
+    color: '#666666',
+  },
+  actionsCell: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    width: '200px',
+    gap: '8px',
+  },
+  actionButton: {
+    padding: '8px',
+    borderRadius: '6px',
+    backgroundColor: '#FAFAF9',
+    border: '1px solid #E8E6E3',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  } as React.CSSProperties,
+  paginationContainer: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: '16px',
+    backgroundColor: '#FAFAF9',
+    borderTop: '1px solid #E8E6E3',
+    gap: '12px',
+  },
+  paginationButton: {
+    padding: '8px 16px',
+    borderRadius: '6px',
+    backgroundColor: '#FFFFFF',
+    border: '1px solid #E8E6E3',
+    minWidth: '40px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+  } as React.CSSProperties,
+  paginationButtonDisabled: {
+    opacity: 0.5,
+    cursor: 'not-allowed',
+  },
+  paginationText: {
+    fontSize: '14px',
+    color: '#666666',
+    fontWeight: '500',
+  },
+};
 
 export default PCUserManagement; 

@@ -1,10 +1,11 @@
 import { Body, Caption, H1 } from '@/components/ui/Typography';
 import { Colors } from '@/constants/Colors';
 import { layout, spacing } from '@/constants/Spacing';
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Alert, Linking, StyleSheet, View } from 'react-native';
 import { Button as PaperButton, Card as PaperCard, TextInput } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
+import { useThemeColor } from '../../hooks/useThemeColor';
 import { AppDispatch, RootState } from '../store';
 import { loginUser } from '../store/authSlice';
 import { componentShadows } from '../utils/shadows';
@@ -15,6 +16,14 @@ function LoginScreen() {
   const [error, setError] = useState('');
   const dispatch = useDispatch<AppDispatch>();
   const { isLoading } = useSelector((state: RootState) => state.auth);
+
+  // Theme colors for input fields
+  const backgroundColor = useThemeColor({}, 'background');
+  const surfaceColor = useThemeColor({}, 'surface');
+  const textColor = useThemeColor({}, 'text');
+  const textSecondaryColor = useThemeColor({}, 'textSecondary');
+  const primaryColor = useThemeColor({}, 'primary');
+  const borderColor = useThemeColor({}, 'border');
 
   const handleLogin = async () => {
     if (!emailOrPhone || !password) {
@@ -64,6 +73,16 @@ function LoginScreen() {
             style={styles.input}
             autoCapitalize="none"
             disabled={isLoading}
+            theme={{
+              colors: {
+                primary: primaryColor,
+                onSurface: textColor,
+                onSurfaceVariant: textSecondaryColor,
+                outline: borderColor,
+                surface: surfaceColor,
+                background: backgroundColor,
+              }
+            }}
           />
           <TextInput
             label="Password"
@@ -73,6 +92,16 @@ function LoginScreen() {
             style={styles.input}
             secureTextEntry
             disabled={isLoading}
+            theme={{
+              colors: {
+                primary: primaryColor,
+                onSurface: textColor,
+                onSurfaceVariant: textSecondaryColor,
+                outline: borderColor,
+                surface: surfaceColor,
+                background: backgroundColor,
+              }
+            }}
           />
           
           <PaperButton 

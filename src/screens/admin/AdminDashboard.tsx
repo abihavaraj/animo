@@ -4,11 +4,14 @@ import { layout, spacing } from '@/constants/Spacing';
 import { useThemeColor } from '@/hooks/useThemeColor';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import React, { useEffect, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Dimensions, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Button as PaperButton, Card as PaperCard } from 'react-native-paper';
 import { useDispatch } from 'react-redux';
 import { AppDispatch } from '../../store';
+
+const { width: screenWidth } = Dimensions.get('window');
+const isLargeScreen = screenWidth > 1024;
 
 function AdminDashboard() {
   // Theme colors
@@ -84,6 +87,82 @@ function AdminDashboard() {
     (navigation as any).navigate('AssignmentHistory');
   };
 
+  // Mobile layout warning
+  if (!isLargeScreen) {
+    return (
+      <View style={styles.mobileContainer}>
+        <Text style={styles.mobileWarning}>
+          📱 Admin Portal is optimized for desktop use. 
+          Please use a larger screen for the best experience.
+        </Text>
+        <ScrollView 
+          style={styles.mobileContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+        >
+          {/* Mobile-optimized dashboard content */}
+          <PaperCard style={[styles.mobileCard, { backgroundColor: surfaceColor }]}>
+            <PaperCard.Content>
+              <H2 style={{...styles.cardTitle, color: textColor}}>Studio Overview</H2>
+              <View style={styles.mobileMetricsGrid}>
+                <View style={[styles.mobileMetricItem, { backgroundColor: surfaceColor }]}>
+                  <MaterialIcons name="people" size={20} color={accentColor} />
+                  <Body style={{...styles.mobileMetricNumber, color: textColor}}>{metrics.totalClients}</Body>
+                  <Caption style={{...styles.mobileMetricLabel, color: textSecondaryColor}}>Total Clients</Caption>
+                </View>
+                
+                <View style={[styles.mobileMetricItem, { backgroundColor: surfaceColor }]}>
+                  <MaterialIcons name="fitness-center" size={20} color={accentColor} />
+                  <Body style={{...styles.mobileMetricNumber, color: textColor}}>{metrics.activeInstructors}</Body>
+                  <Caption style={{...styles.mobileMetricLabel, color: textSecondaryColor}}>Instructors</Caption>
+                </View>
+                
+                <View style={[styles.mobileMetricItem, { backgroundColor: surfaceColor }]}>
+                  <MaterialIcons name="event" size={20} color={accentColor} />
+                  <Body style={{...styles.mobileMetricNumber, color: textColor}}>{metrics.classesThisWeek}</Body>
+                  <Caption style={{...styles.mobileMetricLabel, color: textSecondaryColor}}>Classes</Caption>
+                </View>
+                
+                <View style={[styles.mobileMetricItem, { backgroundColor: surfaceColor }]}>
+                  <MaterialIcons name="trending-up" size={20} color={accentColor} />
+                  <Body style={{...styles.mobileMetricNumber, color: textColor}}>{metrics.attendanceRate}%</Body>
+                  <Caption style={{...styles.mobileMetricLabel, color: textSecondaryColor}}>Attendance</Caption>
+                </View>
+              </View>
+            </PaperCard.Content>
+          </PaperCard>
+
+          <PaperCard style={[styles.mobileCard, { backgroundColor: surfaceColor }]}>
+            <PaperCard.Content>
+              <H2 style={{...styles.cardTitle, color: textColor}}>Quick Actions</H2>
+              <View style={styles.mobileActionButtons}>
+                <PaperButton 
+                  mode="contained" 
+                  style={styles.mobilePrimaryAction}
+                  labelStyle={styles.mobileActionLabel}
+                  onPress={handleViewUsers}
+                >
+                  Manage Users
+                </PaperButton>
+                
+                <PaperButton 
+                  mode="outlined" 
+                  style={styles.mobileSecondaryAction}
+                  labelStyle={styles.mobileActionLabel}
+                  onPress={handleViewClasses}
+                >
+                  View Classes
+                </PaperButton>
+              </View>
+            </PaperCard.Content>
+          </PaperCard>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // Desktop layout
   return (
     <View style={[styles.container, { backgroundColor }]}>
       {/* Header */}
@@ -415,6 +494,83 @@ const styles = StyleSheet.create({
   },
   activityTime: {
     color: Colors.light.textMuted,
+  },
+
+  // Mobile Styles
+  mobileContainer: {
+    flex: 1,
+    padding: 20,
+    backgroundColor: '#f8f9fa',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mobileWarning: {
+    fontSize: 16,
+    color: '#FF9800',
+    textAlign: 'center',
+    marginBottom: 20,
+    padding: 15,
+    backgroundColor: '#FFF8E1',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FFE0B2',
+  },
+  mobileContent: {
+    flex: 1,
+    width: '100%',
+  },
+  mobileCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    marginBottom: 16,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#E8E6E3',
+  },
+  mobileMetricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  mobileMetricItem: {
+    width: '48%',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E8E6E3',
+    marginBottom: 8,
+  },
+  mobileMetricNumber: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginTop: 4,
+    marginBottom: 2,
+  },
+  mobileMetricLabel: {
+    textAlign: 'center',
+    fontSize: 12,
+  },
+  mobileActionButtons: {
+    flexDirection: 'column',
+    gap: 12,
+  },
+  mobilePrimaryAction: {
+    backgroundColor: '#6B8E7F',
+    borderRadius: 16,
+    marginBottom: 8,
+  },
+  mobileSecondaryAction: {
+    borderColor: '#E8E6E3',
+    borderRadius: 16,
+    marginBottom: 8,
+  },
+  mobileActionLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    paddingVertical: 8,
   },
 });
 

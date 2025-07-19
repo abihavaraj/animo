@@ -1,116 +1,52 @@
 import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
-import { registerRootComponent } from 'expo';
-import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useRef, useState } from 'react';
-import { PaperProvider } from 'react-native-paper';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { Provider } from 'react-redux';
-
-import { useSelector } from 'react-redux';
-import ErrorBoundary from './src/components/ErrorBoundary';
+import { useEffect } from 'react';
+import { Provider as PaperProvider } from 'react-native-paper';
+import { Provider, useSelector } from 'react-redux';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
 import AuthNavigator from './src/navigation/AuthNavigator';
 import MainNavigator from './src/navigation/MainNavigator';
-import { pushNotificationService } from './src/services/pushNotificationService';
 import { RootState, store } from './src/store';
+import { setupGlobalErrorHandlers } from './src/utils/errorHandler';
 
-const Stack = createStackNavigator();
+console.log('🔥 App.tsx: File loaded!');
 
+// Inner App component that has access to Redux state
 function AppContent() {
-  const { isLoggedIn, user } = useSelector((state: RootState) => state.auth);
-  const [isTransitioning, setIsTransitioning] = useState(false);
-  const prevIsLoggedIn = useRef(isLoggedIn);
-
-  // Handle logout transition to prevent infinite loops
-  useEffect(() => {
-    if (prevIsLoggedIn.current === true && isLoggedIn === false) {
-      // User just logged out, set transitioning state
-      setIsTransitioning(true);
-      const timer = setTimeout(() => {
-        setIsTransitioning(false);
-      }, 100); // Short delay to allow state to settle
-      
-      return () => clearTimeout(timer);
-    }
-    prevIsLoggedIn.current = isLoggedIn;
-  }, [isLoggedIn]);
-
-  // Initialize push notifications when user logs in
-  useEffect(() => {
-    let isMounted = true;
-    
-    if (isLoggedIn && !isTransitioning && isMounted) {
-      // Add a small delay to prevent immediate re-renders during auth transitions
-      const initializeNotifications = async () => {
-        try {
-          await pushNotificationService.initialize();
-          if (isMounted) {
-            pushNotificationService.setupNotificationListeners();
-          }
-        } catch (error) {
-          console.error('Failed to initialize push notifications:', error);
-        }
-      };
-      
-      // Delay initialization to prevent conflicts with logout transitions
-      const timeoutId = setTimeout(initializeNotifications, 100);
-      
-      return () => {
-        clearTimeout(timeoutId);
-        isMounted = false;
-      };
-    }
-    
-    return () => {
-      isMounted = false;
-    };
-  }, [isLoggedIn, isTransitioning]);
-
-  // Debug logging for navigation state
-  useEffect(() => {
-    if (__DEV__) {
-      console.log('🧭 Navigation state changed:', {
-        isLoggedIn,
-        isTransitioning,
-        userRole: user?.role || 'none'
-      });
-    }
-  }, [isLoggedIn, isTransitioning, user?.role]);
-
-  // During transition, don't render anything to prevent loops
-  if (isTransitioning) {
-    return null;
-  }
-
+  const { user, isLoggedIn } = useSelector((state: RootState) => state.auth);
+  
+  console.log('🎯 App.tsx: AppContent rendering, authenticated:', isLoggedIn, 'user:', user?.role);
+  
   return (
-    <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {isLoggedIn ? (
-          <Stack.Screen name="Main" component={MainNavigator} />
-        ) : (
-          <Stack.Screen name="Auth" component={AuthNavigator} />
-        )}
-      </Stack.Navigator>
-    </NavigationContainer>
+    <PaperProvider>
+      <NavigationContainer>
+        <ErrorBoundary>
+          {isLoggedIn ? (
+            <MainNavigator />
+          ) : (
+            <AuthNavigator />
+          )}
+        </ErrorBoundary>
+      </NavigationContainer>
+    </PaperProvider>
   );
 }
 
-function App() {
+// Main App component with Redux Provider
+export default function App() {
+  console.log('🚀 App.tsx: Main App component rendering...');
+  
+  // Setup global error handlers to prevent crashes
+  useEffect(() => {
+    console.log('🛡️ Setting up global error handlers...');
+    setupGlobalErrorHandlers();
+    console.log('✅ Global error handlers initialized');
+  }, []);
+  
   return (
-    <ErrorBoundary>
-      <Provider store={store}>
-        <SafeAreaProvider>
-          <PaperProvider>
-            <StatusBar style="auto" />
-            <AppContent />
-          </PaperProvider>
-        </SafeAreaProvider>
-      </Provider>
-    </ErrorBoundary>
+    <Provider store={store}>
+      <AppContent />
+    </Provider>
   );
 }
 
-// Register the main component
-registerRootComponent(App);
-
-export default App; 
+console.log('✅ App.tsx: Exporting App component'); 

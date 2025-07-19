@@ -27,6 +27,9 @@ const clientDocumentsRoutes = require('./routes/clientDocuments');
 const clientActivityRoutes = require('./routes/clientActivity');
 const clientLifecycleRoutes = require('./routes/clientLifecycle');
 
+// Import health check route
+const healthRoutes = require('./routes/health');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -55,15 +58,8 @@ app.use(expireSubscriptions);
 // Serve static files for document uploads
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'Pilates Studio API is running',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
-  });
-});
+// Health check endpoint - must be before auth middleware
+app.use('/health', healthRoutes);
 
 // API Routes
 app.use('/api/auth', authRoutes);
@@ -132,7 +128,7 @@ const startServer = async () => {
     subscriptionNotificationService.start();
 
     // Start server
-    const server = app.listen(PORT, () => {
+    const server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Pilates Studio API running on port ${PORT}`);
       console.log(`📱 Health check: http://localhost:${PORT}/health`);
       console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);

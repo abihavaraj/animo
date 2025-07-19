@@ -1,6 +1,9 @@
 # Exclude original icon source folder from builds
 ICON/
 
+# Exclude WEBP files that cause iOS build issues
+**/*.webp
+
 # Development files
 *.log
 .DS_Store
@@ -11,4 +14,12 @@ ICON/
 
 # Temporary files
 *.tmp
-*.temp 
+*.temp
+
+# Native project folders for Prebuild configuration
+/android
+/ios
+
+# Additional exclusions
+android/
+ICON/ 

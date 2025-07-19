@@ -210,6 +210,12 @@ router.put('/profile', authenticateToken, [
 
     const { name, phone, emergencyContact, medicalConditions } = req.body;
 
+    // Get current user data to compare changes
+    const currentUser = await db.get(
+      'SELECT name, phone, emergency_contact, medical_conditions FROM users WHERE id = ?',
+      [req.user.id]
+    );
+
     await db.run(
       `UPDATE users SET 
        name = COALESCE(?, name),
@@ -226,6 +232,44 @@ router.put('/profile', authenticateToken, [
       'SELECT id, name, email, phone, role, emergency_contact, medical_conditions, join_date, status FROM users WHERE id = ?',
       [req.user.id]
     );
+
+    // Log the profile update activity
+    const changes = [];
+    if (name && name !== currentUser.name) changes.push('name');
+    if (phone && phone !== currentUser.phone) changes.push('phone');
+    if (emergencyContact && emergencyContact !== currentUser.emergency_contact) changes.push('emergency contact');
+    if (medicalConditions && medicalConditions !== currentUser.medical_conditions) changes.push('medical conditions');
+
+    if (changes.length > 0) {
+      try {
+        await db.run(`
+          INSERT INTO client_activity_log (
+            client_id, activity_type, description, metadata, performed_by, ip_address, user_agent
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `, [
+          req.user.id,
+          'profile_update',
+          `Profile updated: ${changes.join(', ')} modified`,
+          JSON.stringify({
+            changes: changes,
+            updatedFields: {
+              name: name || currentUser.name,
+              phone: phone || currentUser.phone,
+              emergencyContact: emergencyContact || currentUser.emergency_contact,
+              medicalConditions: medicalConditions || currentUser.medical_conditions
+            }
+          }),
+          req.user.id, // User updated their own profile
+          req.ip || null,
+          req.get('User-Agent') || null
+        ]);
+        
+        console.log(`📝 Profile update logged for user ${req.user.id}: ${changes.join(', ')} modified`);
+      } catch (activityError) {
+        console.error('Error logging profile update activity:', activityError);
+        // Don't fail the main request if activity logging fails
+      }
+    }
 
     res.json({
       success: true,

@@ -10,6 +10,7 @@ import { useThemeColor } from '../../../hooks/useThemeColor';
 import { apiService } from '../../services/api';
 import { Booking, bookingService } from '../../services/bookingService';
 import { BackendClass, classService } from '../../services/classService';
+import { pushNotificationService } from '../../services/pushNotificationService';
 import { subscriptionService } from '../../services/subscriptionService';
 import { AppDispatch, RootState } from '../../store';
 import { createBooking } from '../../store/bookingSlice';
@@ -77,6 +78,39 @@ function ClientDashboard() {
       loadDashboardData();
     }, [])
   );
+
+  useEffect(() => {
+    // Safe lazy initialization of push notifications after dashboard loads
+    const initializePushNotifications = async () => {
+      try {
+        console.log('🎯 Dashboard loaded, attempting safe push notification setup...');
+        
+        // Wait a bit more to ensure everything is ready
+        setTimeout(async () => {
+          try {
+            const success = await pushNotificationService.lazyInitialize();
+            if (success) {
+              console.log('✅ Push notifications initialized from dashboard');
+            } else {
+              console.log('⚠️ Push notifications not available (normal in development)');
+            }
+          } catch (error) {
+            console.error('❌ Push notification initialization failed (non-critical):', error);
+            // This error is non-critical - app continues normally
+          }
+        }, 2000); // 2 second delay to ensure app is fully loaded
+        
+      } catch (error) {
+        console.error('❌ Error in push notification setup (non-critical):', error);
+        // Non-critical error - don't affect dashboard functionality
+      }
+    };
+
+    // Only attempt if user is logged in and dashboard is mounting
+    if (user?.id) {
+      initializePushNotifications();
+    }
+  }, [user?.id]);
 
   const loadDashboardData = async () => {
     if (!user) {
@@ -485,7 +519,22 @@ function ClientDashboard() {
             <H1 style={{ ...styles.welcomeTitle, color: textColor }}>Welcome back!</H1>
             <Body style={{ ...styles.welcomeSubtitle, color: textSecondaryColor }}>{user?.name}</Body>
           </View>
-          <MaterialIcons name="waving-hand" size={32} color="#FFD700" />
+          <View style={styles.welcomeActions}>
+            <MaterialIcons name="waving-hand" size={32} color="#FFD700" />
+            {/* Development: Crash Test Button */}
+            {__DEV__ && (
+              <Button 
+                mode="contained" 
+                onPress={() => navigation.navigate('CrashTest' as never)}
+                style={{ marginLeft: 8 }}
+                buttonColor="#FF6B6B"
+                textColor="white"
+                icon="bug-report"
+              >
+                Test
+              </Button>
+            )}
+          </View>
         </View>
       </Surface>
 
@@ -578,6 +627,12 @@ function ClientDashboard() {
                         <MaterialIcons name="access-time" size={16} color={textSecondaryColor} />
                         <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>{formatTime(booking.class_time || '')}</Caption>
                       </View>
+                      {booking.room && (
+                        <View style={styles.classDetailItem}>
+                          <MaterialIcons name="room" size={16} color={textSecondaryColor} />
+                          <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>{booking.room}</Caption>
+                        </View>
+                      )}
                       <View style={styles.classDetailItem}>
                         <MaterialIcons name="confirmation-number" size={16} color={textSecondaryColor} />
                         <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>Booked</Caption>
@@ -771,6 +826,12 @@ function ClientDashboard() {
                         <MaterialIcons name="timer" size={16} color={textSecondaryColor} />
                         <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>{`${cls.duration} min`}</Caption>
                       </View>
+                      {cls.room && (
+                        <View style={styles.classDetailItem}>
+                          <MaterialIcons name="room" size={16} color={textSecondaryColor} />
+                          <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>{cls.room}</Caption>
+                        </View>
+                      )}
                       <View style={styles.classDetailItem}>
                         <MaterialIcons name="people" size={16} color={textSecondaryColor} />
                         <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>
@@ -889,6 +950,10 @@ const styles = StyleSheet.create({
   },
   welcomeSubtitle: {
     // This will be overridden by inline style
+  },
+  welcomeActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   subscriptionContainer: {
     marginBottom: 20,

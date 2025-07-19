@@ -1,9 +1,9 @@
 import StatusChip from '@/components/ui/StatusChip';
 import { Body, Caption, H1, H2, H3 } from '@/components/ui/Typography';
-import { Colors } from '@/constants/Colors';
 import { layout, spacing } from '@/constants/Spacing';
+import { useThemeColor } from '@/hooks/useThemeColor';
 import { MaterialIcons } from '@expo/vector-icons';
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Modal, Button as PaperButton, Card as PaperCard, Portal } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
@@ -15,6 +15,22 @@ function ProfileScreen() {
   const dispatch = useDispatch<AppDispatch>();
   const { user } = useSelector((state: RootState) => state.auth);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
+
+  // Theme colors
+  const backgroundColor = useThemeColor({}, 'background');
+  const surfaceColor = useThemeColor({}, 'surface');
+  const textColor = useThemeColor({}, 'text');
+  const textSecondaryColor = useThemeColor({}, 'textSecondary');
+  const textMutedColor = useThemeColor({}, 'textMuted');
+  const primaryColor = useThemeColor({}, 'primary');
+  const accentColor = useThemeColor({}, 'accent');
+  const borderColor = useThemeColor({}, 'border');
+  const dividerColor = useThemeColor({}, 'divider');
+  const errorColor = useThemeColor({}, 'error');
+  const warningColor = useThemeColor({}, 'warning');
+  const successColor = useThemeColor({}, 'success');
+  const surfaceVariantColor = useThemeColor({}, 'surfaceVariant');
+  const textOnAccentColor = useThemeColor({}, 'textOnAccent');
 
   const handleLogout = () => {
     setLogoutModalVisible(false);
@@ -72,110 +88,133 @@ function ProfileScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor }]}>
       {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.profileSection}>
-          <View style={styles.avatar}>
-            <H2 style={styles.avatarText}>{getUserInitials()}</H2>
+      <View style={[styles.header, { backgroundColor: surfaceColor, borderBottomColor: textMutedColor }]}>
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 12,
+        }}>
+          <View style={{
+            width: 80,
+            height: 80,
+            backgroundColor: accentColor,
+            borderRadius: 40,
+            alignItems: 'center',
+            justifyContent: 'center',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.1,
+            shadowRadius: 2,
+            elevation: 2
+          }}>
+            <H2 style={[{ color: textOnAccentColor, fontSize: 24, fontWeight: '600' }] as any}>{getUserInitials()}</H2>
           </View>
           
-          <View style={styles.profileInfo}>
-            <H1 style={styles.userName}>{user?.name || 'User'}</H1>
-            <View style={styles.userDetails}>
+          <View style={{
+            flex: 1,
+            marginLeft: 12
+          }}>
+            <H1 style={[{ color: textColor, fontSize: 32, fontWeight: '700', marginBottom: 8 }] as any}>{user?.name || 'User'}</H1>
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              marginBottom: 8
+            }}>
               <StatusChip 
                 state={getUserRoleChipState()}
                 text={user?.role?.charAt(0).toUpperCase() + (user?.role?.slice(1) || '')}
                 size="small"
               />
             </View>
-            <Caption style={styles.userEmail}>{user?.email}</Caption>
+            <Caption style={[{ color: textSecondaryColor, fontSize: 14 }] as any}>{user?.email}</Caption>
           </View>
         </View>
       </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView style={[styles.content, { backgroundColor }]}>      
         {/* Account Settings */}
-        <PaperCard style={styles.card}>
+        <PaperCard style={[styles.card, { backgroundColor: surfaceColor, borderColor }]}>
           <PaperCard.Content style={styles.cardContent}>
-            <H2 style={styles.cardTitle}>Account Settings</H2>
+            <H2 style={[styles.cardTitle, { color: textColor }] as any}>Account Settings</H2>
             
-            <TouchableOpacity style={styles.settingItem} onPress={handleEditProfile}>
-              <View style={styles.settingIcon}>
-                <MaterialIcons name="edit" size={20} color={Colors.light.accent} />
+                          <TouchableOpacity style={[styles.settingItem, { borderBottomColor: dividerColor }]} onPress={handleEditProfile}>
+                <View style={[styles.settingIcon, { backgroundColor: surfaceVariantColor }]}>
+                  <MaterialIcons name="edit" size={20} color={accentColor} />
+                </View>
+                <View style={styles.settingContent}>
+                  <Body style={[styles.settingTitle, { color: textColor }] as any}>Edit Profile</Body>
+                  <Caption style={[styles.settingSubtitle, { color: textSecondaryColor }] as any}>Update your personal information</Caption>
+                </View>
+                <MaterialIcons name="chevron-right" size={20} color={textMutedColor} />
+              </TouchableOpacity>
+            
+            <TouchableOpacity style={[styles.settingItem, { borderBottomColor: dividerColor }]} onPress={handleChangePassword}>
+              <View style={[styles.settingIcon, { backgroundColor: surfaceVariantColor }]}>
+                <MaterialIcons name="lock" size={20} color={accentColor} />
               </View>
               <View style={styles.settingContent}>
-                <Body style={styles.settingTitle}>Edit Profile</Body>
-                <Caption style={styles.settingSubtitle}>Update your personal information</Caption>
+                <Body style={[styles.settingTitle, { color: textColor }] as any}>Change Password</Body>
+                <Caption style={[styles.settingSubtitle, { color: textSecondaryColor }] as any}>Update your account security</Caption>
               </View>
-              <MaterialIcons name="chevron-right" size={20} color={Colors.light.textMuted} />
+              <MaterialIcons name="chevron-right" size={20} color={textMutedColor} />
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.settingItem} onPress={handleChangePassword}>
-              <View style={styles.settingIcon}>
-                <MaterialIcons name="lock" size={20} color={Colors.light.accent} />
+            <TouchableOpacity style={[styles.settingItem, { borderBottomColor: dividerColor }]} onPress={handleNotificationSettings}>
+              <View style={[styles.settingIcon, { backgroundColor: surfaceVariantColor }]}>
+                <MaterialIcons name="notifications" size={20} color={accentColor} />
               </View>
               <View style={styles.settingContent}>
-                <Body style={styles.settingTitle}>Change Password</Body>
-                <Caption style={styles.settingSubtitle}>Update your account security</Caption>
+                <Body style={[styles.settingTitle, { color: textColor }] as any}>Notifications</Body>
+                <Caption style={[styles.settingSubtitle, { color: textSecondaryColor }] as any}>Manage your notification preferences</Caption>
               </View>
-              <MaterialIcons name="chevron-right" size={20} color={Colors.light.textMuted} />
-            </TouchableOpacity>
-            
-            <TouchableOpacity style={styles.settingItem} onPress={handleNotificationSettings}>
-              <View style={styles.settingIcon}>
-                <MaterialIcons name="notifications" size={20} color={Colors.light.accent} />
-              </View>
-              <View style={styles.settingContent}>
-                <Body style={styles.settingTitle}>Notifications</Body>
-                <Caption style={styles.settingSubtitle}>Manage your notification preferences</Caption>
-              </View>
-              <MaterialIcons name="chevron-right" size={20} color={Colors.light.textMuted} />
+              <MaterialIcons name="chevron-right" size={20} color={textMutedColor} />
             </TouchableOpacity>
           </PaperCard.Content>
         </PaperCard>
 
         {/* Pilates Journey */}
         {user?.role === 'client' && (
-          <PaperCard style={styles.card}>
+          <PaperCard style={[styles.card, { backgroundColor: surfaceColor, borderColor }]}>
             <PaperCard.Content style={styles.cardContent}>
-              <H2 style={styles.cardTitle}>Your Pilates Journey</H2>
+              <H2 style={[styles.cardTitle, { color: textColor }] as any}>Your Pilates Journey</H2>
               
-              <View style={styles.journeyStats}>
-                <View style={styles.statItem}>
+                              <View style={styles.journeyStats}>
+                <View style={[styles.statItem, { backgroundColor: surfaceVariantColor }]}>
                   <View style={styles.statHeader}>
-                    <MaterialIcons name="event" size={24} color={Colors.light.accent} />
-                    <Body style={styles.statNumber}>24</Body>
+                    <MaterialIcons name="event" size={24} color={accentColor} />
+                    <Body style={[styles.statNumber, { color: textColor }] as any}>24</Body>
                   </View>
-                  <Caption style={styles.statLabel}>Classes Attended</Caption>
+                  <Caption style={[styles.statLabel, { color: textSecondaryColor }] as any}>Classes Attended</Caption>
                 </View>
                 
-                <View style={styles.statItem}>
+                <View style={[styles.statItem, { backgroundColor: surfaceVariantColor }]}>
                   <View style={styles.statHeader}>
-                    <MaterialIcons name="local-fire-department" size={24} color={Colors.light.warning} />
-                    <Body style={styles.statNumber}>12</Body>
+                    <MaterialIcons name="local-fire-department" size={24} color={warningColor} />
+                    <Body style={[styles.statNumber, { color: textColor }] as any}>12</Body>
                   </View>
-                  <Caption style={styles.statLabel}>Current Streak</Caption>
+                  <Caption style={[styles.statLabel, { color: textSecondaryColor }] as any}>Current Streak</Caption>
                 </View>
                 
-                <View style={styles.statItem}>
+                <View style={[styles.statItem, { backgroundColor: surfaceVariantColor }]}>
                   <View style={styles.statHeader}>
-                    <MaterialIcons name="star" size={24} color={Colors.light.success} />
-                    <Body style={styles.statNumber}>4.8</Body>
+                    <MaterialIcons name="star" size={24} color={successColor} />
+                    <Body style={[styles.statNumber, { color: textColor }] as any}>4.8</Body>
                   </View>
-                  <Caption style={styles.statLabel}>Avg Rating Given</Caption>
+                  <Caption style={[styles.statLabel, { color: textSecondaryColor }] as any}>Avg Rating Given</Caption>
                 </View>
               </View>
               
-              <TouchableOpacity style={styles.settingItem} onPress={handleBookingHistory}>
-                <View style={styles.settingIcon}>
-                  <MaterialIcons name="history" size={20} color={Colors.light.accent} />
+              <TouchableOpacity style={[styles.settingItem, { borderBottomColor: dividerColor }]} onPress={handleBookingHistory}>
+                <View style={[styles.settingIcon, { backgroundColor: surfaceVariantColor }]}>
+                  <MaterialIcons name="history" size={20} color={accentColor} />
                 </View>
                 <View style={styles.settingContent}>
-                  <Body style={styles.settingTitle}>Booking History</Body>
-                  <Caption style={styles.settingSubtitle}>View your past and upcoming classes</Caption>
+                  <Body style={[styles.settingTitle, { color: textColor }] as any}>Booking History</Body>
+                  <Caption style={[styles.settingSubtitle, { color: textSecondaryColor }] as any}>View your past and upcoming classes</Caption>
                 </View>
-                <MaterialIcons name="chevron-right" size={20} color={Colors.light.textMuted} />
+                <MaterialIcons name="chevron-right" size={20} color={textMutedColor} />
               </TouchableOpacity>
             </PaperCard.Content>
           </PaperCard>
@@ -183,87 +222,87 @@ function ProfileScreen() {
 
         {/* Payment & Billing */}
         {user?.role === 'client' && (
-          <PaperCard style={styles.card}>
+          <PaperCard style={[styles.card, { backgroundColor: surfaceColor, borderColor }]}>
             <PaperCard.Content style={styles.cardContent}>
-              <H2 style={styles.cardTitle}>Payment & Billing</H2>
+              <H2 style={[styles.cardTitle, { color: textColor }] as any}>Payment & Billing</H2>
               
-              <TouchableOpacity style={styles.settingItem} onPress={handlePaymentMethods}>
-                <View style={styles.settingIcon}>
-                  <MaterialIcons name="payment" size={20} color={Colors.light.accent} />
+              <TouchableOpacity style={[styles.settingItem, { borderBottomColor: dividerColor }]} onPress={handlePaymentMethods}>
+                <View style={[styles.settingIcon, { backgroundColor: surfaceVariantColor }]}>
+                  <MaterialIcons name="payment" size={20} color={accentColor} />
                 </View>
                 <View style={styles.settingContent}>
-                  <Body style={styles.settingTitle}>Payment Methods</Body>
-                  <Caption style={styles.settingSubtitle}>Manage your cards and payment options</Caption>
+                  <Body style={[styles.settingTitle, { color: textColor }] as any}>Payment Methods</Body>
+                  <Caption style={[styles.settingSubtitle, { color: textSecondaryColor }] as any}>Manage your cards and payment options</Caption>
                 </View>
-                <MaterialIcons name="chevron-right" size={20} color={Colors.light.textMuted} />
+                <MaterialIcons name="chevron-right" size={20} color={textMutedColor} />
               </TouchableOpacity>
               
-              <TouchableOpacity style={styles.settingItem} onPress={() => console.log('Billing History')}>
-                <View style={styles.settingIcon}>
-                  <MaterialIcons name="receipt" size={20} color={Colors.light.accent} />
+              <TouchableOpacity style={[styles.settingItem, { borderBottomColor: dividerColor }]} onPress={() => console.log('Billing History')}>
+                <View style={[styles.settingIcon, { backgroundColor: surfaceVariantColor }]}>
+                  <MaterialIcons name="receipt" size={20} color={accentColor} />
                 </View>
                 <View style={styles.settingContent}>
-                  <Body style={styles.settingTitle}>Billing History</Body>
-                  <Caption style={styles.settingSubtitle}>View your payment history and receipts</Caption>
+                  <Body style={[styles.settingTitle, { color: textColor }] as any}>Billing History</Body>
+                  <Caption style={[styles.settingSubtitle, { color: textSecondaryColor }] as any}>View your payment history and receipts</Caption>
                 </View>
-                <MaterialIcons name="chevron-right" size={20} color={Colors.light.textMuted} />
+                <MaterialIcons name="chevron-right" size={20} color={textMutedColor} />
               </TouchableOpacity>
             </PaperCard.Content>
           </PaperCard>
         )}
 
         {/* Support & Help */}
-        <PaperCard style={styles.card}>
+        <PaperCard style={[styles.card, { backgroundColor: surfaceColor, borderColor }]}>
           <PaperCard.Content style={styles.cardContent}>
-            <H2 style={styles.cardTitle}>Support & Help</H2>
+            <H2 style={[styles.cardTitle, { color: textColor }] as any}>Support & Help</H2>
             
-            <TouchableOpacity style={styles.settingItem} onPress={handleContactSupport}>
-              <View style={styles.settingIcon}>
-                <MaterialIcons name="support" size={20} color={Colors.light.accent} />
+            <TouchableOpacity style={[styles.settingItem, { borderBottomColor: dividerColor }]} onPress={handleContactSupport}>
+              <View style={[styles.settingIcon, { backgroundColor: surfaceVariantColor }]}>
+                <MaterialIcons name="support" size={20} color={accentColor} />
               </View>
               <View style={styles.settingContent}>
-                <Body style={styles.settingTitle}>Contact Support</Body>
-                <Caption style={styles.settingSubtitle}>Get help with your account or classes</Caption>
+                <Body style={[styles.settingTitle, { color: textColor }] as any}>Contact Support</Body>
+                <Caption style={[styles.settingSubtitle, { color: textSecondaryColor }] as any}>Get help with your account or classes</Caption>
               </View>
-              <MaterialIcons name="chevron-right" size={20} color={Colors.light.textMuted} />
+              <MaterialIcons name="chevron-right" size={20} color={textMutedColor} />
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.settingItem} onPress={() => console.log('FAQ')}>
-              <View style={styles.settingIcon}>
-                <MaterialIcons name="help" size={20} color={Colors.light.accent} />
+            <TouchableOpacity style={[styles.settingItem, { borderBottomColor: dividerColor }]} onPress={() => console.log('FAQ')}>
+              <View style={[styles.settingIcon, { backgroundColor: surfaceVariantColor }]}>
+                <MaterialIcons name="help" size={20} color={accentColor} />
               </View>
               <View style={styles.settingContent}>
-                <Body style={styles.settingTitle}>FAQ</Body>
-                <Caption style={styles.settingSubtitle}>Find answers to common questions</Caption>
+                <Body style={[styles.settingTitle, { color: textColor }] as any}>FAQ</Body>
+                <Caption style={[styles.settingSubtitle, { color: textSecondaryColor }] as any}>Find answers to common questions</Caption>
               </View>
-              <MaterialIcons name="chevron-right" size={20} color={Colors.light.textMuted} />
+              <MaterialIcons name="chevron-right" size={20} color={textMutedColor} />
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.settingItem} onPress={() => console.log('About')}>
-              <View style={styles.settingIcon}>
-                <MaterialIcons name="info" size={20} color={Colors.light.accent} />
+            <TouchableOpacity style={[styles.settingItem, { borderBottomColor: dividerColor }]} onPress={() => console.log('About')}>
+              <View style={[styles.settingIcon, { backgroundColor: surfaceVariantColor }]}>
+                <MaterialIcons name="info" size={20} color={accentColor} />
               </View>
               <View style={styles.settingContent}>
-                <Body style={styles.settingTitle}>About ANIMO</Body>
-                <Caption style={styles.settingSubtitle}>Learn more about our studio</Caption>
+                <Body style={[styles.settingTitle, { color: textColor }] as any}>About ANIMO</Body>
+                <Caption style={[styles.settingSubtitle, { color: textSecondaryColor }] as any}>Learn more about our studio</Caption>
               </View>
-              <MaterialIcons name="chevron-right" size={20} color={Colors.light.textMuted} />
+              <MaterialIcons name="chevron-right" size={20} color={textMutedColor} />
             </TouchableOpacity>
           </PaperCard.Content>
         </PaperCard>
 
         {/* Logout Section */}
-        <PaperCard style={styles.card}>
+        <PaperCard style={[styles.card, { backgroundColor: surfaceColor, borderColor }]}>
           <PaperCard.Content style={styles.cardContent}>
-            <PaperButton 
-              mode="outlined" 
-              style={styles.logoutButton}
-              labelStyle={styles.logoutButtonLabel}
-              icon={() => <MaterialIcons name="logout" size={20} color={Colors.light.error} />}
-              onPress={showLogoutConfirmation}
-            >
-              Sign Out
-            </PaperButton>
+                      <PaperButton 
+            mode="outlined" 
+            style={[styles.logoutButton, { borderColor: errorColor }]}
+            labelStyle={[styles.logoutButtonLabel, { color: errorColor }]}
+            icon={() => <MaterialIcons name="logout" size={20} color={errorColor} />}
+            onPress={showLogoutConfirmation}
+          >
+            Sign Out
+          </PaperButton>
           </PaperCard.Content>
         </PaperCard>
       </ScrollView>
@@ -275,24 +314,24 @@ function ProfileScreen() {
           onDismiss={() => setLogoutModalVisible(false)}
           contentContainerStyle={styles.modalContainer}
         >
-          <PaperCard style={styles.modalCard}>
+          <PaperCard style={[styles.modalCard, { backgroundColor: surfaceColor }]}>
             <PaperCard.Content style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <View style={styles.modalIcon}>
-                  <MaterialIcons name="logout" size={24} color={Colors.light.error} />
+                  <MaterialIcons name="logout" size={24} color={errorColor} />
                 </View>
-                <H3 style={styles.modalTitle}>Sign Out</H3>
+                <H3 style={[styles.modalTitle, { color: textColor }] as any}>Sign Out</H3>
               </View>
               
-              <Body style={styles.modalMessage}>
+              <Body style={[styles.modalMessage, { color: textSecondaryColor }] as any}>
                 Are you sure you want to sign out of your account?
               </Body>
               
               <View style={styles.modalActions}>
                 <PaperButton 
                   mode="outlined" 
-                  style={styles.modalCancelButton}
-                  labelStyle={styles.modalCancelLabel}
+                  style={[styles.modalCancelButton, { borderColor }]}
+                  labelStyle={[styles.modalCancelLabel, { color: textColor }]}
                   onPress={() => setLogoutModalVisible(false)}
                 >
                   Cancel
@@ -300,8 +339,8 @@ function ProfileScreen() {
                 
                 <PaperButton 
                   mode="contained" 
-                  style={styles.modalConfirmButton}
-                  labelStyle={styles.modalConfirmLabel}
+                  style={[styles.modalConfirmButton, { backgroundColor: errorColor }]}
+                  labelStyle={[styles.modalConfirmLabel, { color: textOnAccentColor }]}
                   onPress={handleLogout}
                 >
                   Sign Out
@@ -318,14 +357,12 @@ function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.light.background,
+    // backgroundColor will be set dynamically
   },
   header: {
-    padding: spacing.lg,
+    padding: 24,
     paddingTop: 60,
-    backgroundColor: Colors.light.primary,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.light.border,
   },
   profileSection: {
     flexDirection: 'row',
@@ -335,21 +372,21 @@ const styles = StyleSheet.create({
   avatar: {
     width: 80,
     height: 80,
-    backgroundColor: Colors.light.accent,
+    // backgroundColor will be set dynamically
     borderRadius: 40,
     alignItems: 'center',
     justifyContent: 'center',
     ...shadows.accent,
   },
   avatarText: {
-    color: Colors.light.textOnAccent,
+    // color will be set dynamically
     fontWeight: '700',
   },
   profileInfo: {
     flex: 1,
   },
   userName: {
-    color: Colors.light.textOnAccent,
+    // color will be set dynamically
     marginBottom: spacing.xs,
   },
   userDetails: {
@@ -358,25 +395,24 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   userEmail: {
-    color: 'rgba(255, 255, 255, 0.8)',
+    // color will be set dynamically
   },
   content: {
     flex: 1,
     padding: spacing.md,
   },
   card: {
-    backgroundColor: Colors.light.surface,
+    // backgroundColor and borderColor will be set dynamically
     borderRadius: layout.borderRadius,
     ...shadows.card,
     borderWidth: 1,
-    borderColor: Colors.light.border,
     marginBottom: spacing.md,
   },
   cardContent: {
     padding: spacing.lg,
   },
   cardTitle: {
-    color: Colors.light.text,
+    // color will be set dynamically
     marginBottom: spacing.md,
   },
   
@@ -390,7 +426,7 @@ const styles = StyleSheet.create({
   statItem: {
     flex: 1,
     alignItems: 'center',
-    backgroundColor: Colors.light.surfaceVariant,
+    // backgroundColor will be set dynamically
     padding: spacing.md,
     borderRadius: spacing.sm,
   },
@@ -403,11 +439,11 @@ const styles = StyleSheet.create({
   statNumber: {
     fontSize: 18,
     fontWeight: '700',
-    color: Colors.light.text,
+    // color will be set dynamically
   },
   statLabel: {
     textAlign: 'center',
-    color: Colors.light.textSecondary,
+    // color will be set dynamically
   },
   
   // Setting Items
@@ -416,13 +452,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.light.divider,
+    // borderBottomColor will be set dynamically
     gap: spacing.md,
   },
   settingIcon: {
     width: 40,
     height: 40,
-    backgroundColor: Colors.light.surfaceVariant,
+    // backgroundColor will be set dynamically
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
@@ -431,20 +467,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   settingTitle: {
-    color: Colors.light.text,
+    // color will be set dynamically
     marginBottom: spacing.xs,
   },
   settingSubtitle: {
-    color: Colors.light.textSecondary,
+    // color will be set dynamically
   },
   
   // Logout Button
   logoutButton: {
-    borderColor: Colors.light.error,
+    // borderColor will be set dynamically through the button props
     borderRadius: layout.borderRadius,
   },
   logoutButtonLabel: {
-    color: Colors.light.error,
+    // color will be set dynamically through the button props
     fontSize: 16,
     fontWeight: '600',
     paddingVertical: spacing.sm,
@@ -456,7 +492,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   modalCard: {
-    backgroundColor: Colors.light.surface,
+    // backgroundColor will be set dynamically
     borderRadius: layout.borderRadius,
   },
   modalContent: {
@@ -476,11 +512,11 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   modalTitle: {
-    color: Colors.light.text,
+    // color will be set dynamically
     textAlign: 'center',
   },
   modalMessage: {
-    color: Colors.light.textSecondary,
+    // color will be set dynamically
     textAlign: 'center',
     marginBottom: spacing.xl,
     lineHeight: 22,
@@ -492,21 +528,21 @@ const styles = StyleSheet.create({
   },
   modalCancelButton: {
     flex: 1,
-    borderColor: Colors.light.border,
+    // borderColor will be set dynamically
     borderRadius: layout.borderRadius,
   },
   modalCancelLabel: {
-    color: Colors.light.textSecondary,
+    // color will be set dynamically
     fontSize: 16,
     fontWeight: '500',
   },
   modalConfirmButton: {
     flex: 1,
-    backgroundColor: Colors.light.error,
+    // backgroundColor will be set dynamically
     borderRadius: layout.borderRadius,
   },
   modalConfirmLabel: {
-    color: Colors.light.textOnAccent,
+    // color will be set dynamically
     fontSize: 16,
     fontWeight: '600',
   },

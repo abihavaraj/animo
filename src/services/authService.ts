@@ -89,7 +89,20 @@ class AuthService {
   }
 
   async updateProfile(data: UpdateProfileRequest): Promise<ApiResponse<User>> {
-    return apiService.put<User>('/auth/profile', data);
+    const response = await apiService.put<any>('/auth/profile', data);
+    
+    // Handle nested response structure from backend
+    if (response.success && response.data) {
+      // Backend returns { data: { user: updatedUser } }
+      if (response.data.user) {
+        return {
+          success: true,
+          data: response.data.user
+        };
+      }
+    }
+    
+    return response;
   }
 
   setToken(token: string | null) {

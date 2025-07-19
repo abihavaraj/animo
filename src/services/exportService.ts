@@ -229,7 +229,7 @@ Plan Name,Subscribers,Active Subscribers,Revenue
     return csv;
   }
 
-  static getExportHistory(): Array<{ id: string; filename: string; format: string; generatedAt: string; size: string }> {
+  static getExportHistory(): { id: string; filename: string; format: string; generatedAt: string; size: string }[] {
     // Return mock export history
     return [
       {

@@ -24,6 +24,7 @@ export interface Booking {
   class_time?: string;
   class_level?: string;
   equipment_type?: string;
+  room?: string;
   instructor_name?: string;
   
   class?: {
@@ -57,6 +58,7 @@ export interface WaitlistEntry {
   classDate?: string;
   classTime?: string;
   classLevel?: string;
+  room?: string;
   instructorName?: string;
 }
 

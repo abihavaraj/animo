@@ -3,6 +3,7 @@ import { Body, Caption, H1, H2 } from '@/components/ui/Typography';
 import { Colors } from '@/constants/Colors';
 import { layout, spacing } from '@/constants/Spacing';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import React, { useEffect, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Button as PaperButton, Card as PaperCard } from 'react-native-paper';
@@ -12,6 +13,7 @@ import { shadows } from '../utils/shadows';
 
 function HomeScreen() {
   const dispatch = useDispatch<AppDispatch>();
+  const navigation = useNavigation();
   const { user } = useSelector((state: RootState) => state.auth);
   const [refreshing, setRefreshing] = useState(false);
   const [todaysClasses, setTodaysClasses] = useState<any[]>([]);
@@ -99,6 +101,14 @@ function HomeScreen() {
 
   const handleViewSchedule = () => {
     console.log('Navigate to schedule');
+  };
+
+  const handleApiTest = () => {
+    navigation.navigate('ApiTest' as never);
+  };
+
+  const handleSupabaseTest = () => {
+    navigation.navigate('SupabaseTest' as never);
   };
 
   const getWelcomeMessage = () => {
@@ -198,6 +208,27 @@ function HomeScreen() {
                 Support
               </PaperButton>
             </View>
+
+            <View style={styles.actionGrid}>
+              <PaperButton 
+                mode="outlined" 
+                style={styles.secondaryAction}
+                labelStyle={styles.secondaryActionLabel}
+                icon={() => <MaterialIcons name="settings" size={20} color={Colors.light.textSecondary} />}
+                onPress={handleApiTest}
+              >
+                API Test
+              </PaperButton>
+              <PaperButton 
+                mode="outlined" 
+                style={styles.secondaryAction}
+                labelStyle={styles.secondaryActionLabel}
+                icon={() => <MaterialIcons name="bug-report" size={20} color={Colors.light.textSecondary} />}
+                onPress={handleSupabaseTest}
+              >
+                Supabase Test
+              </PaperButton>
+            </View>
           </PaperCard.Content>
         </PaperCard>
 
@@ -247,6 +278,13 @@ function HomeScreen() {
                           {`${classItem.time} (${classItem.duration} min)`}
                         </Caption>
                       </View>
+
+                      {classItem.room && (
+                        <View style={styles.classDetailItem}>
+                          <MaterialIcons name="room" size={16} color={Colors.light.textSecondary} />
+                          <Caption style={styles.classDetailText}>{classItem.room}</Caption>
+                        </View>
+                      )}
 
                       <View style={styles.classDetailItem}>
                         <MaterialIcons 

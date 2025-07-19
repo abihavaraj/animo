@@ -113,6 +113,142 @@ router.get('/room-availability', authenticateToken, requireAdminOrReception, asy
   }
 });
 
+// GET /api/classes/loading-metrics - Get class loading metrics for reception dashboard
+router.get('/loading-metrics', authenticateToken, requireAdminOrReception, async (req, res) => {
+  try {
+    const { date, period } = req.query;
+    
+    // Default to today if no date specified
+    const targetDate = date || new Date().toISOString().split('T')[0];
+    
+    // Get today's and upcoming classes with capacity information
+    let dateFilter = '';
+    let dateParams = [];
+    
+    if (period === 'week') {
+      // Next 7 days
+      dateFilter = 'AND c.date BETWEEN ? AND date(?, "+7 days")';
+      dateParams = [targetDate, targetDate];
+    } else if (period === 'upcoming') {
+      // All future classes
+      dateFilter = 'AND c.date >= ?';
+      dateParams = [targetDate];
+    } else {
+      // Single day (default)
+      dateFilter = 'AND c.date = ?';
+      dateParams = [targetDate];
+    }
+
+    const classMetrics = await db.all(`
+      SELECT 
+        c.id,
+        c.name,
+        c.date,
+        c.time,
+        c.capacity,
+        c.enrolled,
+        c.equipment_type,
+        c.room,
+        c.level,
+        c.category,
+        u.name as instructor_name,
+        COUNT(CASE WHEN b.status = 'confirmed' THEN 1 END) as confirmed_bookings,
+        COUNT(CASE WHEN w.id IS NOT NULL THEN 1 END) as waitlist_count,
+        (c.capacity - COUNT(CASE WHEN b.status = 'confirmed' THEN 1 END)) as available_spots
+      FROM classes c
+      JOIN users u ON c.instructor_id = u.id
+      LEFT JOIN bookings b ON c.id = b.class_id
+      LEFT JOIN waitlist w ON c.id = w.class_id
+      WHERE c.status = 'active' ${dateFilter}
+      GROUP BY c.id, c.name, c.date, c.time, c.capacity, c.enrolled, c.equipment_type, c.room, c.level, c.category, u.name
+      ORDER BY c.date, c.time
+    `, dateParams);
+
+    // Calculate loading status for each class
+    const enrichedMetrics = classMetrics.map(cls => {
+      const utilizationRate = (cls.confirmed_bookings / cls.capacity) * 100;
+      let loadingStatus = 'available';
+      let loadingColor = '#4CAF50'; // Green
+      let loadingIcon = 'event-available';
+
+      if (utilizationRate >= 100) {
+        loadingStatus = 'full';
+        loadingColor = '#f44336'; // Red
+        loadingIcon = 'event-busy';
+      } else if (utilizationRate >= 80) {
+        loadingStatus = 'nearly-full';
+        loadingColor = '#FF9800'; // Orange
+        loadingIcon = 'event-note';
+      } else if (utilizationRate >= 50) {
+        loadingStatus = 'half-full';
+        loadingColor = '#2196F3'; // Blue
+        loadingIcon = 'event';
+      }
+
+      return {
+        ...cls,
+        utilization_rate: Math.round(utilizationRate),
+        loading_status: loadingStatus,
+        loading_color: loadingColor,
+        loading_icon: loadingIcon,
+        has_waitlist: cls.waitlist_count > 0
+      };
+    });
+
+    // Calculate summary statistics
+    const totalClasses = enrichedMetrics.length;
+    const fullClasses = enrichedMetrics.filter(c => c.loading_status === 'full').length;
+    const nearlyFullClasses = enrichedMetrics.filter(c => c.loading_status === 'nearly-full').length;
+    const availableClasses = enrichedMetrics.filter(c => c.loading_status === 'available' || c.loading_status === 'half-full').length;
+    const classesWithWaitlist = enrichedMetrics.filter(c => c.has_waitlist).length;
+
+    const averageUtilization = totalClasses > 0 ? 
+      Math.round(enrichedMetrics.reduce((sum, c) => sum + c.utilization_rate, 0) / totalClasses) : 0;
+
+    // Group by equipment type for quick overview
+    const equipmentBreakdown = enrichedMetrics.reduce((acc, cls) => {
+      if (!acc[cls.equipment_type]) {
+        acc[cls.equipment_type] = {
+          total: 0,
+          full: 0,
+          nearlyFull: 0,
+          available: 0
+        };
+      }
+      acc[cls.equipment_type].total++;
+      if (cls.loading_status === 'full') acc[cls.equipment_type].full++;
+      else if (cls.loading_status === 'nearly-full') acc[cls.equipment_type].nearlyFull++;
+      else acc[cls.equipment_type].available++;
+      return acc;
+    }, {});
+
+    res.json({
+      success: true,
+      data: {
+        date: targetDate,
+        period: period || 'day',
+        summary: {
+          totalClasses,
+          fullClasses,
+          nearlyFullClasses,
+          availableClasses,
+          classesWithWaitlist,
+          averageUtilization
+        },
+        equipmentBreakdown,
+        classes: enrichedMetrics
+      }
+    });
+
+  } catch (error) {
+    console.error('Get class loading metrics error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
 // GET /api/classes/:id - Get single class
 router.get('/:id', async (req, res) => {
   try {
@@ -702,6 +838,142 @@ router.put('/:id/cancel', authenticateToken, requireInstructor, async (req, res)
 
   } catch (error) {
     console.error('Cancel class error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// GET /api/classes/loading-metrics - Get class loading metrics for reception dashboard
+router.get('/loading-metrics', authenticateToken, requireAdminOrReception, async (req, res) => {
+  try {
+    const { date, period } = req.query;
+    
+    // Default to today if no date specified
+    const targetDate = date || new Date().toISOString().split('T')[0];
+    
+    // Get today's and upcoming classes with capacity information
+    let dateFilter = '';
+    let dateParams = [];
+    
+    if (period === 'week') {
+      // Next 7 days
+      dateFilter = 'AND c.date BETWEEN ? AND date(?, "+7 days")';
+      dateParams = [targetDate, targetDate];
+    } else if (period === 'upcoming') {
+      // All future classes
+      dateFilter = 'AND c.date >= ?';
+      dateParams = [targetDate];
+    } else {
+      // Single day (default)
+      dateFilter = 'AND c.date = ?';
+      dateParams = [targetDate];
+    }
+
+    const classMetrics = await db.all(`
+      SELECT 
+        c.id,
+        c.name,
+        c.date,
+        c.time,
+        c.capacity,
+        c.enrolled,
+        c.equipment_type,
+        c.room,
+        c.level,
+        c.category,
+        u.name as instructor_name,
+        COUNT(CASE WHEN b.status = 'confirmed' THEN 1 END) as confirmed_bookings,
+        COUNT(CASE WHEN w.id IS NOT NULL THEN 1 END) as waitlist_count,
+        (c.capacity - COUNT(CASE WHEN b.status = 'confirmed' THEN 1 END)) as available_spots
+      FROM classes c
+      JOIN users u ON c.instructor_id = u.id
+      LEFT JOIN bookings b ON c.id = b.class_id
+      LEFT JOIN waitlist w ON c.id = w.class_id
+      WHERE c.status = 'active' ${dateFilter}
+      GROUP BY c.id, c.name, c.date, c.time, c.capacity, c.enrolled, c.equipment_type, c.room, c.level, c.category, u.name
+      ORDER BY c.date, c.time
+    `, dateParams);
+
+    // Calculate loading status for each class
+    const enrichedMetrics = classMetrics.map(cls => {
+      const utilizationRate = (cls.confirmed_bookings / cls.capacity) * 100;
+      let loadingStatus = 'available';
+      let loadingColor = '#4CAF50'; // Green
+      let loadingIcon = 'event-available';
+
+      if (utilizationRate >= 100) {
+        loadingStatus = 'full';
+        loadingColor = '#f44336'; // Red
+        loadingIcon = 'event-busy';
+      } else if (utilizationRate >= 80) {
+        loadingStatus = 'nearly-full';
+        loadingColor = '#FF9800'; // Orange
+        loadingIcon = 'event-note';
+      } else if (utilizationRate >= 50) {
+        loadingStatus = 'half-full';
+        loadingColor = '#2196F3'; // Blue
+        loadingIcon = 'event';
+      }
+
+      return {
+        ...cls,
+        utilization_rate: Math.round(utilizationRate),
+        loading_status: loadingStatus,
+        loading_color: loadingColor,
+        loading_icon: loadingIcon,
+        has_waitlist: cls.waitlist_count > 0
+      };
+    });
+
+    // Calculate summary statistics
+    const totalClasses = enrichedMetrics.length;
+    const fullClasses = enrichedMetrics.filter(c => c.loading_status === 'full').length;
+    const nearlyFullClasses = enrichedMetrics.filter(c => c.loading_status === 'nearly-full').length;
+    const availableClasses = enrichedMetrics.filter(c => c.loading_status === 'available' || c.loading_status === 'half-full').length;
+    const classesWithWaitlist = enrichedMetrics.filter(c => c.has_waitlist).length;
+
+    const averageUtilization = totalClasses > 0 ? 
+      Math.round(enrichedMetrics.reduce((sum, c) => sum + c.utilization_rate, 0) / totalClasses) : 0;
+
+    // Group by equipment type for quick overview
+    const equipmentBreakdown = enrichedMetrics.reduce((acc, cls) => {
+      if (!acc[cls.equipment_type]) {
+        acc[cls.equipment_type] = {
+          total: 0,
+          full: 0,
+          nearlyFull: 0,
+          available: 0
+        };
+      }
+      acc[cls.equipment_type].total++;
+      if (cls.loading_status === 'full') acc[cls.equipment_type].full++;
+      else if (cls.loading_status === 'nearly-full') acc[cls.equipment_type].nearlyFull++;
+      else acc[cls.equipment_type].available++;
+      return acc;
+    }, {});
+
+    res.json({
+      success: true,
+      data: {
+        date: targetDate,
+        period: period || 'day',
+        summary: {
+          totalClasses,
+          fullClasses,
+          nearlyFullClasses,
+          availableClasses,
+          classesWithWaitlist,
+          averageUtilization
+        },
+        equipmentBreakdown,
+        classes: enrichedMetrics
+      }
+    });
+
+  } catch (error) {
+    console.error('Get class loading metrics error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error'

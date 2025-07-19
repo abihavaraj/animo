@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { ActivityIndicator, Button, Card, Chip } from 'react-native-paper';
 import { Body, Caption, H1, H2 } from '../../../components/ui/Typography';
@@ -166,7 +166,7 @@ function PaymentHistory() {
                   </View>
                   <Chip 
                     style={[styles.statusChip, { backgroundColor: getStatusColor(payment.status) }]}
-                    textStyle={{ ...styles.chipText, color: 'white' }}
+                    textStyle={{ ...styles.chipText, color: backgroundColor }}
                   >
                     {payment.status.charAt(0).toUpperCase() + payment.status.slice(1)}
                   </Chip>

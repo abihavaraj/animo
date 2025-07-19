@@ -19,6 +19,7 @@ router.get('/', authenticateToken, async (req, res) => {
         c.time as class_time,
         c.level as class_level,
         c.equipment_type,
+        c.room,
         u.name as user_name,
         u.email as user_email,
         i.name as instructor_name
@@ -84,6 +85,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
         c.time as class_time,
         c.level as class_level,
         c.equipment_type,
+        c.room,
         c.capacity,
         u.name as user_name,
         u.email as user_email,
@@ -309,7 +311,8 @@ router.post('/', authenticateToken, [
           c.date as class_date,
           c.time as class_time,
           c.level as class_level,
-          c.equipment_type
+          c.equipment_type,
+          c.room
         FROM bookings b
         JOIN classes c ON b.class_id = c.id
         WHERE b.id = ?
@@ -460,8 +463,8 @@ router.put('/:id/cancel', authenticateToken, async (req, res) => {
         [booking.class_id]
       );
 
-      // If class was full and cancellation is 3+ hours before, notify waitlist
-      if (wasClassFull && hoursDifference >= 3) {
+      // If class was full, automatically promote next person from waitlist
+      if (wasClassFull) {
         // Get next person in waitlist
         const nextInLine = await db.get(
           'SELECT w.*, u.name as user_name, u.email as user_email FROM waitlist w JOIN users u ON w.user_id = u.id WHERE w.class_id = ? ORDER BY w.position LIMIT 1',
@@ -520,7 +523,8 @@ router.put('/:id/cancel', authenticateToken, async (req, res) => {
 
             // Schedule notification for the promoted user
             const notificationTime = new Date().toISOString();
-            const message = `🎉 Great news! A spot opened up in "${booking.class_name}" on ${new Date(booking.date).toLocaleDateString()} at ${booking.time}. You've been automatically enrolled!`;
+            const classDate = new Date(booking.date).toLocaleDateString();
+            const message = `🎉 Great news! A spot opened up in "${booking.class_name}" on ${classDate} at ${booking.time}. You are now booked automatically!`;
             
             await db.run(`
               INSERT INTO notifications (class_id, user_id, type, message, scheduled_time)
@@ -534,8 +538,8 @@ router.put('/:id/cancel', authenticateToken, async (req, res) => {
 
       await db.run('COMMIT');
 
-      const responseMessage = wasClassFull && hoursDifference >= 3 
-        ? 'Booking cancelled successfully. The next person on the waitlist has been notified.'
+      const responseMessage = wasClassFull 
+        ? 'Booking cancelled successfully. The next person on the waitlist has been automatically booked and notified.'
         : 'Booking cancelled successfully';
 
       res.json({
@@ -544,7 +548,7 @@ router.put('/:id/cancel', authenticateToken, async (req, res) => {
         data: {
           cancelledAt: new Date().toISOString(),
           hoursBeforeClass: hoursDifference.toFixed(1),
-          waitlistPromoted: wasClassFull && hoursDifference >= 3
+          waitlistPromoted: wasClassFull
         }
       });
 
@@ -844,6 +848,7 @@ router.get('/waitlist/user', authenticateToken, async (req, res) => {
         c.date as class_date,
         c.time as class_time,
         c.level as class_level,
+        c.room,
         u.name as instructor_name
       FROM waitlist w
       JOIN classes c ON w.class_id = c.id
@@ -907,6 +912,7 @@ router.get('/user/:userId', authenticateToken, requireAdminOrReception, async (r
         c.date as class_date,
         c.time as class_time,
         c.equipment_type,
+        c.room,
         u_instructor.name as instructor_name
       FROM bookings b
       JOIN classes c ON b.class_id = c.id
@@ -1057,6 +1063,7 @@ router.get('/waitlist/:userId', authenticateToken, async (req, res) => {
         c.time,
         c.capacity,
         c.enrolled,
+        c.room,
         u.name as instructor_name
       FROM waitlist w
       JOIN classes c ON w.class_id = c.id
@@ -1376,6 +1383,7 @@ router.post('/reception-assign', authenticateToken, requireAdminOrReception, [
           c.time as class_time,
           c.level as class_level,
           c.equipment_type,
+          c.room,
           u.name as user_name,
           u.email as user_email
         FROM bookings b
@@ -1586,7 +1594,8 @@ router.post('/reception-cancel', authenticateToken, requireAdminOrReception, [
 
             // Schedule notification for the promoted user
             const notificationTime = new Date().toISOString();
-            const message = `🎉 Great news! A spot opened up in "${class_.name}" on ${new Date(class_.date).toLocaleDateString()} at ${class_.time}. You've been automatically enrolled!`;
+            const classDate = new Date(class_.date).toLocaleDateString();
+            const message = `🎉 Great news! A spot opened up in "${class_.name}" on ${classDate} at ${class_.time}. You are now booked automatically!`;
             
             await db.run(`
               INSERT INTO notifications (class_id, user_id, type, message, scheduled_time)

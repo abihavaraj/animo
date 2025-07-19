@@ -2,20 +2,21 @@ import { Body, Caption, H1, H2, H3 } from '@/components/ui/Typography';
 import { layout, spacing } from '@/constants/Spacing';
 import { useThemeColor } from '@/hooks/useThemeColor';
 import { MaterialIcons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, Dimensions, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import {
-    ActivityIndicator,
-    Badge,
-    Button,
-    Card,
-    Chip,
-    Modal,
-    Portal,
-    Searchbar,
-    SegmentedButtons,
-    Surface,
+  ActivityIndicator,
+  Badge,
+  Button,
+  Card,
+  Chip,
+  FAB,
+  Modal,
+  Portal,
+  Searchbar,
+  SegmentedButtons,
+  Surface,
 } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 import { AppDispatch, RootState } from '../../store';
@@ -50,6 +51,8 @@ function PCCalendarView() {
   const textMutedColor = useThemeColor({}, 'textMuted');
   const primaryColor = useThemeColor({}, 'primary');
   const accentColor = useThemeColor({}, 'accent');
+  // Blue color that works well in both light and dark modes
+  const availableColor = '#5B9BD5';
   const successColor = useThemeColor({}, 'success');
   const warningColor = useThemeColor({}, 'warning');
   const errorColor = useThemeColor({}, 'error');
@@ -66,13 +69,21 @@ function PCCalendarView() {
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [selectedClass, setSelectedClass] = useState<ClassItem | null>(null);
 
+  // Helper function to get today's date string
+  const getTodayString = () => {
+    const today = new Date();
+    return today.getFullYear() + '-' + 
+      String(today.getMonth() + 1).padStart(2, '0') + '-' + 
+      String(today.getDate()).padStart(2, '0');
+  };
+
   useEffect(() => {
     loadCalendarData();
   }, []);
 
   useEffect(() => {
     generateMarkedDates();
-  }, [classes, bookings, selectedDate, primaryColor, successColor, warningColor, errorColor, accentColor]);
+  }, [classes, bookings, selectedDate, primaryColor, successColor, warningColor, errorColor, accentColor, availableColor]);
 
   const loadCalendarData = async () => {
     try {
@@ -101,7 +112,7 @@ function PCCalendarView() {
         ['confirmed', 'waitlist'].includes(booking.status)
       );
       
-      let color = primaryColor;
+      let color = availableColor; // Blue for available classes (good visibility in both modes)
       if (userBooking) {
         color = userBooking.status === 'confirmed' ? successColor : warningColor;
       } else if (classItem.enrolled >= classItem.capacity) {
@@ -124,7 +135,7 @@ function PCCalendarView() {
     }
 
     setMarkedDates(marked);
-  }, [classes, bookings, selectedDate, primaryColor, successColor, warningColor, errorColor, accentColor]);
+  }, [classes, bookings, selectedDate, primaryColor, successColor, warningColor, errorColor, accentColor, availableColor]);
 
   const getClassesForDate = (date: string): ClassItem[] => {
     const classesArray = Array.isArray(classes) ? classes : [];
@@ -252,7 +263,7 @@ function PCCalendarView() {
         <View style={[styles.calendarContainer, { borderColor: textMutedColor }]}>
           <Calendar
             current={selectedDate}
-            onDayPress={(day) => setSelectedDate(day.dateString)}
+            onDayPress={(day: { dateString: string }) => setSelectedDate(day.dateString)}
             markingType={'multi-dot'}
             markedDates={markedDates}
             renderHeader={(date: any) => {
@@ -274,12 +285,12 @@ function PCCalendarView() {
               backgroundColor: surfaceColor,
               calendarBackground: surfaceColor,
               selectedDayBackgroundColor: accentColor,
-              selectedDayTextColor: 'white',
+              selectedDayTextColor: backgroundColor,
               todayTextColor: primaryColor,
               dayTextColor: textColor,
               textDisabledColor: textMutedColor,
               dotColor: primaryColor,
-              selectedDotColor: 'white',
+              selectedDotColor: backgroundColor,
               arrowColor: primaryColor,
               monthTextColor: textColor,
               textDayFontFamily: 'System',
@@ -327,7 +338,7 @@ function PCCalendarView() {
                   <Card.Content style={styles.classCardContent}>
                     <View style={styles.classCardHeader}>
                       <View style={styles.timeSection}>
-                        <H3 style={{ ...styles.classTime, color: primaryColor }}>{formatTime(classItem.startTime)}</H3>
+                        <H3 style={{ ...styles.classTime, color: accentColor }}>{formatTime(classItem.startTime)}</H3>
                       </View>
                       
                       <View style={styles.classDetails}>
@@ -337,13 +348,13 @@ function PCCalendarView() {
                         <View style={styles.classMetrics}>
                           <Chip
                             style={[styles.levelChip, { backgroundColor: getLevelColor(classItem.level) }]}
-                            textStyle={{ ...styles.chipText, color: 'white' }}
+                            textStyle={{ ...styles.chipText, color: backgroundColor }}
                             compact
                           >
                             {classItem.level}
                           </Chip>
                           
-                          <Badge style={[styles.availabilityBadge, { backgroundColor: primaryColor }]}>
+                          <Badge style={[styles.availabilityBadge, { backgroundColor: accentColor }]}>
                             {`${classItem.enrolled}/${classItem.capacity}`}
                           </Badge>
                           
@@ -351,7 +362,7 @@ function PCCalendarView() {
                             <Chip
                               icon="check-circle"
                               style={[styles.bookedChip, { backgroundColor: successColor }]}
-                              textStyle={styles.bookedChipText}
+                              textStyle={{ ...styles.bookedChipText, color: backgroundColor }}
                               compact
                             >
                               Booked
@@ -433,6 +444,18 @@ function PCCalendarView() {
           )}
         </Modal>
       </Portal>
+
+      {/* FAB positioned outside ScrollView for proper click handling */}
+      <FAB
+        icon={() => <MaterialIcons name="today" size={24} color={backgroundColor} />}
+        label="Today"
+        style={[styles.fab, { backgroundColor: accentColor }]}
+        onPress={() => {
+          const today = getTodayString();
+          console.log(`📅 Today button pressed - navigating to: ${today}`);
+          setSelectedDate(today);
+        }}
+      />
     </View>
   );
 }
@@ -561,7 +584,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   bookedChipText: {
-    color: 'white',
+    // color will be overridden by inline style based on theme
     fontSize: 12,
     fontWeight: '600',
   },
@@ -611,6 +634,17 @@ const styles = StyleSheet.create({
   },
   modalConfirmButton: {
     flex: 1,
+  },
+  fab: {
+    position: 'absolute',
+    margin: spacing.sm,
+    right: 10,
+    bottom: 20, // Visible position above tab bar
+    elevation: 8, // Higher elevation to ensure it's clickable
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    zIndex: 1000, // Ensure it's above other elements
   },
 });
 

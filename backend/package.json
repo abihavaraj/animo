@@ -7,9 +7,15 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "init-db": "node scripts/initDatabase.js",
-    "seed-db": "node scripts/seedDatabase.js"
+    "seed-db": "node scripts/seedDatabase.js",
+    "migrate-supabase": "node scripts/migrateToSupabase.js",
+    "migrate-supabase-v2": "node scripts/migrateToSupabaseV2.js",
+    "setup-supabase": "node scripts/setup-supabase.js",
+    "test-supabase": "node test-supabase-connection.js"
   },
   "dependencies": {
+    "@supabase/postgrest-js": "^1.21.0",
+    "@supabase/supabase-js": "^2.52.0",
     "axios": "^1.9.0",
     "bcryptjs": "^2.4.3",
     "body-parser": "^1.20.2",
@@ -23,7 +29,8 @@
     "multer": "^2.0.1",
     "node-cron": "^4.0.7",
     "node-fetch": "^3.3.2",
-    "sqlite3": "^5.1.6"
+    "sqlite3": "^5.1.6",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

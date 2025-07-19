@@ -1,12 +1,11 @@
 import { Caption, H2 } from '@/components/ui/Typography';
-import { Colors } from '@/constants/Colors';
-import { layout, spacing } from '@/constants/Spacing';
+import { spacing } from '@/constants/Spacing';
 import { useThemeColor } from '@/hooks/useThemeColor';
 import { MaterialIcons } from '@expo/vector-icons';
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, AppState, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
-import { Button, Card, Chip, FAB, Modal, Paragraph, Portal, SegmentedButtons, Surface } from 'react-native-paper';
+import { Button, Card, Chip, FAB, Paragraph, SegmentedButtons, Surface } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 import { bookingService } from '../../services/bookingService';
 import { BackendClass } from '../../services/classService';
@@ -108,7 +107,7 @@ function DayClassesModal({
   onCancelBooking, 
   onJoinWaitlist, 
   onLeaveWaitlist 
-  }: DayClassesModalProps) {
+}: DayClassesModalProps) {
     // Theme colors for modal
     const backgroundColor = useThemeColor({}, 'background');
     const surfaceColor = useThemeColor({}, 'surface');
@@ -116,10 +115,12 @@ function DayClassesModal({
     const textSecondaryColor = useThemeColor({}, 'textSecondary');
     const textMutedColor = useThemeColor({}, 'textMuted');
     const primaryColor = useThemeColor({}, 'primary');
-    const accentColor = useThemeColor({}, 'accent');
-    const successColor = useThemeColor({}, 'success');
-    const warningColor = useThemeColor({}, 'warning');
-    const errorColor = useThemeColor({}, 'error');
+      const accentColor = useThemeColor({}, 'accent');
+  // Blue color that works well in both light and dark modes
+  const availableColor = '#5B9BD5';
+  const successColor = useThemeColor({}, 'success');
+  const warningColor = useThemeColor({}, 'warning');
+  const errorColor = useThemeColor({}, 'error');
 
     const formatTime = (timeString: string) => {
     if (!timeString) return '';
@@ -263,7 +264,7 @@ function DayClassesModal({
             { backgroundColor: isCancellable ? errorColor : textMutedColor },
             !isCancellable && styles.disabledButton
           ]}
-          labelStyle={{ color: 'white' }}
+          labelStyle={{ color: backgroundColor }}
           icon="cancel"
           disabled={!isCancellable}
         >
@@ -295,7 +296,7 @@ function DayClassesModal({
           mode="contained" 
           onPress={() => onJoinWaitlist(classItem.id)}
           style={[styles.actionButton, { backgroundColor: warningColor }]}
-          labelStyle={{ color: 'white' }}
+          labelStyle={{ color: backgroundColor }}
           icon="queue"
         >
           Join Waitlist
@@ -312,7 +313,7 @@ function DayClassesModal({
           { backgroundColor: isBookable ? accentColor : textMutedColor },
           !isBookable && styles.disabledButton
         ]}
-        labelStyle={{ color: 'white' }}
+        labelStyle={{ color: backgroundColor }}
         icon="calendar-today"
         disabled={!isBookable}
       >
@@ -321,96 +322,125 @@ function DayClassesModal({
     );
   };
 
+  if (!visible) return null;
+
   return (
-    <Portal>
-      <Modal visible={visible} onDismiss={onDismiss} contentContainerStyle={styles.modalContainer}>
-        <Surface style={[styles.modalSurface, { backgroundColor: surfaceColor }]}>
-          <ScrollView 
-            style={styles.modalContent} 
-            contentContainerStyle={styles.modalScrollContent}
-            showsVerticalScrollIndicator={false}
-          >
-            <View style={styles.modalHeader}>
-              <H2 style={{ color: textColor }}>{formatDate(selectedDate)}</H2>
-              <Button mode="text" onPress={onDismiss}>
-                <MaterialIcons name="close" size={24} color={textSecondaryColor} />
-              </Button>
+    <View style={styles.modalOverlay}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onDismiss} />
+      <View style={[styles.modalSurface, { backgroundColor: surfaceColor }]}>
+        <ScrollView 
+          style={styles.modalContent} 
+          contentContainerStyle={styles.modalScrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.modalHeader}>
+            <H2 style={{ color: textColor }}>{formatDate(selectedDate)}</H2>
+            <Button mode="text" onPress={onDismiss}>
+              <MaterialIcons name="close" size={24} color={textSecondaryColor} />
+            </Button>
+          </View>
+
+          {classes.length === 0 ? (
+            <View style={styles.emptyState}>
+              <MaterialIcons name="event-busy" size={48} color={textMutedColor} />
+              <Paragraph style={{ color: textColor, textAlign: 'center', marginTop: spacing.md }}>
+                No classes available on this date
+              </Paragraph>
             </View>
+          ) : (
+            classes.map((classItem) => {
+              const canBook = isBookable(classItem);
+              const isCancellable = isBookingCancellable(classItem);
+              const isPast = isPastDate(classItem.date);
 
-            {classes.length === 0 ? (
-              <View style={styles.emptyState}>
-                <MaterialIcons name="event-busy" size={48} color={textMutedColor} />
-                <Paragraph style={{ color: textColor, textAlign: 'center', marginTop: spacing.md }}>
-                  No classes available on this date
-                </Paragraph>
-              </View>
-            ) : (
-                              classes.map((classItem) => {
-                  const canBook = isBookable(classItem);
-                  const isCancellable = isBookingCancellable(classItem);
-                  const isPast = isPastDate(classItem.date);
-
-                return (
-                                                    <Surface key={classItem.id} style={[
-                   styles.classModalItemImproved,
-                   classItem.isBooked ? { backgroundColor: `${successColor}10` } : {},
-                   classItem.waitlistPosition ? { backgroundColor: `${warningColor}10` } : {}
-                 ]}>
-                   <View>
-                     <View style={styles.classModalHeader}>
-                       <View style={styles.timeSection}>
-                         <H2 style={{ color: primaryColor }}>{formatTime(classItem.startTime)}</H2>
-                         <Caption style={{ color: textSecondaryColor }}>
-                           to {formatTime(classItem.endTime)}
-                         </Caption>
-                       </View>
-                       
-                       <View style={styles.classModalTitleRow}>
-                         <View style={styles.classNameSection}>
-                           <H2 style={{ color: textColor }}>{classItem.name}</H2>
-                           <Caption style={{ color: textSecondaryColor }}>
-                             with {classItem.instructorName}
-                           </Caption>
-                         </View>
-                         
-                         <View style={styles.classModalBadges}>
-                           {classItem.isBooked && (
-                             <Chip 
-                               style={[styles.statusChip, { backgroundColor: successColor }]}
-                               textStyle={styles.statusChipText}
-                               icon="check-circle"
-                             >
-                               Booked
-                             </Chip>
-                           )}
- 
-                           {classItem.waitlistPosition && (
-                             <Chip 
-                               style={[styles.statusChip, { backgroundColor: warningColor }]}
-                               textStyle={styles.statusChipText}
-                               icon="queue"
-                             >
-                               Waitlist #{classItem.waitlistPosition}
-                             </Chip>
-                           )}
-                         </View>
-                       </View>
-                     </View>
-                     
-                     {renderEnrollmentInfo(classItem.enrolled, classItem.capacity, isPast)}
-                     
-                     <View style={styles.classModalActionsImproved}>
-                       {renderBookingButton(classItem, canBook, isCancellable, isPast)}
-                     </View>
-                   </View>
-                 </Surface>
-                );
-              })
-            )}
-          </ScrollView>
-        </Surface>
-      </Modal>
-    </Portal>
+              return (
+                <Surface key={classItem.id} style={[
+                  styles.classModalItemImproved,
+                  { 
+                    backgroundColor: textColor + '15',
+                    borderColor: textColor + '80',
+                    borderWidth: 3,
+                    shadowColor: textColor,
+                    shadowOffset: { width: 0, height: 3 },
+                    shadowOpacity: 0.2,
+                    shadowRadius: 6,
+                    elevation: 5
+                  },
+                  classItem.isBooked ? { backgroundColor: `${successColor}20` } : {},
+                  classItem.waitlistPosition ? { backgroundColor: `${warningColor}20` } : {}
+                ]}>
+                  <View>
+                    <View style={styles.classModalHeader}>
+                      <View style={[styles.timeSection, { 
+                        backgroundColor: availableColor + '90',
+                        borderRadius: 12,
+                        padding: 12,
+                        borderWidth: 2,
+                        borderColor: availableColor,
+                        minWidth: 80,
+                        alignItems: 'center'
+                      }]}>
+                        <H2 style={{ 
+                          color: backgroundColor, 
+                          fontWeight: 'bold',
+                          fontSize: 20,
+                          textAlign: 'center'
+                        }}>{formatTime(classItem.startTime)}</H2>
+                        <Caption style={{ 
+                          color: backgroundColor, 
+                          fontWeight: '600',
+                          textAlign: 'center',
+                          fontSize: 12
+                        }}>
+                          to {formatTime(classItem.endTime)}
+                        </Caption>
+                      </View>
+                      <View style={styles.classModalTitleRow}>
+                        <View style={styles.classNameSection}>
+                          <H2 style={{ color: textColor }}>{classItem.name}</H2>
+                          <Caption style={{ color: textSecondaryColor }}>
+                            with {classItem.instructorName}
+                          </Caption>
+                          {classItem.room && (
+                            <Caption style={{ color: textSecondaryColor }}>
+                              📍 {classItem.room}
+                            </Caption>
+                          )}
+                        </View>
+                        <View style={styles.classModalBadges}>
+                          {classItem.isBooked && (
+                            <Chip 
+                              style={[styles.statusChip, { backgroundColor: successColor }]}
+                              textStyle={{ ...styles.statusChipText, color: backgroundColor }}
+                              icon="check-circle"
+                            >
+                              Booked
+                            </Chip>
+                          )}
+                          {classItem.waitlistPosition && (
+                            <Chip 
+                              style={[styles.statusChip, { backgroundColor: warningColor }]}
+                              textStyle={{ ...styles.statusChipText, color: backgroundColor }}
+                              icon="queue"
+                            >
+                              Waitlist #{classItem.waitlistPosition}
+                            </Chip>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+                    {renderEnrollmentInfo(classItem.enrolled, classItem.capacity, isPast)}
+                    <View style={styles.classModalActionsImproved}>
+                      {renderBookingButton(classItem, canBook, isCancellable, isPast)}
+                    </View>
+                  </View>
+                </Surface>
+              );
+            })
+          )}
+        </ScrollView>
+      </View>
+    </View>
   );
 }
 
@@ -429,6 +459,8 @@ function ClassesView() {
   const textMutedColor = useThemeColor({}, 'textMuted');
   const primaryColor = useThemeColor({}, 'primary');
   const accentColor = useThemeColor({}, 'accent');
+  // Blue color that works well in both light and dark modes
+  const availableColor = '#5B9BD5';
   const successColor = useThemeColor({}, 'success');
   const warningColor = useThemeColor({}, 'warning');
   const errorColor = useThemeColor({}, 'error');
@@ -680,7 +712,7 @@ function ClassesView() {
         } else if (classItem.enrolled >= classItem.capacity) {
           dotColor = errorColor; // Red for full classes
         } else {
-          dotColor = primaryColor; // Warm taupe for available classes
+          dotColor = availableColor; // Blue for available classes (good visibility in both modes)
         }
       }
       
@@ -1050,10 +1082,7 @@ function ClassesView() {
               }
             ]}
             style={[styles.segmentedButtonsImproved, { 
-              backgroundColor: 'transparent', 
-              borderColor: textMutedColor,
-              borderWidth: 1,
-              borderRadius: 12
+              backgroundColor: 'transparent'
             }]}
           />
         </View>
@@ -1119,13 +1148,13 @@ function ClassesView() {
               calendarBackground: surfaceColor,
               textSectionTitleColor: primaryColor,
               selectedDayBackgroundColor: primaryColor,
-              selectedDayTextColor: 'white',
+              selectedDayTextColor: backgroundColor,
               todayTextColor: primaryColor,
               todayBackgroundColor: `${primaryColor}08`,
               dayTextColor: textColor,
               textDisabledColor: textMutedColor,
               dotColor: primaryColor,
-              selectedDotColor: 'white',
+              selectedDotColor: backgroundColor,
               arrowColor: primaryColor,
               disabledArrowColor: textMutedColor,
               monthTextColor: textColor,
@@ -1156,7 +1185,7 @@ function ClassesView() {
             <Paragraph style={[styles.legendTitle, { color: textColor }]}>Class Status</Paragraph>
             <View style={styles.legendRowInline}>
               <View style={styles.legendItemInline}>
-                <View style={[styles.legendDotLarge, { backgroundColor: primaryColor }]} />
+                <View style={[styles.legendDotLarge, { backgroundColor: availableColor }]} />
                 <Paragraph style={[styles.legendTextInline, { color: textSecondaryColor }]}>Available</Paragraph>
               </View>
               <View style={styles.legendItemInline}>
@@ -1277,7 +1306,7 @@ function ClassesView() {
                               {classItem.isBooked && (
                                 <Chip 
                                   style={[styles.bookedChip, { backgroundColor: successColor }]}
-                                  textStyle={styles.statusChipText}
+                                  textStyle={{ ...styles.statusChipText, color: backgroundColor }}
                                   icon="check-circle"
                                   compact
                                 >
@@ -1288,7 +1317,7 @@ function ClassesView() {
                               {classItem.waitlistPosition && (
                                 <Chip 
                                   style={[styles.waitlistChip, { backgroundColor: warningColor, marginLeft: 4 }]}
-                                  textStyle={styles.statusChipText}
+                                  textStyle={{ ...styles.statusChipText, color: backgroundColor }}
                                   icon="queue"
                                   compact
                                 >
@@ -1360,7 +1389,7 @@ function ClassesView() {
 
       {/* FAB positioned outside ScrollView for proper click handling */}
       <FAB
-        icon={() => <MaterialIcons name="today" size={24} color="white" />}
+        icon={() => <MaterialIcons name="today" size={24} color={backgroundColor} />}
         label="Today"
         style={[styles.fab, { backgroundColor: accentColor }]}
         onPress={() => {
@@ -1483,7 +1512,7 @@ const styles = StyleSheet.create({
     margin: spacing.sm,
     right: 10,
     bottom: 20, // Visible position above tab bar
-    elevation: 8, // Higher elevation to ensure it's clickable
+    elevation: 8, // Higher elevation to ensurre it's clickable
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
@@ -1578,7 +1607,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   chipText: {
-    color: 'white', // Always white on colored chips
+    // color will be overridden by inline style based on theme
     fontSize: 11,
     fontWeight: '700',
     textAlign: 'center',
@@ -1667,7 +1696,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   bookButtonLabel: {
-    color: 'white', // Always white on colored buttons
+    // color will be overridden by inline style based on theme
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -1681,7 +1710,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   cancelButtonLabel: {
-    color: 'white', // Always white on colored buttons
+    // color will be overridden by inline style based on theme
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -1699,7 +1728,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   statusChipText: {
-    color: 'white', // Always white on colored chips
+    // color will be overridden by inline style based on theme
     fontSize: 12,
     fontWeight: '600',
   },
@@ -1723,20 +1752,28 @@ const styles = StyleSheet.create({
     // backgroundColor will be overridden by inline style
   },
   // Modal Styles
-  modalContainer: {
-    margin: 20,
-    maxHeight: '70%',
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
   },
-  modalCard: {
+  modalSurface: {
+    borderRadius: 16,
+    padding: 18,
     width: '90%',
-    maxWidth: 500,
-    maxHeight: '85%',
-    backgroundColor: Colors.light.surface,
-    borderRadius: layout.borderRadius,
+    maxWidth: 400,
+    minHeight: 580,
+    alignItems: 'stretch',
     elevation: 8,
-    boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)',
-    padding: 20,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1746,7 +1783,6 @@ const styles = StyleSheet.create({
   },
   modalScrollContent: {
     flexGrow: 1,
-    paddingBottom: 5,
   },
   modalTitle: {
     fontSize: 22,
@@ -1755,7 +1791,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   modalContent: {
-    maxHeight: 400,
+    flex: 1,
   },
   // Improved Modal Item
   classModalItemImproved: {
@@ -1763,13 +1799,8 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     marginBottom: 12,
-    borderWidth: 1,
-    // borderColor will be overridden by inline style
-    // shadowColor will be overridden by inline style
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 2,
+    // borderWidth and borderColor will be overridden by inline style
+    // shadowColor, shadowOffset, etc. will be overridden by inline style
   },
   bookedClassItem: {
     // backgroundColor will be overridden by inline style
@@ -1866,8 +1897,8 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   pastDateChipText: {
-    color: 'white', // Always white on colored chips
-    fontSize: 12,
+    // color will be overridden by inline style based on theme
+    fontSize: 11,
     fontWeight: '600',
   },
   pastClassItem: {
@@ -1999,12 +2030,6 @@ const styles = StyleSheet.create({
     // color will be overridden by inline style
   },
   // New styles for DayClassesModal
-  modalSurface: {
-    borderRadius: 16,
-    elevation: 8,
-    boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.15)',
-    padding: 20,
-  },
   emptyState: {
     alignItems: 'center',
     paddingVertical: 40,
