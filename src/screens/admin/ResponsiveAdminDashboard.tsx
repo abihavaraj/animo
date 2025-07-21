@@ -5,8 +5,7 @@ import { useThemeColor } from '@/hooks/useThemeColor';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useEffect, useState } from 'react';
-import { Dimensions, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Button as PaperButton, Card as PaperCard } from 'react-native-paper';
+import { Dimensions, StyleSheet, View } from 'react-native';
 import { useDispatch } from 'react-redux';
 import { AppDispatch } from '../../store';
 
@@ -85,6 +84,28 @@ function ResponsiveAdminDashboard() {
     (navigation as any).navigate('AssignmentHistory');
   };
 
+  // --- Temporarily Disabled ---
+  // The Admin Dashboard is temporarily disabled pending migration to Supabase.
+  // The components below rely on legacy API endpoints that no longer exist.
+  
+  return (
+    <View style={[styles.container, { backgroundColor }]}>
+      <View style={[styles.header, { backgroundColor: surfaceColor, borderBottomWidth: 1, borderBottomColor: textMutedColor }]}>
+        <H1 style={{...styles.headerTitle, color: textColor}}>ANIMO Studio</H1>
+        <Caption style={{...styles.headerSubtitle, color: textSecondaryColor}}>Administrator Dashboard</Caption>
+      </View>
+      <View style={styles.placeholderContainer}>
+        <MaterialIcons name="construction" size={48} color={accentColor} />
+        <H2 style={{...styles.placeholderTitle, color: textColor}}>Admin Dashboard Under Maintenance</H2>
+        <Body style={{...styles.placeholderMessage, color: textSecondaryColor}}>
+          We are currently migrating our systems to a new and improved infrastructure. 
+          Full admin functionality will be restored shortly.
+        </Body>
+      </View>
+    </View>
+  );
+
+  /*
   // Mobile layout
   if (!isLargeScreen) {
     return (
@@ -99,7 +120,7 @@ function ResponsiveAdminDashboard() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         >
-          {/* Mobile-optimized dashboard content */}
+          // Mobile-optimized dashboard content
           <PaperCard style={[styles.mobileCard, { backgroundColor: surfaceColor }]}>
             <PaperCard.Content>
               <H2 style={{...styles.cardTitle, color: textColor}}>Studio Overview</H2>
@@ -163,7 +184,7 @@ function ResponsiveAdminDashboard() {
   // Desktop layout
   return (
     <View style={[styles.container, { backgroundColor }]}>
-      {/* Header */}
+      // Header
       <View style={[styles.header, { backgroundColor: surfaceColor, borderBottomWidth: 1, borderBottomColor: textMutedColor }]}>
         <H1 style={{...styles.headerTitle, color: textColor}}>ANIMO Studio</H1>
         <Caption style={{...styles.headerSubtitle, color: textSecondaryColor}}>Administrator Dashboard</Caption>
@@ -175,7 +196,7 @@ function ResponsiveAdminDashboard() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {/* Metrics Overview */}
+        // Metrics Overview
         <PaperCard style={[styles.card, { backgroundColor: surfaceColor, borderColor: textMutedColor }]}>
           <PaperCard.Content style={styles.cardContent}>
             <H2 style={{...styles.cardTitle, color: textColor}}>Studio Overview</H2>
@@ -215,7 +236,7 @@ function ResponsiveAdminDashboard() {
           </PaperCard.Content>
         </PaperCard>
 
-        {/* Revenue & Growth */}
+        // Revenue & Growth
         <PaperCard style={[styles.card, { backgroundColor: surfaceColor, borderColor: textMutedColor }]}>
           <PaperCard.Content style={styles.cardContent}>
             <H2 style={{...styles.cardTitle, color: textColor}}>Financial Overview</H2>
@@ -232,7 +253,7 @@ function ResponsiveAdminDashboard() {
           </PaperCard.Content>
         </PaperCard>
 
-        {/* Quick Actions */}
+        // Quick Actions
         <PaperCard style={[styles.card, { backgroundColor: surfaceColor, borderColor: textMutedColor }]}>
           <PaperCard.Content style={styles.cardContent}>
             <H2 style={{...styles.cardTitle, color: textColor}}>Quick Actions</H2>
@@ -252,41 +273,37 @@ function ResponsiveAdminDashboard() {
                 mode="outlined" 
                 style={styles.secondaryAction}
                 labelStyle={styles.secondaryActionLabel}
-                icon={() => <MaterialIcons name="event" size={20} color={Colors.light.textSecondary} />}
+                icon={() => <MaterialIcons name="event" size={20} color={textSecondaryColor} />}
                 onPress={handleViewClasses}
               >
                 View Classes
-              </PaperButton>
-            </View>
-            
-            <View style={styles.actionButtons}>
-              <PaperButton 
-                mode="outlined" 
-                style={styles.secondaryAction}
-                labelStyle={styles.secondaryActionLabel}
-                icon={() => <MaterialIcons name="analytics" size={20} color={Colors.light.textSecondary} />}
-                onPress={handleViewReports}
-              >
-                View Reports
               </PaperButton>
               
               <PaperButton 
                 mode="outlined" 
                 style={styles.secondaryAction}
                 labelStyle={styles.secondaryActionLabel}
-                icon={() => <MaterialIcons name="assignment" size={20} color={Colors.light.textSecondary} />}
-                onPress={handleAssignmentHistory}
+                icon={() => <MaterialIcons name="analytics" size={20} color={textSecondaryColor} />}
+                onPress={handleViewReports}
               >
-                Assignment History
+                View Reports
               </PaperButton>
-            </View>
-            
-            <View style={styles.actionButtons}>
+
               <PaperButton 
                 mode="outlined" 
                 style={styles.secondaryAction}
                 labelStyle={styles.secondaryActionLabel}
-                icon={() => <MaterialIcons name="settings" size={20} color={Colors.light.textSecondary} />}
+                icon={() => <MaterialIcons name="assignment" size={20} color={textSecondaryColor} />}
+                onPress={handleAssignmentHistory}
+              >
+                Assignment History
+              </PaperButton>
+              
+              <PaperButton 
+                mode="outlined" 
+                style={styles.secondaryAction}
+                labelStyle={styles.secondaryActionLabel}
+                icon={() => <MaterialIcons name="settings" size={20} color={textSecondaryColor} />}
                 onPress={handleSettings}
               >
                 Settings
@@ -294,46 +311,10 @@ function ResponsiveAdminDashboard() {
             </View>
           </PaperCard.Content>
         </PaperCard>
-
-        {/* Recent Activity */}
-        <PaperCard style={styles.card}>
-          <PaperCard.Content style={styles.cardContent}>
-            <H2 style={styles.cardTitle}>Recent Activity</H2>
-            
-            <View style={styles.activityItem}>
-              <View style={styles.activityIcon}>
-                <MaterialIcons name="person-add" size={20} color={Colors.light.accent} />
-              </View>
-              <View style={styles.activityContent}>
-                <Body style={styles.activityText}>New client Jennifer Smith joined</Body>
-                <Caption style={styles.activityTime}>2 hours ago</Caption>
-              </View>
-            </View>
-            
-            <View style={styles.activityItem}>
-              <View style={styles.activityIcon}>
-                <MaterialIcons name="event" size={20} color={Colors.light.primary} />
-              </View>
-              <View style={styles.activityContent}>
-                <Body style={styles.activityText}>Morning Flow class completed</Body>
-                <Caption style={styles.activityTime}>4 hours ago</Caption>
-              </View>
-            </View>
-            
-            <View style={styles.activityItem}>
-              <View style={styles.activityIcon}>
-                <MaterialIcons name="payment" size={20} color={Colors.light.warning} />
-              </View>
-              <View style={styles.activityContent}>
-                <Body style={styles.activityText}>Payment received: $189</Body>
-                <Caption style={styles.activityTime}>6 hours ago</Caption>
-              </View>
-            </View>
-          </PaperCard.Content>
-        </PaperCard>
       </ScrollView>
     </View>
   );
+  */
 }
 
 const styles = StyleSheet.create({
@@ -560,6 +541,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     paddingVertical: 8,
+  },
+  placeholderContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  placeholderTitle: {
+    marginTop: spacing.md,
+    fontSize: 22,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  placeholderMessage: {
+    marginTop: spacing.sm,
+    fontSize: 16,
+    textAlign: 'center',
+    maxWidth: 400,
   },
 });
 

@@ -31,7 +31,10 @@ export const loginUser = createAsyncThunk(
     }
     
     // Set token for future requests - only set it once here
-    authService.setToken(response.data!.token);
+    // Handle case where token might be null or managed by Supabase
+    if (response.data!.token && response.data!.token !== 'supabase_managed') {
+      authService.setToken(response.data!.token);
+    }
     
     return response.data!;
   }
@@ -46,7 +49,10 @@ export const registerUser = createAsyncThunk(
     }
     
     // Set token for future requests - only set it once here
-    authService.setToken(response.data!.token);
+    // Handle case where token might be null or managed by Supabase
+    if (response.data!.token && response.data!.token !== 'supabase_managed') {
+      authService.setToken(response.data!.token);
+    }
     
     return response.data!;
   }
@@ -105,7 +111,7 @@ const authSlice = createSlice({
     clearError: (state) => {
       state.error = null;
     },
-    setToken: (state, action: PayloadAction<string>) => {
+    setToken: (state, action: PayloadAction<string | null>) => {
       state.token = action.payload;
       // Only sync with services if not already set
       authService.setToken(action.payload);
@@ -118,14 +124,14 @@ const authSlice = createSlice({
         state.isLoading = true;
         state.error = null;
       })
-      .addCase(loginUser.fulfilled, (state, action) => {
-        state.isLoading = false;
-        state.isLoggedIn = true;
-        state.user = action.payload.user;
-        state.token = action.payload.token;
-        state.error = null;
-        // Token is already set in the async thunk, no need to set again
-      })
+          .addCase(loginUser.fulfilled, (state, action) => {
+      state.isLoading = false;
+      state.isLoggedIn = true;
+      state.user = action.payload.user;
+      state.token = action.payload.token || null;
+      state.error = null;
+      // Token is already set in the async thunk, no need to set again
+    })
       .addCase(loginUser.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload as string;
@@ -137,14 +143,14 @@ const authSlice = createSlice({
         state.isLoading = true;
         state.error = null;
       })
-      .addCase(registerUser.fulfilled, (state, action) => {
-        state.isLoading = false;
-        state.isLoggedIn = true;
-        state.user = action.payload.user;
-        state.token = action.payload.token;
-        state.error = null;
-        // Token is already set in the async thunk, no need to set again
-      })
+          .addCase(registerUser.fulfilled, (state, action) => {
+      state.isLoading = false;
+      state.isLoggedIn = true;
+      state.user = action.payload.user;
+      state.token = action.payload.token || null;
+      state.error = null;
+      // Token is already set in the async thunk, no need to set again
+    })
       .addCase(registerUser.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload as string;

@@ -4,25 +4,26 @@ export interface SubscriptionPlan {
   id: number;
   name: string;
   description: string;
-  monthly_price: number;
-  monthly_classes: number;
-  duration_months: number;
-  equipment_access: 'mat' | 'reformer' | 'both';
+  monthlyPrice: number;
+  monthlyClasses: number;
+  durationMonths: number;
+  equipmentAccess: 'mat' | 'reformer' | 'both';
   category: 'group' | 'personal' | 'personal_duo' | 'personal_trio';
   features: string[];
-  is_active: number; // 1 for active, 0 for inactive (from SQLite)
-  created_at: string;
-  updated_at: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
   
   // Legacy fields for backward compatibility
+  monthly_price?: number;
+  monthly_classes?: number;
+  duration_months?: number;
+  equipment_access?: 'mat' | 'reformer' | 'both';
+  is_active?: number; // 1 for active, 0 for inactive (from SQLite)
+  created_at?: string;
+  updated_at?: string;
   price?: number;
-  monthlyClasses?: number;
   isUnlimited?: boolean;
-  equipmentAccess?: 'mat' | 'reformer' | 'both';
-  durationMonths?: number;
-  isActive?: boolean;
-  createdAt?: string;
-  updatedAt?: string;
 }
 
 export interface UserSubscription {
@@ -92,64 +93,80 @@ export interface UpdatePlanRequest {
 }
 
 class SubscriptionService {
-  // Plan management
-  async getPlans(): Promise<ApiResponse<SubscriptionPlan[]>> {
-    return apiService.get<SubscriptionPlan[]>('/plans');
+  // Subscription plan management
+  async getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
+    try {
+      const response = await apiService.get<SubscriptionPlan[]>('/api/plans');
+      return response.success && response.data ? response.data : [];
+    } catch (error) {
+      console.error('Failed to fetch subscription plans:', error);
+      const response = await apiService.get<SubscriptionPlan[]>('/api/plans');
+      return response.success && response.data ? response.data : [];
+    }
   }
 
-  async getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
-    const response = await apiService.get<SubscriptionPlan[]>('/plans');
-    if (response.success && response.data) {
-      return response.data;
-    }
-    return [];
+  async getPlans(): Promise<ApiResponse<SubscriptionPlan[]>> {
+    return apiService.get<SubscriptionPlan[]>('/api/plans');
+  }
+
+  async createSubscriptionPlan(planData: Partial<SubscriptionPlan>): Promise<ApiResponse<SubscriptionPlan>> {
+    return apiService.post<SubscriptionPlan>('/api/plans', planData);
   }
 
   async createPlan(planData: CreatePlanRequest): Promise<ApiResponse<SubscriptionPlan>> {
-    return apiService.post<SubscriptionPlan>('/plans', planData);
+    return apiService.post<SubscriptionPlan>('/api/plans', planData);
+  }
+
+  async updateSubscriptionPlan(id: number, planData: Partial<SubscriptionPlan>): Promise<ApiResponse<SubscriptionPlan>> {
+    return apiService.put<SubscriptionPlan>(`/api/plans/${id}`, planData);
   }
 
   async updatePlan(id: number, planData: UpdatePlanRequest): Promise<ApiResponse<SubscriptionPlan>> {
-    return apiService.put<SubscriptionPlan>(`/plans/${id}`, planData);
+    return apiService.put<SubscriptionPlan>(`/api/plans/${id}`, planData);
   }
 
+  async deleteSubscriptionPlan(id: number): Promise<ApiResponse<void>> {
+    return apiService.delete<void>(`/api/plans/${id}`);
+  }
+
+  // Alias for Redux compatibility
   async deletePlan(id: number): Promise<ApiResponse<void>> {
-    return apiService.delete<void>(`/plans/${id}`);
+    return this.deleteSubscriptionPlan(id);
   }
 
   // User subscription management
   async getUserSubscriptions(): Promise<ApiResponse<UserSubscription[]>> {
-    return apiService.get<UserSubscription[]>('/subscriptions');
+    return apiService.get<UserSubscription[]>('/api/subscriptions');
   }
 
   async getCurrentSubscription(): Promise<ApiResponse<UserSubscription>> {
-    return apiService.get<UserSubscription>('/subscriptions/current');
+    return apiService.get<UserSubscription>('/api/subscriptions/current');
   }
 
   async purchaseSubscription(data: PurchaseSubscriptionRequest): Promise<ApiResponse<UserSubscription>> {
-    return apiService.post<UserSubscription>('/subscriptions/purchase', data);
+    return apiService.post<UserSubscription>('/api/subscriptions/purchase', data);
   }
 
   async cancelSubscription(id: number, reason?: string): Promise<ApiResponse<UserSubscription>> {
-    return apiService.put<UserSubscription>(`/subscriptions/${id}/cancel`, {
+    return apiService.put<UserSubscription>(`/api/subscriptions/${id}/cancel`, {
       reason: reason || 'User requested cancellation'
     });
   }
 
   async renewSubscription(id: number): Promise<ApiResponse<UserSubscription>> {
-    return apiService.put<UserSubscription>(`/subscriptions/${id}/renew`);
+    return apiService.put<UserSubscription>(`/api/subscriptions/${id}/renew`);
   }
 
   // Admin/Reception methods
-  async checkExistingSubscription(userId: number, planId: number): Promise<ApiResponse<any>> {
-    return apiService.post<any>('/subscriptions/check-existing', {
+  async checkExistingSubscription(userId: string | number, planId: string | number): Promise<ApiResponse<any>> {
+    return apiService.post<any>('/api/subscriptions/check-existing', {
       userId,
       planId
     });
   }
 
-  async assignSubscription(userId: number, planId: number, notes?: string, action?: 'new' | 'extend' | 'queue'): Promise<ApiResponse<any>> {
-    return apiService.post<any>('/subscriptions/assign', {
+  async assignSubscription(userId: string | number, planId: string | number, notes?: string, action?: 'new' | 'extend' | 'queue'): Promise<ApiResponse<any>> {
+    return apiService.post<any>('/api/subscriptions/assign', {
       userId,
       planId,
       paymentMethod: 'manual',
@@ -158,25 +175,25 @@ class SubscriptionService {
     });
   }
 
-  async getClientSubscriptions(userId: number): Promise<ApiResponse<UserSubscription[]>> {
-    return apiService.get<UserSubscription[]>(`/subscriptions/user/${userId}`);
+  async getClientSubscriptions(userId: string | number): Promise<ApiResponse<UserSubscription[]>> {
+    return apiService.get<UserSubscription[]>(`/api/subscriptions/user/${userId}`);
   }
 
   async pauseSubscription(id: number, pauseDays: number = 30, reason?: string): Promise<ApiResponse<any>> {
-    return apiService.put<any>(`/subscriptions/${id}/pause`, {
+    return apiService.put<any>(`/api/subscriptions/${id}/pause`, {
       pauseDays,
       reason: reason || 'Administrative pause'
     });
   }
 
   async resumeSubscription(id: number, reason?: string): Promise<ApiResponse<any>> {
-    return apiService.put<any>(`/subscriptions/${id}/resume`, {
+    return apiService.put<any>(`/api/subscriptions/${id}/resume`, {
       reason: reason || 'Administrative resume'
     });
   }
 
   async extendSubscription(id: number, extensionDays: number, reason?: string): Promise<ApiResponse<any>> {
-    return apiService.put<any>(`/subscriptions/${id}/extend`, {
+    return apiService.put<any>(`/api/subscriptions/${id}/extend`, {
       extensionDays,
       reason: reason || 'Administrative extension'
     });
@@ -194,11 +211,11 @@ class SubscriptionService {
       requestData.paymentAmount = paymentAmount;
     }
     
-    return apiService.put<any>(`/subscriptions/${id}/add-classes`, requestData);
+    return apiService.put<any>(`/api/subscriptions/${id}/add-classes`, requestData);
   }
 
   async removeClassesFromSubscription(id: number, classesToRemove: number, reason?: string): Promise<ApiResponse<any>> {
-    return apiService.put<any>(`/subscriptions/${id}/remove-classes`, {
+    return apiService.put<any>(`/api/subscriptions/${id}/remove-classes`, {
       classesToRemove,
       reason: reason || 'Class removal by reception'
     });

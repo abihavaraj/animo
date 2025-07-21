@@ -2,22 +2,22 @@
   "version": 2,
   "builds": [
     {
-      "src": "backend/server.js",
-      "use": "@vercel/node"
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist",
+        "buildCommand": "npm run build:web"
+      }
     }
   ],
   "routes": [
     {
-      "src": "/api/(.*)",
-      "dest": "backend/server.js"
-    },
-    {
-      "src": "/health",
-      "dest": "backend/server.js"
+      "src": "/_expo/static/(.*)",
+      "dest": "/_expo/static/$1"
     },
     {
       "src": "/(.*)",
-      "dest": "backend/server.js"
+      "dest": "/index.html"
     }
   ],
   "env": {

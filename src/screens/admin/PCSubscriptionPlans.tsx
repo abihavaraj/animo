@@ -1,16 +1,17 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import {
-    Alert,
-    Dimensions,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  Alert,
+  Dimensions,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
+import { SubscriptionConflictDialog } from '../../components/SubscriptionConflictDialog';
 import { SubscriptionPlan, subscriptionService } from '../../services/subscriptionService';
 import { BackendUser, userService } from '../../services/userService';
 import { AppDispatch, RootState } from '../../store';
@@ -60,6 +61,10 @@ function PCSubscriptionPlans() {
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [editingPlan, setEditingPlan] = useState<SubscriptionPlan | null>(null);
   const [isSavingPlan, setIsSavingPlan] = useState(false);
+  
+  // Subscription options modal state
+  const [showSubscriptionOptionsModal, setShowSubscriptionOptionsModal] = useState(false);
+  const [subscriptionOptionsData, setSubscriptionOptionsData] = useState<any>(null);
   const [planFormData, setPlanFormData] = useState<PlanFormData>({
     name: '',
     monthlyClasses: 8,
@@ -112,8 +117,8 @@ function PCSubscriptionPlans() {
         plans.forEach((plan, index) => {
           statsMap[plan.id] = {
             activeSubscriptions: Math.floor(Math.random() * 50) + 5,
-            totalRevenue: plan.monthly_price * (Math.floor(Math.random() * 30) + 10),
-            averagePrice: plan.monthly_price,
+            totalRevenue: (plan.monthlyPrice || 0) * (Math.floor(Math.random() * 30) + 10),
+            averagePrice: plan.monthlyPrice || 0,
             popularityRank: index + 1
           };
         });
@@ -130,43 +135,43 @@ function PCSubscriptionPlans() {
     let filtered = Array.isArray(plans) ? [...plans] : [];
     
     console.log('📊 All plans before filtering:', filtered.map(p => ({ 
-      id: p.id, 
-      name: p.name, 
-      is_active: p.is_active, 
-      type: typeof p.is_active 
+      id: p.id || 'no-id', 
+      name: p.name || 'unnamed', 
+      isActive: p.isActive, 
+      type: typeof p.isActive 
     })));
 
     // Apply search filter
     if (searchTerm) {
       filtered = filtered.filter(plan => 
-        plan.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        plan.description.toLowerCase().includes(searchTerm.toLowerCase())
+        (plan.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (plan.description || '').toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
     // Apply category filter
     if (filterCategory !== 'all') {
-      filtered = filtered.filter(plan => plan.category === filterCategory);
+      filtered = filtered.filter(plan => (plan.category || 'group') === filterCategory);
     }
 
     // Apply status filter - handle different possible values for is_active
     if (filterStatus !== 'all') {
       filtered = filtered.filter(plan => {
-        // Check if plan is active - handle both number (1/0) and any other truthy values
-        const isActive = Boolean(plan.is_active);
+        // Check if plan is active - use the boolean isActive field
+        const isActive = Boolean(plan.isActive);
         const shouldShowActive = filterStatus === 'active';
         const shouldShow = shouldShowActive ? isActive : !isActive;
         
-        console.log(`🔍 Plan ${plan.name}: is_active=${plan.is_active}, isActive=${isActive}, filterStatus=${filterStatus}, shouldShow=${shouldShow}`);
+        console.log(`🔍 Plan ${plan.name || 'unnamed'}: isActive=${plan.isActive}, filterStatus=${filterStatus}, shouldShow=${shouldShow}`);
         
         return shouldShow;
       });
     }
 
     console.log('📋 Filtered plans:', filtered.map(p => ({ 
-      id: p.id, 
-      name: p.name, 
-      is_active: p.is_active 
+      id: p.id || 'no-id', 
+      name: p.name || 'unnamed', 
+      isActive: p.isActive 
     })));
 
     // Apply sorting
@@ -179,8 +184,8 @@ function PCSubscriptionPlans() {
           valueB = b.name.toLowerCase();
           break;
         case 'price':
-          valueA = a.monthly_price;
-          valueB = b.monthly_price;
+          valueA = a.monthlyPrice || 0;
+          valueB = b.monthlyPrice || 0;
           break;
         case 'popularity':
           valueA = planStats[a.id]?.activeSubscriptions || 0;
@@ -235,19 +240,134 @@ function PCSubscriptionPlans() {
     setShowAssignModal(true);
   };
 
-  const assignPlanToClient = async (clientId: number, planId: number) => {
+  const assignPlanToClient = async (clientId: string | number, planId: string | number) => {
+    console.log('🔍 ASSIGN: Starting assignment for client:', clientId, 'plan:', planId);
     try {
-      const response = await subscriptionService.assignSubscription(clientId, planId);
+      // First check for existing subscriptions
+      console.log('🔍 ASSIGN: Checking existing subscriptions...');
+      const checkResponse = await subscriptionService.checkExistingSubscription(clientId, planId);
+      console.log('🔍 ASSIGN: Full checkResponse:', checkResponse);
+      console.log('🔍 ASSIGN: checkResponse.data:', checkResponse.data);
+      console.log('🔍 ASSIGN: hasExistingSubscription:', checkResponse.data?.hasExistingSubscription);
+      
+              if (checkResponse.success && checkResponse.data?.hasExistingSubscription) {
+          // User has existing subscription - show options modal
+          const options = checkResponse.data.options;
+          const existingSub = checkResponse.data.existingSubscription;
+          const newPlan = checkResponse.data.newPlan;
+          const user = checkResponse.data.user;
+          
+          console.log('🔍 ASSIGN: Showing options modal with:', { options, existingSub });
+          
+          // Map data to SubscriptionConflictDialog format
+          const conflictData = {
+            hasExistingSubscription: true,
+            canProceed: false,
+            user: {
+              name: user.name,
+              email: user.email
+            },
+            newPlan: {
+              id: newPlan.id,
+              name: newPlan.name,
+              monthly_price: newPlan.monthly_price,
+              monthly_classes: newPlan.monthly_classes,
+              equipment_access: newPlan.equipment_access
+            },
+            existingSubscription: {
+              id: existingSub.id,
+              planName: existingSub.planName,
+              monthlyPrice: existingSub.monthlyPrice,
+              classesRemaining: existingSub.classesRemaining,
+              daysRemaining: existingSub.daysRemaining,
+              endDate: existingSub.endDate,
+              equipmentAccess: existingSub.equipmentAccess
+            },
+            comparison: {
+              isUpgrade: newPlan.monthly_price > existingSub.monthlyPrice,
+              isDowngrade: newPlan.monthly_price < existingSub.monthlyPrice,
+              isSamePlan: newPlan.monthly_price === existingSub.monthlyPrice,
+              priceDifference: newPlan.monthly_price - existingSub.monthlyPrice,
+              classDifference: newPlan.monthly_classes - existingSub.monthlyClasses
+            },
+            options: options,
+            message: checkResponse.data.message
+          };
+          
+          // Set modal data and show modal
+          setSubscriptionOptionsData(conflictData);
+          setShowSubscriptionOptionsModal(true);
+      } else {
+        // No existing subscription - proceed with assignment
+        console.log('🔍 ASSIGN: No existing subscription, proceeding with assignment...');
+        const response = await subscriptionService.assignSubscription(clientId, planId);
+        console.log('🔍 ASSIGN: Assignment response:', response);
+        if (response.success) {
+          Alert.alert('Success', 'Subscription plan assigned successfully!');
+          // Refresh statistics
+          loadPlanStatistics();
+        } else {
+          Alert.alert('Error', response.error || 'Failed to assign subscription plan');
+        }
+      }
+    } catch (error: any) {
+      console.error('Assignment error:', error);
+      if (error.message && error.message.includes('already has an active subscription')) {
+        Alert.alert('Existing Subscription', 'This client already has an active subscription. Please use the extend option or cancel the existing subscription first.');
+      } else {
+        Alert.alert('Error', 'An unexpected error occurred');
+      }
+    }
+  };
+
+  const handleSubscriptionOption = async (optionId: string) => {
+    if (!subscriptionOptionsData) return;
+    
+    try {
+      let response;
+      
+      switch (optionId) {
+        case 'replace':
+          // Cancel existing and create new
+          const userId = subscriptionOptionsData.user.id;
+          const planId = subscriptionOptionsData.newPlan.id;
+          response = await subscriptionService.assignSubscription(
+            userId, 
+            planId, 
+            'Replacing existing subscription', 
+            'new'
+          );
+          break;
+        case 'extend':
+          // Extend existing subscription
+          const userId2 = subscriptionOptionsData.user.id;
+          const planId2 = subscriptionOptionsData.newPlan.id;
+          response = await subscriptionService.assignSubscription(
+            userId2, 
+            planId2, 
+            'Extending existing subscription', 
+            'extend'
+          );
+          break;
+        case 'queue':
+          // Queue for next period (not implemented yet)
+          Alert.alert('Info', 'Queue functionality will be implemented soon.');
+          return;
+        default:
+          Alert.alert('Error', 'Invalid option selected');
+          return;
+      }
+      
       if (response.success) {
-        Alert.alert('Success', 'Subscription plan assigned successfully!');
+        Alert.alert('Success', 'Subscription updated successfully!');
         // Refresh statistics
         loadPlanStatistics();
       } else {
-        Alert.alert('Error', response.error || 'Failed to assign subscription plan');
+        Alert.alert('Error', response.error || 'Failed to update subscription');
       }
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Option handling error:', error);
       Alert.alert('Error', 'An unexpected error occurred');
-      console.error('Assignment error:', error);
     }
   };
 
@@ -270,13 +390,13 @@ function PCSubscriptionPlans() {
   const handleEditPlan = (plan: SubscriptionPlan) => {
     setEditingPlan(plan);
     setPlanFormData({
-      name: plan.name,
-      monthlyClasses: plan.monthly_classes,
-      monthlyPrice: plan.monthly_price,
-      durationMonths: plan.duration_months || 1,
-      equipmentAccess: plan.equipment_access,
-      description: plan.description,
-      category: plan.category,
+      name: plan.name || '',
+      monthlyClasses: plan.monthlyClasses || 0,
+      monthlyPrice: plan.monthlyPrice || 0,
+      durationMonths: plan.durationMonths || 1,
+      equipmentAccess: plan.equipmentAccess || 'mat',
+      description: plan.description || '',
+      category: plan.category || 'group',
       features: Array.isArray(plan.features) ? plan.features.join('\n') : '',
     });
     setShowPlanModal(true);
@@ -375,12 +495,12 @@ function PCSubscriptionPlans() {
       return;
     }
 
-    // Handle both integer (1/0) and boolean values consistently
-    const currentStatus = Boolean(plan.is_active);
+    // Handle boolean isActive field
+    const currentStatus = Boolean(plan.isActive);
     const newStatus = !currentStatus;
     
-    console.log('📊 Plan found:', plan.name);
-    console.log('📊 Current is_active value:', plan.is_active);
+    console.log('📊 Plan found:', plan.name || 'unnamed');
+    console.log('📊 Current isActive value:', plan.isActive);
     console.log('📊 Current status (boolean):', currentStatus);
     console.log('📊 Changing status to:', newStatus);
 
@@ -500,20 +620,20 @@ function PCSubscriptionPlans() {
 
         {/* Price & Classes */}
         <View style={styles.priceCell}>
-          <Text style={styles.priceText}>{plan.monthly_price.toLocaleString()} ALL</Text>
+          <Text style={styles.priceText}>{(plan.monthlyPrice || 0).toLocaleString()} ALL</Text>
           <Text style={styles.classesText}>
-            {plan.monthly_classes >= 999 ? 'Unlimited' : `${plan.monthly_classes} classes`}
+            {(plan.monthlyClasses || 0) >= 999 ? 'Unlimited' : `${plan.monthlyClasses || 0} classes`}
           </Text>
         </View>
 
         {/* Equipment */}
         <View style={styles.equipmentCell}>
           <MaterialIcons
-            name={getEquipmentIcon(plan.equipment_access)}
+            name={getEquipmentIcon(plan.equipmentAccess || 'mat')}
             size={18}
             color="#666"
           />
-          <Text style={styles.equipmentText}>{plan.equipment_access}</Text>
+          <Text style={styles.equipmentText}>{plan.equipmentAccess || 'mat'}</Text>
         </View>
 
         {/* Statistics */}
@@ -527,11 +647,11 @@ function PCSubscriptionPlans() {
           <View
             style={[
               styles.statusIndicator,
-              { backgroundColor: plan.is_active === 1 ? '#4caf50' : '#f44336' }
+              { backgroundColor: plan.isActive ? '#4caf50' : '#f44336' }
             ]}
           />
           <Text style={styles.statusText}>
-            {plan.is_active === 1 ? 'Active' : 'Inactive'}
+            {plan.isActive ? 'Active' : 'Inactive'}
           </Text>
         </View>
 
@@ -567,21 +687,21 @@ function PCSubscriptionPlans() {
             <TouchableOpacity
               style={[
                 styles.statusToggleButton, 
-                plan.is_active === 1 ? styles.pauseButton : styles.activateButton
+                plan.isActive ? styles.pauseButton : styles.activateButton
               ]}
               onPress={() => {
-                console.log('🟠 ORANGE/GREEN STATUS TOGGLE button clicked for plan:', plan.name, 'Current status:', plan.is_active);
+                console.log('🟠 ORANGE/GREEN STATUS TOGGLE button clicked for plan:', plan.name, 'Current status:', plan.isActive);
                 handleTogglePlanStatus(plan.id);
               }}
             >
               <MaterialIcons 
-                name={plan.is_active === 1 ? 'pause' : 'play-arrow'} 
+                name={plan.isActive ? 'pause' : 'play-arrow'} 
                 size={16} 
                 color="white"
               />
             </TouchableOpacity>
             <Text style={styles.buttonLabel}>
-              {plan.is_active === 1 ? 'Pause' : 'Activate'}
+              {plan.isActive ? 'Pause' : 'Activate'}
             </Text>
           </View>
 
@@ -872,13 +992,19 @@ function PCSubscriptionPlans() {
                     (!selectedClient || selectedPlans.length === 0) && styles.disabledButton
                   ]}
                   onPress={() => {
+                    console.log('🔍 BUTTON: Assign button clicked');
+                    console.log('🔍 BUTTON: Selected client:', selectedClient);
+                    console.log('🔍 BUTTON: Selected plans:', selectedPlans);
                     if (selectedClient && selectedPlans.length > 0) {
+                      console.log('🔍 BUTTON: Proceeding with assignment...');
                       selectedPlans.forEach(planId => {
                         assignPlanToClient(selectedClient.id, planId);
                       });
                       setShowAssignModal(false);
                       setSelectedClient(null);
                       setSelectedPlans([]);
+                    } else {
+                      console.log('🔍 BUTTON: No client or plans selected');
                     }
                   }}
                   disabled={!selectedClient || selectedPlans.length === 0}
@@ -1098,6 +1224,18 @@ function PCSubscriptionPlans() {
           </View>
         </View>
       )}
+
+      {/* Subscription Conflict Dialog */}
+      <SubscriptionConflictDialog
+        visible={showSubscriptionOptionsModal}
+        onDismiss={() => setShowSubscriptionOptionsModal(false)}
+        conflictData={subscriptionOptionsData}
+        onProceed={(option: string) => {
+          setShowSubscriptionOptionsModal(false);
+          handleSubscriptionOption(option);
+        }}
+        loading={false}
+      />
     </View>
   );
 }
@@ -1433,7 +1571,18 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   modalContent: {
-    padding: 20,
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 24,
+    margin: 20,
+    maxWidth: 600,
+    width: '100%',
+    maxHeight: '85%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
   },
   modalLabel: {
     fontSize: 16,
@@ -1639,6 +1788,7 @@ const styles = StyleSheet.create({
   activeDurationButtonText: {
     color: '#C77474',
   },
+
 });
 
 export default PCSubscriptionPlans; 

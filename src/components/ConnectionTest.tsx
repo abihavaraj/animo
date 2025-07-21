@@ -60,7 +60,7 @@ export const ConnectionTest: React.FC = () => {
     
     try {
       const apiUrl = getApiUrl();
-      const plansUrl = `${apiUrl}/plans`;
+      const plansUrl = `${apiUrl}/api/plans`;
       
       console.log('🔍 Testing API endpoint:', plansUrl);
       
@@ -86,7 +86,7 @@ export const ConnectionTest: React.FC = () => {
         Alert.alert('❌ API Test Failed', error);
       }
     } catch (error: any) {
-      const errorMsg = `❌ API Error: ${error.message || 'Request failed'}\nEndpoint: ${getApiUrl()}/plans`;
+      const errorMsg = `❌ API Error: ${error.message || 'Request failed'}\nEndpoint: ${getApiUrl()}/api/plans`;
       console.error('❌ API error:', error);
       setLastResult(errorMsg);
       Alert.alert('❌ API Error', errorMsg);

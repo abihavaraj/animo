@@ -87,7 +87,7 @@ function AssignmentHistory() {
   const loadAssignments = async () => {
     try {
       console.log('📊 Loading assignment history...');
-      const response = await apiService.get('/subscriptions/assignments');
+      const response = await apiService.get('/api/subscriptions/assignments');
       console.log('📊 Assignment history response:', response);
       
       if (response.success && response.data) {
@@ -103,7 +103,7 @@ function AssignmentHistory() {
   const loadStats = async () => {
     try {
       console.log('📈 Loading assignment stats...');
-      const response = await apiService.get('/subscriptions/assignments/stats');
+      const response = await apiService.get('/api/subscriptions/assignments/stats');
       console.log('📈 Assignment stats response:', response);
       
       if (response.success && response.data) {

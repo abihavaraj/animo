@@ -1,7 +1,9 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { Text, View } from 'react-native';
+import AuthTest from '../components/AuthTest';
 import CrashTest from '../components/CrashTest';
+import NetworkDiagnostic from '../components/NetworkDiagnostic';
 import { SupabaseTest } from '../components/SupabaseTest';
 import ApiTestScreen from '../screens/ApiTestScreen';
 import BookingHistory from '../screens/client/BookingHistory';
@@ -326,6 +328,30 @@ export default function ClientNavigator() {
         options={{
           headerShown: true,
           title: '🛡️ Supabase Test',
+          headerStyle: {
+            backgroundColor: '#6B8E7F',
+          },
+          headerTintColor: '#ffffff',
+        }}
+      />
+      <Stack.Screen 
+        name="AuthTest" 
+        component={AuthTest}
+        options={{
+          headerShown: true,
+          title: '🔐 Authentication Test',
+          headerStyle: {
+            backgroundColor: '#6B8E7F',
+          },
+          headerTintColor: '#ffffff',
+        }}
+      />
+      <Stack.Screen 
+        name="NetworkDiagnostic" 
+        component={NetworkDiagnostic}
+        options={{
+          headerShown: true,
+          title: '🔧 Network Diagnostic',
           headerStyle: {
             backgroundColor: '#6B8E7F',
           },

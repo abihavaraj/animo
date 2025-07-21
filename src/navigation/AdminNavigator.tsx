@@ -40,7 +40,7 @@ function AdminSidebar({ activeScreen, onNavigate, stats }: any) {
   const loadInitialNotifications = async () => {
     try {
       console.log('🔔 Loading initial notifications...');
-      const userStatsResponse = await apiService.get('/notifications/recent');
+      const userStatsResponse = await apiService.get('/api/notifications/recent');
       console.log('🔔 Notifications API response:', userStatsResponse);
       
       if (userStatsResponse.success && userStatsResponse.data) {
@@ -63,7 +63,7 @@ function AdminSidebar({ activeScreen, onNavigate, stats }: any) {
     try {
       console.log('🔔 Notification button pressed, loading notifications...');
       
-      const userStatsResponse = await apiService.get('/notifications/recent');
+      const userStatsResponse = await apiService.get('/api/notifications/recent');
       console.log('🔔 Notification button - API response:', userStatsResponse);
       
       if (userStatsResponse.success && userStatsResponse.data) {

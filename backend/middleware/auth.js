@@ -22,15 +22,54 @@ const authenticateToken = async (req, res, next) => {
   }
 
   try {
-    console.log('🔍 Auth Debug: Attempting to verify JWT token');
-    const decoded = jwt.verify(token, JWT_SECRET);
-    console.log('🔍 Auth Debug: JWT decoded successfully, userId:', decoded.userId);
-    
-    // Get user from database to ensure they still exist and are active
-    const user = await db.get(
-      'SELECT id, name, email, role, status FROM users WHERE id = ? AND status = "active"',
-      [decoded.userId]
-    );
+    let decoded;
+    let user;
+
+    if (db.useSupabase) {
+      console.log('🔍 Auth Debug: Using Supabase token verification');
+      
+      // For Supabase mode, verify token using Supabase
+      try {
+        const { data: { user: supabaseUser }, error } = await db.supabase.auth.getUser(token);
+        
+        if (error || !supabaseUser) {
+          console.log('🔍 Auth Debug: Supabase token verification failed:', error);
+          return res.status(401).json({ 
+            success: false, 
+            message: 'Invalid or expired token' 
+          });
+        }
+        
+        console.log('🔍 Auth Debug: Supabase token verified successfully, userId:', supabaseUser.id);
+        
+        // Map Supabase user to our user format
+        user = {
+          id: supabaseUser.id,
+          name: supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User',
+          email: supabaseUser.email,
+          role: supabaseUser.user_metadata?.role || 'client',
+          status: 'active'
+        };
+        
+      } catch (supabaseError) {
+        console.log('🔍 Auth Debug: Supabase verification error:', supabaseError);
+        return res.status(401).json({ 
+          success: false, 
+          message: 'Token verification failed' 
+        });
+      }
+      
+         } else {
+       console.log('🔍 Auth Debug: Attempting to verify legacy JWT token');
+       decoded = jwt.verify(token, JWT_SECRET);
+       console.log('🔍 Auth Debug: JWT decoded successfully, userId:', decoded.userId);
+       
+       // Get user from database for legacy JWT tokens
+       user = await db.get(
+         'SELECT id, name, email, role, status FROM users WHERE id = ? AND status = "active"',
+         [decoded.userId]
+       );
+     }
 
     console.log('🔍 Auth Debug: Database user lookup result:', user);
 

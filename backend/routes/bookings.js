@@ -11,59 +11,130 @@ router.get('/', authenticateToken, async (req, res) => {
   try {
     const { userId, classId, status, date } = req.query;
     
-    let query = `
-      SELECT 
-        b.*,
-        c.name as class_name,
-        c.date as class_date,
-        c.time as class_time,
-        c.level as class_level,
-        c.equipment_type,
-        c.room,
-        u.name as user_name,
-        u.email as user_email,
-        i.name as instructor_name
-      FROM bookings b
-      JOIN classes c ON b.class_id = c.id
-      JOIN users u ON b.user_id = u.id
-      JOIN users i ON c.instructor_id = i.id
-      WHERE 1=1
-    `;
-    
-    const params = [];
+    if (db.useSupabase) {
+      // Use Supabase REST API with joins
+      let queryUrl = `${process.env.SUPABASE_URL}/rest/v1/bookings?select=*,classes(*,instructor:users!classes_instructor_id_fkey(name)),user:users!bookings_user_id_fkey(name,email)`;
+      
+      const queryParams = [];
+      
+      // If user is not admin/instructor, only show their own bookings
+      if (req.user.role === 'client') {
+        queryParams.push(`user_id=eq.${req.user.id}`);
+      } else if (userId && (req.user.role === 'admin' || req.user.role === 'reception')) {
+        queryParams.push(`user_id=eq.${userId}`);
+      }
 
-    // If user is not admin/instructor, only show their own bookings
-    if (req.user.role === 'client') {
-      query += ' AND b.user_id = ?';
-      params.push(req.user.id);
-    } else if (userId && (req.user.role === 'admin' || req.user.role === 'reception')) {
-      query += ' AND b.user_id = ?';
-      params.push(userId);
+      if (classId) {
+        queryParams.push(`class_id=eq.${classId}`);
+      }
+
+      if (status) {
+        queryParams.push(`status=eq.${status}`);
+      }
+
+      if (date) {
+        queryParams.push(`classes.date=eq.${date}`);
+      }
+      
+      if (queryParams.length > 0) {
+        queryUrl += '&' + queryParams.join('&');
+      }
+      
+      queryUrl += '&order=classes(date).desc,classes(time).desc';
+      
+      const response = await fetch(queryUrl, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const bookings = await response.json();
+        
+        // Format the response to match the expected structure
+        const formattedBookings = (bookings || []).map(booking => ({
+          ...booking,
+          class_name: booking.classes?.name,
+          class_date: booking.classes?.date,
+          class_time: booking.classes?.time,
+          class_level: booking.classes?.level,
+          equipment_type: booking.classes?.equipment_type,
+          room: booking.classes?.room,
+          user_name: booking.user?.name,
+          user_email: booking.user?.email,
+          instructor_name: booking.classes?.instructor?.name
+        }));
+        
+        res.json({
+          success: true,
+          data: formattedBookings
+        });
+      } else {
+        const errorText = await response.text();
+        console.error('❌ Supabase bookings API failed:', response.status, errorText);
+        res.json({
+          success: true,
+          data: [] // Return empty array on error
+        });
+      }
+    } else {
+      // SQLite implementation
+      let query = `
+        SELECT 
+          b.*,
+          c.name as class_name,
+          c.date as class_date,
+          c.time as class_time,
+          c.level as class_level,
+          c.equipment_type,
+          c.room,
+          u.name as user_name,
+          u.email as user_email,
+          i.name as instructor_name
+        FROM bookings b
+        JOIN classes c ON b.class_id = c.id
+        JOIN users u ON b.user_id = u.id
+        JOIN users i ON c.instructor_id = i.id
+        WHERE 1=1
+      `;
+      
+      const params = [];
+
+      // If user is not admin/instructor, only show their own bookings
+      if (req.user.role === 'client') {
+        query += ' AND b.user_id = ?';
+        params.push(req.user.id);
+      } else if (userId && (req.user.role === 'admin' || req.user.role === 'reception')) {
+        query += ' AND b.user_id = ?';
+        params.push(userId);
+      }
+
+      if (classId) {
+        query += ' AND b.class_id = ?';
+        params.push(classId);
+      }
+
+      if (status) {
+        query += ' AND b.status = ?';
+        params.push(status);
+      }
+
+      if (date) {
+        query += ' AND c.date = ?';
+        params.push(date);
+      }
+
+      query += ' ORDER BY c.date DESC, c.time DESC';
+
+      const bookings = await db.all(query, params);
+
+      res.json({
+        success: true,
+        data: bookings
+      });
     }
-
-    if (classId) {
-      query += ' AND b.class_id = ?';
-      params.push(classId);
-    }
-
-    if (status) {
-      query += ' AND b.status = ?';
-      params.push(status);
-    }
-
-    if (date) {
-      query += ' AND c.date = ?';
-      params.push(date);
-    }
-
-    query += ' ORDER BY c.date DESC, c.time DESC';
-
-    const bookings = await db.all(query, params);
-
-    res.json({
-      success: true,
-      data: bookings
-    });
 
   } catch (error) {
     console.error('Get bookings error:', error);
@@ -128,7 +199,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
 // POST /api/bookings - Create new booking
 router.post('/', authenticateToken, [
-  body('classId').isInt({ min: 1 }).withMessage('Valid class ID is required')
+  body('classId').notEmpty().withMessage('Valid class ID is required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -678,7 +749,7 @@ router.get('/class/:classId/attendees', authenticateToken, requireInstructor, as
 
 // POST /api/bookings/waitlist - Join class waitlist
 router.post('/waitlist', authenticateToken, [
-  body('classId').isInt({ min: 1 }).withMessage('Valid class ID is required')
+  body('classId').notEmpty().withMessage('Valid class ID is required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -905,46 +976,108 @@ router.get('/user/:userId', authenticateToken, requireAdminOrReception, async (r
     const { userId } = req.params;
     const { status, startDate, endDate } = req.query;
     
-    let query = `
-      SELECT 
-        b.*,
-        c.name as class_name,
-        c.date as class_date,
-        c.time as class_time,
-        c.equipment_type,
-        c.room,
-        u_instructor.name as instructor_name
-      FROM bookings b
-      JOIN classes c ON b.class_id = c.id
-      JOIN users u_instructor ON c.instructor_id = u_instructor.id
-      WHERE b.user_id = ?
-    `;
-    
-    const params = [userId];
+    if (db.useSupabase) {
+      // Use Supabase REST API with joins
+      let queryUrl = `${process.env.SUPABASE_URL}/rest/v1/bookings?user_id=eq.${userId}&select=*,classes(*,instructor:users!classes_instructor_id_fkey(name))`;
+      
+      const queryParams = [];
+      
+      if (status) {
+        queryParams.push(`status=eq.${status}`);
+      }
 
-    if (status) {
-      query += ' AND b.status = ?';
-      params.push(status);
+      if (startDate) {
+        queryParams.push(`classes.date=gte.${startDate}`);
+      }
+
+      if (endDate) {
+        queryParams.push(`classes.date=lte.${endDate}`);
+      }
+      
+      if (queryParams.length > 0) {
+        queryUrl += '&' + queryParams.join('&');
+      }
+      
+      queryUrl += '&order=classes(date).desc,classes(time).desc';
+      
+      const response = await fetch(queryUrl, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const bookings = await response.json();
+        
+        // Format the response to match the expected structure
+        const formattedBookings = (bookings || []).map(booking => ({
+          ...booking,
+          class_name: booking.classes?.name,
+          class_date: booking.classes?.date,
+          class_time: booking.classes?.time,
+          class_level: booking.classes?.level,
+          equipment_type: booking.classes?.equipment_type,
+          room: booking.classes?.room,
+          instructor_name: booking.classes?.instructor?.name
+        }));
+        
+        res.json({
+          success: true,
+          data: formattedBookings
+        });
+      } else {
+        const errorText = await response.text();
+        console.error('❌ Supabase error response (GET user bookings):', errorText);
+        res.status(500).json({
+          success: false,
+          message: 'Failed to fetch user bookings'
+        });
+      }
+    } else {
+      // SQLite implementation
+      let query = `
+        SELECT 
+          b.*,
+          c.name as class_name,
+          c.date as class_date,
+          c.time as class_time,
+          c.equipment_type,
+          c.room,
+          u_instructor.name as instructor_name
+        FROM bookings b
+        JOIN classes c ON b.class_id = c.id
+        JOIN users u_instructor ON c.instructor_id = u_instructor.id
+        WHERE b.user_id = ?
+      `;
+      
+      const params = [userId];
+
+      if (status) {
+        query += ' AND b.status = ?';
+        params.push(status);
+      }
+
+      if (startDate) {
+        query += ' AND c.date >= ?';
+        params.push(startDate);
+      }
+
+      if (endDate) {
+        query += ' AND c.date <= ?';
+        params.push(endDate);
+      }
+
+      query += ' ORDER BY c.date DESC, c.time DESC';
+
+      const bookings = await db.all(query, params);
+
+      res.json({
+        success: true,
+        data: bookings
+      });
     }
-
-    if (startDate) {
-      query += ' AND c.date >= ?';
-      params.push(startDate);
-    }
-
-    if (endDate) {
-      query += ' AND c.date <= ?';
-      params.push(endDate);
-    }
-
-    query += ' ORDER BY c.date DESC, c.time DESC';
-
-    const bookings = await db.all(query, params);
-
-    res.json({
-      success: true,
-      data: bookings
-    });
 
   } catch (error) {
     console.error('Get user bookings error:', error);
@@ -960,76 +1093,110 @@ router.get('/user/:userId/stats', authenticateToken, requireAdminOrReception, as
   try {
     const { userId } = req.params;
     
-    // Get total bookings
-    const totalBookings = await db.get(`
-      SELECT COUNT(*) as count FROM bookings WHERE user_id = ?
-    `, [userId]);
+    // Get total bookings using Supabase REST API
+    const totalBookingsResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/bookings?user_id=eq.${userId}&select=id`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!totalBookingsResponse.ok) {
+      throw new Error('Failed to fetch total bookings');
+    }
+    
+    const totalBookings = await totalBookingsResponse.json();
+    const totalCount = totalBookings.length;
 
-    // Get bookings by status
-    const statusBreakdown = await db.all(`
-      SELECT 
-        status,
-        COUNT(*) as count
-      FROM bookings 
-      WHERE user_id = ?
-      GROUP BY status
-    `, [userId]);
+    // Get bookings by status using Supabase REST API
+    const statusBreakdownResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/bookings?user_id=eq.${userId}&select=status`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!statusBreakdownResponse.ok) {
+      throw new Error('Failed to fetch status breakdown');
+    }
+    
+    const statusBreakdownData = await statusBreakdownResponse.json();
+    
+    // Process status breakdown
+    const statusBreakdown = {};
+    let attendedBookings = 0;
+    
+    statusBreakdownData.forEach(booking => {
+      const status = booking.status;
+      statusBreakdown[status] = (statusBreakdown[status] || 0) + 1;
+      if (status === 'confirmed' || status === 'completed') {
+        attendedBookings++;
+      }
+    });
 
-    // Get attendance rate (confirmed + completed vs total)
-    const attendanceStats = await db.get(`
-      SELECT 
-        COUNT(*) as total_bookings,
-        SUM(CASE WHEN status IN ('confirmed', 'completed') THEN 1 ELSE 0 END) as attended_bookings
-      FROM bookings 
-      WHERE user_id = ?
-    `, [userId]);
-
-    const attendanceRate = attendanceStats.total_bookings > 0 
-      ? Math.round((attendanceStats.attended_bookings / attendanceStats.total_bookings) * 100)
+    const attendanceRate = totalCount > 0 
+      ? Math.round((attendedBookings / totalCount) * 100)
       : 0;
 
-    // Get favorite instructor
-    const favoriteInstructor = await db.get(`
-      SELECT 
-        u.name as instructor_name,
-        COUNT(*) as booking_count
-      FROM bookings b
-      JOIN classes c ON b.class_id = c.id
-      JOIN users u ON c.instructor_id = u.id
-      WHERE b.user_id = ? AND b.status IN ('confirmed', 'completed')
-      GROUP BY u.id, u.name
-      ORDER BY booking_count DESC
-      LIMIT 1
-    `, [userId]);
+    // Get favorite instructor using Supabase REST API with joins
+    const favoriteInstructorResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/bookings?user_id=eq.${userId}&status=in.confirmed,completed&select=classes(instructor_id),classes(users(name))`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    let favoriteInstructor = null;
+    if (favoriteInstructorResponse.ok) {
+      const favoriteInstructorData = await favoriteInstructorResponse.json();
+      // Process instructor data to find most frequent
+      const instructorCounts = {};
+      favoriteInstructorData.forEach(booking => {
+        if (booking.classes && booking.classes.users) {
+          const instructorName = booking.classes.users.name;
+          instructorCounts[instructorName] = (instructorCounts[instructorName] || 0) + 1;
+        }
+      });
+      
+      const sortedInstructors = Object.entries(instructorCounts)
+        .sort(([,a], [,b]) => b - a);
+      
+      favoriteInstructor = sortedInstructors.length > 0 ? sortedInstructors[0][0] : null;
+    }
 
-    // Get last activity
-    const lastActivity = await db.get(`
-      SELECT 
-        c.date as class_date,
-        c.time as class_time,
-        c.name as class_name
-      FROM bookings b
-      JOIN classes c ON b.class_id = c.id
-      WHERE b.user_id = ?
-      ORDER BY b.created_at DESC
-      LIMIT 1
-    `, [userId]);
+    // Get last activity using Supabase REST API
+    const lastActivityResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/bookings?user_id=eq.${userId}&select=created_at,classes(date,time,name)&order=created_at.desc&limit=1`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    let lastActivity = null;
+    if (lastActivityResponse.ok) {
+      const lastActivityData = await lastActivityResponse.json();
+      if (lastActivityData.length > 0 && lastActivityData[0].classes) {
+        const activity = lastActivityData[0].classes;
+        lastActivity = {
+          date: activity.date,
+          time: activity.time,
+          className: activity.name
+        };
+      }
+    }
 
     res.json({
       success: true,
       data: {
-        totalBookings: totalBookings.count,
-        statusBreakdown: statusBreakdown.reduce((acc, item) => {
-          acc[item.status] = item.count;
-          return acc;
-        }, {}),
+        totalBookings: totalCount,
+        statusBreakdown,
         attendanceRate,
-        favoriteInstructor: favoriteInstructor?.instructor_name || null,
-        lastActivity: lastActivity ? {
-          date: lastActivity.class_date,
-          time: lastActivity.class_time,
-          className: lastActivity.class_name
-        } : null
+        favoriteInstructor,
+        lastActivity
       }
     });
 
@@ -1176,8 +1343,18 @@ router.delete('/waitlist/:waitlistId', authenticateToken, async (req, res) => {
 
 // POST /api/bookings/reception-assign - Reception assigns client to class
 router.post('/reception-assign', authenticateToken, requireAdminOrReception, [
-  body('userId').isInt({ min: 1 }).withMessage('Valid user ID is required'),
-  body('classId').isInt({ min: 1 }).withMessage('Valid class ID is required'),
+  // Accept UUIDs for Supabase
+  body('userId').custom((value) => {
+    // Accept integer (SQLite) or UUID string (Supabase)
+    if (Number.isInteger(Number(value)) && Number(value) > 0) return true;
+    if (typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) return true;
+    throw new Error('Valid user ID is required');
+  }),
+  body('classId').custom((value) => {
+    if (Number.isInteger(Number(value)) && Number(value) > 0) return true;
+    if (typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) return true;
+    throw new Error('Valid class ID is required');
+  }),
   body('notes').optional().isString().withMessage('Notes must be string'),
   body('overrideRestrictions').optional().isBoolean().withMessage('Override restrictions must be boolean')
 ], async (req, res) => {
@@ -1193,8 +1370,28 @@ router.post('/reception-assign', authenticateToken, requireAdminOrReception, [
 
     const { userId, classId, notes = '', overrideRestrictions = false } = req.body;
 
-    // Get class details
-    const class_ = await db.get('SELECT * FROM classes WHERE id = ? AND status = "active"', [classId]);
+    console.log('🔍 reception-assign: classId:', classId);
+    
+    // Get class details using Supabase REST API
+    let class_ = null;
+    if (db.useSupabase) {
+      const classResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/classes?id=eq.${classId}&status=eq.active&select=*`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (classResponse.ok) {
+        const classes = await classResponse.json();
+        class_ = classes.length > 0 ? classes[0] : null;
+      }
+    } else {
+      class_ = await db.get('SELECT * FROM classes WHERE id = ? AND status = "active"', [classId]);
+    }
+    
+    console.log('🔍 reception-assign: class_ result:', class_);
     if (!class_) {
       return res.status(404).json({
         success: false,
@@ -1202,8 +1399,25 @@ router.post('/reception-assign', authenticateToken, requireAdminOrReception, [
       });
     }
 
-    // Get user details
-    const user = await db.get('SELECT * FROM users WHERE id = ? AND role = "client"', [userId]);
+    // Get user details using Supabase REST API
+    let user = null;
+    if (db.useSupabase) {
+      const userResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/users?id=eq.${userId}&role=eq.client&select=*`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (userResponse.ok) {
+        const users = await userResponse.json();
+        user = users.length > 0 ? users[0] : null;
+      }
+    } else {
+      user = await db.get('SELECT * FROM users WHERE id = ? AND role = "client"', [userId]);
+    }
+    
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -1221,10 +1435,26 @@ router.post('/reception-assign', authenticateToken, requireAdminOrReception, [
     }
 
     // Check if user already has a booking for this class
-    const existingBooking = await db.get(
-      'SELECT id FROM bookings WHERE user_id = ? AND class_id = ? AND status IN ("confirmed", "waitlist")',
-      [userId, classId]
-    );
+    let existingBooking = null;
+    if (db.useSupabase) {
+      const bookingResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/bookings?user_id=eq.${userId}&class_id=eq.${classId}&status=in.(confirmed,waitlist)&select=id`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (bookingResponse.ok) {
+        const bookings = await bookingResponse.json();
+        existingBooking = bookings.length > 0 ? bookings[0] : null;
+      }
+    } else {
+      existingBooking = await db.get(
+        'SELECT id FROM bookings WHERE user_id = ? AND class_id = ? AND status IN ("confirmed", "waitlist")',
+        [userId, classId]
+      );
+    }
 
     if (existingBooking) {
       return res.status(400).json({
@@ -1234,16 +1464,39 @@ router.post('/reception-assign', authenticateToken, requireAdminOrReception, [
     }
 
     // Get user's subscription (if any)
-    let subscription = await db.get(`
-      SELECT us.*, sp.equipment_access, sp.category
-      FROM user_subscriptions us
-      JOIN subscription_plans sp ON us.plan_id = sp.id
-      WHERE us.user_id = ? 
-        AND (us.status = 'active' OR (us.status = 'cancelled' AND us.remaining_classes > 0))
-        AND DATE(us.end_date) >= DATE('now')
-      ORDER BY us.created_at DESC
-      LIMIT 1
-    `, [userId]);
+    let subscription = null;
+    if (db.useSupabase) {
+      // For Supabase, we need to get subscription with plan details
+      const subscriptionResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/user_subscriptions?user_id=eq.${userId}&or=(status.eq.active,and(status.eq.cancelled,remaining_classes.gt.0))&end_date=gte.${new Date().toISOString().split('T')[0]}&select=*,subscription_plans(equipment_access,category)&order=created_at.desc&limit=1`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (subscriptionResponse.ok) {
+        const subscriptions = await subscriptionResponse.json();
+        if (subscriptions.length > 0) {
+          subscription = {
+            ...subscriptions[0],
+            equipment_access: subscriptions[0].subscription_plans?.equipment_access,
+            category: subscriptions[0].subscription_plans?.category
+          };
+        }
+      }
+    } else {
+      subscription = await db.get(`
+        SELECT us.*, sp.equipment_access, sp.category
+        FROM user_subscriptions us
+        JOIN subscription_plans sp ON us.plan_id = sp.id
+        WHERE us.user_id = ? 
+          AND (us.status = 'active' OR (us.status = 'cancelled' AND us.remaining_classes > 0))
+          AND DATE(us.end_date) >= DATE('now')
+        ORDER BY us.created_at DESC
+        LIMIT 1
+      `, [userId]);
+    }
 
     // If not overriding restrictions, check subscription requirements
     if (!overrideRestrictions) {
@@ -1296,34 +1549,98 @@ router.post('/reception-assign', authenticateToken, requireAdminOrReception, [
     }
 
     // Check class capacity
-    const currentEnrollment = await db.get(
-      'SELECT COUNT(*) as count FROM bookings WHERE class_id = ? AND status = "confirmed"',
-      [classId]
-    );
+    let currentEnrollment = { count: 0 };
+    if (db.useSupabase) {
+      const enrollmentResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/bookings?class_id=eq.${classId}&status=eq.confirmed&select=id`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (enrollmentResponse.ok) {
+        const bookings = await enrollmentResponse.json();
+        currentEnrollment = { count: bookings.length };
+      }
+    } else {
+      currentEnrollment = await db.get(
+        'SELECT COUNT(*) as count FROM bookings WHERE class_id = ? AND status = "confirmed"',
+        [classId]
+      );
+    }
 
     if (currentEnrollment.count >= class_.capacity) {
       // Add to waitlist
-      const waitlistPosition = await db.get(
-        'SELECT COUNT(*) + 1 as position FROM waitlist WHERE class_id = ?',
-        [classId]
-      );
+      let waitlistPosition = { position: 1 };
+      if (db.useSupabase) {
+        const waitlistCountResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/waitlist?class_id=eq.${classId}&select=id`, {
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (waitlistCountResponse.ok) {
+          const waitlistEntries = await waitlistCountResponse.json();
+          waitlistPosition = { position: waitlistEntries.length + 1 };
+        }
 
-      await db.run(
-        'INSERT INTO waitlist (user_id, class_id, position) VALUES (?, ?, ?)',
-        [userId, classId, waitlistPosition.position]
-      );
+        // Insert into waitlist
+        await fetch(`${process.env.SUPABASE_URL}/rest/v1/waitlist`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            user_id: userId,
+            class_id: classId,
+            position: waitlistPosition.position
+          })
+        });
 
-      // Log activity
-      await db.run(`
-        INSERT INTO client_activity_log (
-          client_id, activity_type, description, performed_by, created_at
-        ) VALUES (?, ?, ?, ?, datetime('now'))
-      `, [
-        userId,
-        'waitlist_joined',
-        `Added to waitlist for "${class_.name}" on ${class_.date} at ${class_.time} by ${req.user.name} (${req.user.role}). Position: #${waitlistPosition.position}. ${notes}`.trim(),
-        req.user.id
-      ]);
+        // Log activity
+        await fetch(`${process.env.SUPABASE_URL}/rest/v1/client_activity_log`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            client_id: userId,
+            activity_type: 'waitlist_joined',
+            description: `Added to waitlist for "${class_.name}" on ${class_.date} at ${class_.time} by ${req.user.name} (${req.user.role}). Position: #${waitlistPosition.position}. ${notes}`.trim(),
+            performed_by: req.user.id,
+            created_at: new Date().toISOString()
+          })
+        });
+      } else {
+        waitlistPosition = await db.get(
+          'SELECT COUNT(*) + 1 as position FROM waitlist WHERE class_id = ?',
+          [classId]
+        );
+
+        await db.run(
+          'INSERT INTO waitlist (user_id, class_id, position) VALUES (?, ?, ?)',
+          [userId, classId, waitlistPosition.position]
+        );
+
+        // Log activity
+        await db.run(`
+          INSERT INTO client_activity_log (
+            client_id, activity_type, description, performed_by, created_at
+          ) VALUES (?, ?, ?, ?, datetime('now'))
+        `, [
+          userId,
+          'waitlist_joined',
+          `Added to waitlist for "${class_.name}" on ${class_.date} at ${class_.time} by ${req.user.name} (${req.user.role}). Position: #${waitlistPosition.position}. ${notes}`.trim(),
+          req.user.id
+        ]);
+      }
 
       return res.status(202).json({
         success: true,
@@ -1335,31 +1652,104 @@ router.post('/reception-assign', authenticateToken, requireAdminOrReception, [
       });
     }
 
-    // Start transaction
-    await db.run('BEGIN TRANSACTION');
-
-    try {
+    // Create booking (transactions handled differently for Supabase)
+    let bookingResult = null;
+    
+    if (db.useSupabase) {
       // Create booking
-      const bookingResult = await db.run(`
-        INSERT INTO bookings (user_id, class_id, subscription_id, status)
-        VALUES (?, ?, ?, ?)
-      `, [userId, classId, subscription?.id || null, 'confirmed']);
+      const bookingResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/bookings`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          class_id: classId,
+          subscription_id: subscription?.id || null,
+          status: 'confirmed'
+        })
+      });
 
-      // Decrease remaining classes in subscription if exists
-      if (subscription && subscription.remaining_classes > 0) {
-        await db.run(
-          'UPDATE user_subscriptions SET remaining_classes = remaining_classes - 1 WHERE id = ?',
-          [subscription.id]
-        );
+      if (bookingResponse.ok) {
+        const bookings = await bookingResponse.json();
+        bookingResult = { id: bookings[0]?.id };
+
+        // Decrease remaining classes in subscription if exists
+        if (subscription && subscription.remaining_classes > 0) {
+          await fetch(`${process.env.SUPABASE_URL}/rest/v1/user_subscriptions?id=eq.${subscription.id}`, {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+              'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              remaining_classes: subscription.remaining_classes - 1
+            })
+          });
+        }
+
+        // Update class enrollment count
+        await fetch(`${process.env.SUPABASE_URL}/rest/v1/classes?id=eq.${classId}`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            enrolled: (class_.enrolled || 0) + 1
+          })
+        });
+
+        // Log activity
+        await fetch(`${process.env.SUPABASE_URL}/rest/v1/client_activity_log`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            client_id: userId,
+            activity_type: 'class_booking',
+            description: `Assigned to "${class_.name}" on ${class_.date} at ${class_.time} by ${req.user.name} (${req.user.role}). ${overrideRestrictions ? 'Restrictions overridden. ' : ''}${notes}`.trim(),
+            performed_by: req.user.id,
+            created_at: new Date().toISOString()
+          })
+        });
+      } else {
+        throw new Error('Failed to create booking');
       }
+    } else {
+      // SQLite transaction
+      await db.run('BEGIN TRANSACTION');
 
-      // Update class enrollment count
-      await db.run(
-        'UPDATE classes SET enrolled = enrolled + 1 WHERE id = ?',
-        [classId]
-      );
+      try {
+        // Create booking
+        bookingResult = await db.run(`
+          INSERT INTO bookings (user_id, class_id, subscription_id, status)
+          VALUES (?, ?, ?, ?)
+        `, [userId, classId, subscription?.id || null, 'confirmed']);
 
-              // Log activity
+        // Decrease remaining classes in subscription if exists
+        if (subscription && subscription.remaining_classes > 0) {
+          await db.run(
+            'UPDATE user_subscriptions SET remaining_classes = remaining_classes - 1 WHERE id = ?',
+            [subscription.id]
+          );
+        }
+
+        // Update class enrollment count
+        await db.run(
+          'UPDATE classes SET enrolled = enrolled + 1 WHERE id = ?',
+          [classId]
+        );
+
+        // Log activity
         await db.run(`
           INSERT INTO client_activity_log (
             client_id, activity_type, description, performed_by, created_at
@@ -1371,11 +1761,35 @@ router.post('/reception-assign', authenticateToken, requireAdminOrReception, [
           req.user.id
         ]);
 
-      // Commit transaction
-      await db.run('COMMIT');
+        // Commit transaction
+        await db.run('COMMIT');
+      } catch (error) {
+        await db.run('ROLLBACK');
+        throw error;
+      }
+    }
 
-      // Get the created booking with all details
-      const newBooking = await db.get(`
+    // Get the created booking with all details
+    let newBooking = null;
+    if (db.useSupabase) {
+      // For Supabase, we can construct the booking from existing data
+      newBooking = {
+        id: bookingResult.id,
+        user_id: userId,
+        class_id: classId,
+        subscription_id: subscription?.id || null,
+        status: 'confirmed',
+        class_name: class_.name,
+        class_date: class_.date,
+        class_time: class_.time,
+        class_level: class_.level,
+        equipment_type: class_.equipment_type,
+        room: class_.room,
+        user_name: user.name,
+        user_email: user.email
+      };
+    } else {
+      newBooking = await db.get(`
         SELECT 
           b.*,
           c.name as class_name,
@@ -1391,9 +1805,11 @@ router.post('/reception-assign', authenticateToken, requireAdminOrReception, [
         JOIN users u ON b.user_id = u.id
         WHERE b.id = ?
       `, [bookingResult.id]);
+    }
 
-      // Schedule reminder notification for this booking
-      try {
+    // Schedule reminder notification for this booking (simplified for Supabase)
+    try {
+      if (!db.useSupabase) {
         // Get user notification settings first (this is the priority)
         const userSettings = await db.get(`
           SELECT * FROM notification_settings WHERE user_id = ?
@@ -1430,22 +1846,18 @@ router.post('/reception-assign', authenticateToken, requireAdminOrReception, [
             }
           }
         }
-      } catch (notificationError) {
-        console.error('Error scheduling notification:', notificationError);
       }
-
-      console.log(`📋 Reception assigned ${user.name} to class "${class_.name}" on ${class_.date} at ${class_.time}`);
-
-      res.json({
-        success: true,
-        message: `Successfully assigned ${user.name} to "${class_.name}"`,
-        data: newBooking
-      });
-
-    } catch (error) {
-      await db.run('ROLLBACK');
-      throw error;
+    } catch (notificationError) {
+      console.error('Error scheduling notification:', notificationError);
     }
+
+    console.log(`📋 Reception assigned ${user.name} to class "${class_.name}" on ${class_.date} at ${class_.time}`);
+
+    res.json({
+      success: true,
+      message: `Successfully assigned ${user.name} to "${class_.name}"`,
+      data: newBooking
+    });
 
   } catch (error) {
     console.error('Reception assign booking error:', error);
@@ -1458,8 +1870,8 @@ router.post('/reception-assign', authenticateToken, requireAdminOrReception, [
 
 // POST /api/bookings/reception-cancel - Reception cancels client's booking
 router.post('/reception-cancel', authenticateToken, requireAdminOrReception, [
-  body('userId').isInt({ min: 1 }).withMessage('Valid user ID is required'),
-  body('classId').isInt({ min: 1 }).withMessage('Valid class ID is required'),
+  body('userId').isString().withMessage('Valid user ID is required'),
+  body('classId').isString().withMessage('Valid class ID is required'),
   body('notes').optional().isString().withMessage('Notes must be string')
 ], async (req, res) => {
   try {
@@ -1474,8 +1886,26 @@ router.post('/reception-cancel', authenticateToken, requireAdminOrReception, [
 
     const { userId, classId, notes = '' } = req.body;
 
+    console.log('🔍 reception-cancel: classId:', classId, 'userId:', userId);
+
     // Get class details
-    const class_ = await db.get('SELECT * FROM classes WHERE id = ? AND status = "active"', [classId]);
+    let class_ = null;
+    if (db.useSupabase) {
+      const classResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/classes?id=eq.${classId}&status=eq.active&select=*`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (classResponse.ok) {
+        const classes = await classResponse.json();
+        class_ = classes.length > 0 ? classes[0] : null;
+      }
+    } else {
+      class_ = await db.get('SELECT * FROM classes WHERE id = ? AND status = "active"', [classId]);
+    }
+
     if (!class_) {
       return res.status(404).json({
         success: false,
@@ -1484,7 +1914,23 @@ router.post('/reception-cancel', authenticateToken, requireAdminOrReception, [
     }
 
     // Get user details
-    const user = await db.get('SELECT * FROM users WHERE id = ? AND role = "client"', [userId]);
+    let user = null;
+    if (db.useSupabase) {
+      const userResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/users?id=eq.${userId}&role=eq.client&select=*`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (userResponse.ok) {
+        const users = await userResponse.json();
+        user = users.length > 0 ? users[0] : null;
+      }
+    } else {
+      user = await db.get('SELECT * FROM users WHERE id = ? AND role = "client"', [userId]);
+    }
+
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -1493,10 +1939,25 @@ router.post('/reception-cancel', authenticateToken, requireAdminOrReception, [
     }
 
     // Check if user has a booking for this class
-    const booking = await db.get(
-      'SELECT * FROM bookings WHERE user_id = ? AND class_id = ? AND status = "confirmed"',
-      [userId, classId]
-    );
+    let booking = null;
+    if (db.useSupabase) {
+      const bookingResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/bookings?user_id=eq.${userId}&class_id=eq.${classId}&status=eq.confirmed&select=*`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (bookingResponse.ok) {
+        const bookings = await bookingResponse.json();
+        booking = bookings.length > 0 ? bookings[0] : null;
+      }
+    } else {
+      booking = await db.get(
+        'SELECT * FROM bookings WHERE user_id = ? AND class_id = ? AND status = "confirmed"',
+        [userId, classId]
+      );
+    }
 
     if (!booking) {
       return res.status(404).json({
@@ -1505,128 +1966,352 @@ router.post('/reception-cancel', authenticateToken, requireAdminOrReception, [
       });
     }
 
-    // Start transaction
-    await db.run('BEGIN TRANSACTION');
-
     try {
-      // Cancel the booking
-      await db.run(
-        'UPDATE bookings SET status = "cancelled", updated_at = datetime("now") WHERE id = ?',
-        [booking.id]
-      );
+      // Delete the booking completely
+      if (db.useSupabase) {
+        const deleteBookingResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/bookings?id=eq.${booking.id}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+            'Content-Type': 'application/json'
+          }
+        });
+        if (!deleteBookingResponse.ok) {
+          throw new Error('Failed to delete booking');
+        }
+      } else {
+        await db.run('DELETE FROM bookings WHERE id = ?', [booking.id]);
+      }
 
       // Decrease class enrollment count
-      await db.run(
-        'UPDATE classes SET enrolled = enrolled - 1 WHERE id = ?',
-        [classId]
-      );
-
-      // Refund the class to the subscription if it exists
-      if (booking.subscription_id) {
+      if (db.useSupabase) {
+        const updateClassResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/classes?id=eq.${classId}`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            enrolled: class_.enrolled - 1
+          })
+        });
+        if (!updateClassResponse.ok) {
+          throw new Error('Failed to update class enrollment');
+        }
+      } else {
         await db.run(
-          'UPDATE user_subscriptions SET remaining_classes = remaining_classes + 1 WHERE id = ?',
-          [booking.subscription_id]
+          'UPDATE classes SET enrolled = enrolled - 1 WHERE id = ?',
+          [classId]
         );
       }
 
-      // Check if there are people on waitlist for this class
-      const waitlistEntry = await db.get(
-        'SELECT * FROM waitlist WHERE class_id = ? ORDER BY position LIMIT 1',
-        [classId]
-      );
+      // Refund the class to the subscription if it exists
+      if (booking.subscription_id) {
+        if (db.useSupabase) {
+          const subscriptionResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/user_subscriptions?id=eq.${booking.subscription_id}`, {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+              'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              remaining_classes: booking.remaining_classes + 1
+            })
+          });
+          if (!subscriptionResponse.ok) {
+            console.warn('Failed to update subscription remaining classes');
+          }
+        } else {
+          await db.run(
+            'UPDATE user_subscriptions SET remaining_classes = remaining_classes + 1 WHERE id = ?',
+            [booking.subscription_id]
+          );
+        }
+      }
 
-      if (waitlistEntry) {
-        // Get the next person in waitlist
-        const nextInLine = await db.get(
-          'SELECT w.*, u.name as user_name, u.email as user_email FROM waitlist w JOIN users u ON w.user_id = u.id WHERE w.class_id = ? ORDER BY w.position LIMIT 1',
+      // Check if there are people on waitlist for this class
+      let waitlistEntry = null;
+      if (db.useSupabase) {
+        const waitlistResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/waitlist?class_id=eq.${classId}&order=position.asc&limit=1&select=*`, {
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+            'Content-Type': 'application/json'
+          }
+        });
+        if (waitlistResponse.ok) {
+          const waitlistEntries = await waitlistResponse.json();
+          waitlistEntry = waitlistEntries.length > 0 ? waitlistEntries[0] : null;
+        }
+      } else {
+        waitlistEntry = await db.get(
+          'SELECT * FROM waitlist WHERE class_id = ? ORDER BY position LIMIT 1',
           [classId]
         );
+      }
+
+      if (waitlistEntry) {
+        // Get the next person in waitlist with user details
+        let nextInLine = null;
+        if (db.useSupabase) {
+          const nextInLineResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/waitlist?class_id=eq.${classId}&order=position.asc&limit=1&select=*,users(name,email)`, {
+            headers: {
+              'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+              'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+              'Content-Type': 'application/json'
+            }
+          });
+          if (nextInLineResponse.ok) {
+            const waitlistEntries = await nextInLineResponse.json();
+            nextInLine = waitlistEntries.length > 0 ? waitlistEntries[0] : null;
+          }
+        } else {
+          nextInLine = await db.get(
+            'SELECT w.*, u.name as user_name, u.email as user_email FROM waitlist w JOIN users u ON w.user_id = u.id WHERE w.class_id = ? ORDER BY w.position LIMIT 1',
+            [classId]
+          );
+        }
 
         if (nextInLine) {
           // Check if they have a valid subscription
-          let userSubscription = await db.get(`
-            SELECT us.* FROM user_subscriptions us
-            WHERE us.user_id = ? AND us.status = 'active'
-            ORDER BY us.created_at DESC LIMIT 1
-          `, [nextInLine.user_id]);
+          let userSubscription = null;
+          if (db.useSupabase) {
+            const subscriptionResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/user_subscriptions?user_id=eq.${nextInLine.user_id}&status=eq.active&order=created_at.desc&limit=1&select=*`, {
+              headers: {
+                'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                'Content-Type': 'application/json'
+              }
+            });
+            if (subscriptionResponse.ok) {
+              const subscriptions = await subscriptionResponse.json();
+              userSubscription = subscriptions.length > 0 ? subscriptions[0] : null;
+            }
 
-          // If no active subscription, check for cancelled with remaining classes
-          if (!userSubscription) {
+            // If no active subscription, check for cancelled with remaining classes
+            if (!userSubscription) {
+              const cancelledSubscriptionResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/user_subscriptions?user_id=eq.${nextInLine.user_id}&status=eq.cancelled&remaining_classes=gt.0&order=created_at.desc&limit=1&select=*`, {
+                headers: {
+                  'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                  'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                  'Content-Type': 'application/json'
+                }
+              });
+              if (cancelledSubscriptionResponse.ok) {
+                const cancelledSubscriptions = await cancelledSubscriptionResponse.json();
+                userSubscription = cancelledSubscriptions.length > 0 ? cancelledSubscriptions[0] : null;
+              }
+            }
+          } else {
             userSubscription = await db.get(`
               SELECT us.* FROM user_subscriptions us
-              WHERE us.user_id = ? 
-                AND us.status = 'cancelled' 
-                AND us.remaining_classes > 0
-                AND DATE(us.end_date) >= DATE('now')
+              WHERE us.user_id = ? AND us.status = 'active'
               ORDER BY us.created_at DESC LIMIT 1
             `, [nextInLine.user_id]);
+
+            if (!userSubscription) {
+              userSubscription = await db.get(`
+                SELECT us.* FROM user_subscriptions us
+                WHERE us.user_id = ? 
+                  AND us.status = 'cancelled' 
+                  AND us.remaining_classes > 0
+                  AND DATE(us.end_date) >= DATE('now')
+                ORDER BY us.created_at DESC LIMIT 1
+              `, [nextInLine.user_id]);
+            }
           }
 
           if (userSubscription && (userSubscription.remaining_classes > 0 || userSubscription.plan_type === 'unlimited')) {
             // Create booking for waitlisted user
-            await db.run(`
-              INSERT INTO bookings (user_id, class_id, subscription_id, status)
-              VALUES (?, ?, ?, ?)
-            `, [nextInLine.user_id, classId, userSubscription.id, 'confirmed']);
+            if (db.useSupabase) {
+              const newBookingResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/bookings`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                  'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  user_id: nextInLine.user_id,
+                  class_id: classId,
+                  subscription_id: userSubscription.id,
+                  status: 'confirmed'
+                })
+              });
+              if (!newBookingResponse.ok) {
+                throw new Error('Failed to create booking for waitlisted user');
+              }
+            } else {
+              await db.run(`
+                INSERT INTO bookings (user_id, class_id, subscription_id, status)
+                VALUES (?, ?, ?, ?)
+              `, [nextInLine.user_id, classId, userSubscription.id, 'confirmed']);
+            }
 
             // Update subscription
             if (userSubscription.plan_type !== 'unlimited') {
-              await db.run(
-                'UPDATE user_subscriptions SET remaining_classes = remaining_classes - 1 WHERE id = ?',
-                [userSubscription.id]
-              );
+              if (db.useSupabase) {
+                const updateSubscriptionResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/user_subscriptions?id=eq.${userSubscription.id}`, {
+                  method: 'PATCH',
+                  headers: {
+                    'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                    'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({
+                    remaining_classes: userSubscription.remaining_classes - 1
+                  })
+                });
+                if (!updateSubscriptionResponse.ok) {
+                  throw new Error('Failed to update subscription');
+                }
+              } else {
+                await db.run(
+                  'UPDATE user_subscriptions SET remaining_classes = remaining_classes - 1 WHERE id = ?',
+                  [userSubscription.id]
+                );
+              }
             }
 
             // Update class enrollment back to full
-            await db.run(
-              'UPDATE classes SET enrolled = enrolled + 1 WHERE id = ?',
-              [classId]
-            );
+            if (db.useSupabase) {
+              const updateClassResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/classes?id=eq.${classId}`, {
+                method: 'PATCH',
+                headers: {
+                  'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                  'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  enrolled: class_.enrolled
+                })
+              });
+              if (!updateClassResponse.ok) {
+                throw new Error('Failed to update class enrollment');
+              }
+            } else {
+              await db.run(
+                'UPDATE classes SET enrolled = enrolled + 1 WHERE id = ?',
+                [classId]
+              );
+            }
 
             // Remove from waitlist
-            await db.run('DELETE FROM waitlist WHERE id = ?', [nextInLine.id]);
+            if (db.useSupabase) {
+              const deleteWaitlistResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/waitlist?id=eq.${nextInLine.id}`, {
+                method: 'DELETE',
+                headers: {
+                  'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                  'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                  'Content-Type': 'application/json'
+                }
+              });
+              if (!deleteWaitlistResponse.ok) {
+                throw new Error('Failed to remove from waitlist');
+              }
+            } else {
+              await db.run('DELETE FROM waitlist WHERE id = ?', [nextInLine.id]);
+            }
             
             // Update other waitlist positions
-            await db.run(
-              'UPDATE waitlist SET position = position - 1 WHERE class_id = ? AND position > ?',
-              [classId, nextInLine.position]
-            );
+            if (db.useSupabase) {
+              const updatePositionsResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/waitlist?class_id=eq.${classId}&position=gt.${nextInLine.position}`, {
+                method: 'PATCH',
+                headers: {
+                  'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                  'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  position: nextInLine.position - 1
+                })
+              });
+              if (!updatePositionsResponse.ok) {
+                console.warn('Failed to update waitlist positions');
+              }
+            } else {
+              await db.run(
+                'UPDATE waitlist SET position = position - 1 WHERE class_id = ? AND position > ?',
+                [classId, nextInLine.position]
+              );
+            }
 
             // Schedule notification for the promoted user
             const notificationTime = new Date().toISOString();
             const classDate = new Date(class_.date).toLocaleDateString();
             const message = `🎉 Great news! A spot opened up in "${class_.name}" on ${classDate} at ${class_.time}. You are now booked automatically!`;
             
-            await db.run(`
-              INSERT INTO notifications (class_id, user_id, type, message, scheduled_time)
-              VALUES (?, ?, 'waitlist_promotion', ?, ?)
-            `, [classId, nextInLine.user_id, message, notificationTime]);
+            if (db.useSupabase) {
+              const notificationResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/notifications`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                  'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  class_id: classId,
+                  user_id: nextInLine.user_id,
+                  type: 'waitlist_promotion',
+                  message: message,
+                  scheduled_time: notificationTime
+                })
+              });
+              if (!notificationResponse.ok) {
+                console.warn('Failed to create notification');
+              }
+            } else {
+              await db.run(`
+                INSERT INTO notifications (class_id, user_id, type, message, scheduled_time)
+                VALUES (?, ?, 'waitlist_promotion', ?, ?)
+              `, [classId, nextInLine.user_id, message, notificationTime]);
+            }
 
-            console.log(`📋 Promoted ${nextInLine.user_name} from waitlist for class "${class_.name}"`);
+            console.log(`📋 Promoted ${nextInLine.users?.name || 'user'} from waitlist for class "${class_.name}"`);
           }
         }
       }
 
       // Log activity
-      await db.run(`
-        INSERT INTO client_activity_log (
-          client_id, activity_type, description, performed_by, created_at
-        ) VALUES (?, ?, ?, ?, datetime('now'))
-      `, [
-        userId,
-        'class_cancellation',
-        `Booking cancelled for "${class_.name}" on ${class_.date} at ${class_.time} by ${req.user.name} (${req.user.role}). ${notes}`.trim(),
-        req.user.id
-      ]);
+      if (db.useSupabase) {
+        const activityResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/client_activity_log`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            client_id: userId,
+            activity_type: 'class_cancellation',
+            description: `Booking removed for "${class_.name}" on ${class_.date} at ${class_.time} by ${req.user.name} (${req.user.role}). ${notes}`.trim(),
+            performed_by: req.user.id
+          })
+        });
+        if (!activityResponse.ok) {
+          console.warn('Failed to log activity');
+        }
+      } else {
+        await db.run(`
+          INSERT INTO client_activity_log (
+            client_id, activity_type, description, performed_by, created_at
+          ) VALUES (?, ?, ?, ?, datetime('now'))
+        `, [
+          userId,
+          'class_cancellation',
+          `Booking removed for "${class_.name}" on ${class_.date} at ${class_.time} by ${req.user.name} (${req.user.role}). ${notes}`.trim(),
+          req.user.id
+        ]);
+      }
 
-      // Commit transaction
-      await db.run('COMMIT');
-
-      console.log(`📋 Reception cancelled ${user.name}'s booking for class "${class_.name}" on ${class_.date} at ${class_.time}`);
+      console.log(`📋 Reception removed ${user.name}'s booking for class "${class_.name}" on ${class_.date} at ${class_.time}`);
 
       res.json({
         success: true,
-        message: `Successfully cancelled ${user.name}'s booking for "${class_.name}"`,
+        message: `Successfully removed ${user.name}'s booking for "${class_.name}"`,
         data: {
           bookingId: booking.id,
           classId: classId,
@@ -1635,8 +2320,11 @@ router.post('/reception-cancel', authenticateToken, requireAdminOrReception, [
       });
 
     } catch (error) {
-      await db.run('ROLLBACK');
-      throw error;
+      console.error('Reception cancel booking error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+      });
     }
 
   } catch (error) {

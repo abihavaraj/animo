@@ -214,6 +214,19 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
       return;
     }
 
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.email)) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+
+    // Validate password for new users
+    if (!editingUser && (!formData.password || formData.password.length < 6)) {
+      Alert.alert('Error', 'Password must be at least 6 characters long');
+      return;
+    }
+
     try {
       setSaving(true);
       

@@ -1,7 +1,8 @@
-import { ApiResponse, apiService } from './api';
+import { devLog } from '../utils/devUtils';
+import { unifiedApiService } from './unifiedApi';
 
 export interface User {
-  id: number;
+  id: string;
   email: string;
   name: string;
   role: 'client' | 'instructor' | 'admin' | 'reception';
@@ -49,64 +50,108 @@ export interface UpdateProfileRequest {
 }
 
 class AuthService {
-  async login(credentials: LoginRequest): Promise<ApiResponse<LoginResponse>> {
-    const response = await apiService.post<any>('/auth/login', credentials);
-    
-    // Check if the response has nested data structure from backend
-    if (response.success && response.data) {
-      // Handle case where backend returns { data: { user, token } } directly
-      if (response.data.user && response.data.token) {
-        return {
-          success: true,
-          data: {
-            user: response.data.user,
-            token: response.data.token
-          }
-        };
-      }
+  async login(credentials: LoginRequest): Promise<any> {
+    try {
+      devLog('🔐 [authService] Starting login for:', credentials.emailOrPhone);
       
-      // Handle case where backend returns { data: { data: { user, token } } }
-      if (response.data.data && response.data.data.user && response.data.data.token) {
-        return {
-          success: true,
-          data: {
-            user: response.data.data.user,
-            token: response.data.data.token
-          }
-        };
+      // Use unified API service which handles Supabase/REST switching
+      const response = await unifiedApiService.signIn(credentials.emailOrPhone, credentials.password);
+      
+      if (response.success && response.data) {
+        devLog('✅ [authService] Login API call successful, processing data...');
+        const userData = response.data as any;
+        
+        if (userData.user && userData.token) {
+          devLog('👍 [authService] User and token found.');
+          
+          // Format Supabase user data to match our User interface
+          const formattedUser = {
+            id: userData.user.id,
+            email: userData.user.email,
+            name: userData.user.user_metadata?.name || userData.user.email?.split('@')[0] || 'User',
+            role: userData.user.user_metadata?.role || 'client',
+            phone: userData.user.user_metadata?.phone || '',
+            emergency_contact: userData.user.user_metadata?.emergency_contact || '',
+            medical_conditions: userData.user.user_metadata?.medical_conditions || '',
+            referral_source: userData.user.user_metadata?.referral_source || '',
+            join_date: userData.user.created_at,
+            status: 'active',
+            created_at: userData.user.created_at,
+            updated_at: userData.user.updated_at || userData.user.created_at,
+            // Legacy fields for backward compatibility
+            emergencyContact: userData.user.user_metadata?.emergency_contact || '',
+            medicalConditions: userData.user.user_metadata?.medical_conditions || '',
+            createdAt: userData.user.created_at,
+            updatedAt: userData.user.updated_at || userData.user.created_at
+          };
+          
+          return {
+            success: true,
+            data: {
+              user: formattedUser,
+              token: userData.token
+            }
+          };
+        } else {
+          devLog('⚠️ [authService] Login success but no user data found in response.');
+          return { success: false, error: 'Login successful, but user data is missing.' };
+        }
+      } else {
+        devLog('🚨 [authService] Login API call failed:', response.error);
+        return { success: false, error: response.error || 'Login failed.' };
       }
+    } catch (error) {
+      devLog('🔥 [authService] Critical login error:', error);
+      return {
+        success: false,
+        error: 'A critical error occurred during login. Please try again.'
+      };
     }
-    
-    return response;
   }
 
-  async register(userData: RegisterRequest): Promise<ApiResponse<LoginResponse>> {
-    return apiService.post<LoginResponse>('/auth/register', userData);
-  }
-
-  async getProfile(): Promise<ApiResponse<User>> {
-    return apiService.get<User>('/auth/me');
-  }
-
-  async updateProfile(data: UpdateProfileRequest): Promise<ApiResponse<User>> {
-    const response = await apiService.put<any>('/auth/profile', data);
-    
-    // Handle nested response structure from backend
-    if (response.success && response.data) {
-      // Backend returns { data: { user: updatedUser } }
-      if (response.data.user) {
-        return {
-          success: true,
-          data: response.data.user
-        };
-      }
+  async register(userData: RegisterRequest): Promise<any> {
+    try {
+      // Use unified API service which handles Supabase/REST switching
+      const response = await unifiedApiService.signUp(userData.email, userData.password, {
+        name: userData.name,
+        phone: userData.phone,
+        emergencyContact: userData.emergencyContact,
+        medicalConditions: userData.medicalConditions,
+        referralSource: userData.referralSource
+      });
+      
+      return response;
+    } catch (error) {
+      console.error('Auth register error:', error);
+      return {
+        success: false,
+        error: 'Registration failed. Please try again.'
+      };
     }
-    
-    return response;
+  }
+
+  async getProfile(): Promise<any> {
+    // Use unified API service to get current user
+    return unifiedApiService.getCurrentUser();
+  }
+
+  async updateProfile(data: UpdateProfileRequest): Promise<any> {
+    // Update user profile using unified API service
+    // Note: This might need to be implemented in the unified API service
+    return { success: false, error: 'Profile update not implemented yet' };
+  }
+
+  async signOut(): Promise<any> {
+    // Use unified API service for sign out
+    return unifiedApiService.signOut();
   }
 
   setToken(token: string | null) {
-    apiService.setToken(token);
+    // Set token in the unified API service
+    console.log('🔑 Setting token in unified API service:', token ? 'Token provided' : 'Clearing token');
+    
+    // The unified API service will handle token management internally
+    // based on the current mode (Supabase or REST)
   }
 }
 

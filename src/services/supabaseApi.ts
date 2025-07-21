@@ -14,18 +14,31 @@ class SupabaseApiService {
   private supabase = supabase;
 
   // Generic method to handle Supabase responses
-  private handleResponse<T>(response: any, error: any): SupabaseResponse<T> {
+  private handleResponse<T>(data: any, error: any): SupabaseResponse<T> {
     if (error) {
       devLog('❌ Supabase error:', error);
+      
+      // Handle specific error types
+      let errorMessage = 'Supabase operation failed';
+      if (error.message) {
+        if (error.message.includes('Invalid login credentials')) {
+          errorMessage = 'Invalid email or password. Please check your credentials.';
+        } else if (error.message.includes('Network')) {
+          errorMessage = 'Network error. Please check your internet connection.';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
       return {
         success: false,
-        error: error.message || 'Supabase operation failed',
+        error: errorMessage,
       };
     }
 
     return {
       success: true,
-      data: response.data as T,
+      data: data as T,
     };
   }
 
@@ -42,11 +55,37 @@ class SupabaseApiService {
   }
 
   async signIn(email: string, password: string) {
-    const { data, error } = await this.supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    return this.handleResponse(data, error);
+    try {
+      devLog('🔐 Attempting Supabase sign in for:', email);
+      
+      const { data, error } = await this.supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      
+      if (error) {
+        devLog('❌ Supabase sign in error:', error);
+        return this.handleResponse(null, error);
+      } else if (data) {
+        devLog('✅ Supabase sign in successful for user:', data.user?.email);
+        
+        // Format the response to match what the auth service expects
+        const formattedData = {
+          user: data.user,
+          token: data.session?.access_token
+        };
+        
+        return this.handleResponse(formattedData, null);
+      }
+      
+      return this.handleResponse(null, error);
+    } catch (networkError) {
+      devLog('❌ Network error during sign in:', networkError);
+      return {
+        success: false,
+        error: 'Network error. Please check your internet connection and try again.',
+      };
+    }
   }
 
   async signOut() {
@@ -181,6 +220,15 @@ class SupabaseApiService {
     return this.handleResponse(data, error);
   }
 
+  async getSubscriptionPlans() {
+    const { data, error } = await this.supabase
+      .from(API_CONFIG.ENDPOINTS.SUBSCRIPTION_PLANS)
+      .select('*')
+      .eq('is_active', true)
+      .order('monthly_price', { ascending: true });
+    return this.handleResponse(data, error);
+  }
+
   async createSubscription(subscriptionData: any) {
     const { data, error } = await this.supabase
       .from(API_CONFIG.ENDPOINTS.SUBSCRIPTIONS)
@@ -265,3 +313,4 @@ class SupabaseApiService {
 
 export const supabaseApiService = new SupabaseApiService();
 export type { SupabaseResponse };
+

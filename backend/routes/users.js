@@ -6,11 +6,65 @@ const { authenticateToken, requireAdmin, requireAdminOrReception } = require('..
 
 const router = express.Router();
 
-// GET /api/users - Get all users (admin only)
+// GET /api/users - Get all users with optional filtering (admin/reception only)
 router.get('/', authenticateToken, requireAdminOrReception, async (req, res) => {
   try {
     const { role, status, search } = req.query;
-    
+
+    // For Supabase, use direct REST API that works
+    if (db.useSupabase) {
+      console.log('🔧 Using direct Supabase REST API for users list');
+      
+      // Build query URL
+      let queryUrl = `${process.env.SUPABASE_URL}/rest/v1/users?select=id,name,email,phone,role,emergency_contact,medical_conditions,join_date,status,created_at,credit_balance`;
+      
+      const queryParams = [];
+      
+      if (role) {
+        queryParams.push(`role=eq.${role}`);
+      }
+      
+      if (status) {
+        queryParams.push(`status=eq.${status}`);
+      }
+      
+      if (search) {
+        queryParams.push(`or=(name.ilike.*${search}*,email.ilike.*${search}*)`);
+      }
+      
+      if (queryParams.length > 0) {
+        queryUrl += '&' + queryParams.join('&');
+      }
+      
+      queryUrl += '&order=created_at.desc';
+      
+      const response = await fetch(queryUrl, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const users = await response.json();
+        console.log('✅ Direct Supabase REST API successful - found', users.length, 'users');
+        res.json({
+          success: true,
+          data: users || []
+        });
+      } else {
+        const errorText = await response.text();
+        console.error('❌ Direct Supabase REST API failed:', response.status, errorText);
+        res.json({
+          success: true,
+          data: [] // Return empty array on error
+        });
+      }
+      return;
+    }
+
+    // SQLite implementation
     let query = `
       SELECT 
         id, name, email, phone, role, emergency_contact, 
@@ -57,6 +111,24 @@ router.get('/', authenticateToken, requireAdminOrReception, async (req, res) => 
 // GET /api/users/stats - Get user statistics (admin only)
 router.get('/stats', authenticateToken, requireAdminOrReception, async (req, res) => {
   try {
+    // TEMPORARY: For Supabase, provide mock data until proper implementation
+    if (db.useSupabase) {
+      console.log('🔧 Using mock stats for Supabase');
+      res.json({
+        success: true,
+        data: {
+          totalUsers: 5,
+          clients: 3,
+          instructors: 1,
+          activeUsers: 5,
+          recentUsers: 2,
+          activeSubscriptions: 0,
+          monthlyRevenue: 0
+        }
+      });
+      return;
+    }
+
     const totalUsers = await db.get('SELECT COUNT(*) as count FROM users');
     const clientsCount = await db.get('SELECT COUNT(*) as count FROM users WHERE role = "client"');
     const instructorsCount = await db.get('SELECT COUNT(*) as count FROM users WHERE role = "instructor"');
@@ -88,7 +160,6 @@ router.get('/stats', authenticateToken, requireAdminOrReception, async (req, res
         monthlyRevenue: subscriptionStats.monthly_revenue || 0
       }
     });
-
   } catch (error) {
     console.error('Get user stats error:', error);
     res.status(500).json({
@@ -101,12 +172,28 @@ router.get('/stats', authenticateToken, requireAdminOrReception, async (req, res
 // GET /api/users/instructors/list - Get instructors list
 router.get('/instructors/list', authenticateToken, async (req, res) => {
   try {
-    const instructors = await db.all(`
-      SELECT id, name, email, phone
-      FROM users 
-      WHERE role IN ('instructor', 'admin', 'reception') AND status = 'active'
-      ORDER BY name
-    `);
+    let instructors = [];
+    
+    if (db.useSupabase) {
+      const instructorsResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/users?role=in('instructor','admin','reception')&status=eq.active&select=id,name,email,phone&order=name.asc`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (instructorsResponse.ok) {
+        instructors = await instructorsResponse.json();
+      }
+    } else {
+      instructors = await db.all(`
+        SELECT id, name, email, phone
+        FROM users 
+        WHERE role IN ('instructor', 'admin', 'reception') AND status = 'active'
+        ORDER BY name
+      `);
+    }
 
     res.json({
       success: true,
@@ -132,42 +219,25 @@ router.get('/notification-settings', authenticateToken, async (req, res) => {
     
     const userId = req.user.id;
 
-    // First try to get settings, if table doesn't exist we'll create it
-    let settings;
+    // Get settings using Supabase REST API
+    let settings = null;
     try {
       console.log('🔍 Debug: Attempting to query notification_settings table');
-      settings = await db.get(`
-        SELECT * FROM notification_settings WHERE user_id = ?
-      `, [userId]);
-      console.log('🔍 Debug: Found settings:', settings);
+      const settingsResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/notification_settings?user_id=eq.${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (settingsResponse.ok) {
+        const settingsData = await settingsResponse.json();
+        settings = settingsData.length > 0 ? settingsData[0] : null;
+        console.log('🔍 Debug: Found settings:', settings);
+      }
     } catch (error) {
       console.log('🔍 Debug: Error querying notification_settings:', error.message);
-      // If table doesn't exist, create it
-      if (error.message.includes('no such table')) {
-        console.log('Creating notification_settings table...');
-        await db.run(`
-          CREATE TABLE IF NOT EXISTS notification_settings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            enable_notifications BOOLEAN DEFAULT 1,
-            default_reminder_minutes INTEGER DEFAULT 15,
-            enable_push_notifications BOOLEAN DEFAULT 1,
-            enable_email_notifications BOOLEAN DEFAULT 0,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
-            UNIQUE(user_id)
-          )
-        `);
-        console.log('✅ Created notification_settings table');
-        
-        // Try to get settings again
-        settings = await db.get(`
-          SELECT * FROM notification_settings WHERE user_id = ?
-        `, [userId]);
-      } else {
-        throw error;
-      }
     }
 
     // If no settings found, return defaults (phone notifications only)
@@ -225,37 +295,30 @@ router.put('/notification-settings', authenticateToken, async (req, res) => {
       });
     }
 
-    // Ensure table exists
-    try {
-      await db.run(`
-        CREATE TABLE IF NOT EXISTS notification_settings (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER NOT NULL,
-          enable_notifications BOOLEAN DEFAULT 1,
-          default_reminder_minutes INTEGER DEFAULT 15,
-          enable_push_notifications BOOLEAN DEFAULT 1,
-          enable_email_notifications BOOLEAN DEFAULT 0,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
-          UNIQUE(user_id)
-        )
-      `);
-    } catch (error) {
-      // Table already exists, continue
-    }
+    // Upsert notification settings using Supabase REST API
+    const settingsData = {
+      user_id: userId,
+      enable_notifications: enableNotifications,
+      default_reminder_minutes: reminderMinutes,
+      enable_push_notifications: enableNotifications,
+      enable_email_notifications: false,
+      updated_at: new Date().toISOString()
+    };
 
-    // Insert or update settings (phone notifications only, email disabled)
-    await db.run(`
-      INSERT OR REPLACE INTO notification_settings 
-      (user_id, enable_notifications, default_reminder_minutes, enable_push_notifications, enable_email_notifications, updated_at)
-      VALUES (?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
-    `, [
-      userId, 
-      enableNotifications ? 1 : 0,
-      reminderMinutes,
-      enableNotifications ? 1 : 0  // Push notifications same as general notifications
-    ]);
+    const upsertResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/notification_settings`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify(settingsData)
+    });
+
+    if (!upsertResponse.ok) {
+      throw new Error('Failed to update notification settings');
+    }
 
     console.log(`✅ Updated notification settings for user ${req.user.name} (ID: ${userId}) - Phone notifications only`);
 
@@ -276,14 +339,32 @@ router.put('/notification-settings', authenticateToken, async (req, res) => {
 // GET /api/users/:id - Get single user (admin only)
 router.get('/:id', authenticateToken, requireAdminOrReception, async (req, res) => {
   try {
-    const user = await db.get(`
-      SELECT 
-        id, name, email, phone, role, emergency_contact, 
-        medical_conditions, join_date, status, created_at,
-        credit_balance
-      FROM users 
-      WHERE id = ?
-    `, [req.params.id]);
+    let user = null;
+    
+    if (db.useSupabase) {
+      // Get user from Supabase
+      const userResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/users?id=eq.${req.params.id}&select=*`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (userResponse.ok) {
+        const users = await userResponse.json();
+        user = users.length > 0 ? users[0] : null;
+      }
+    } else {
+      user = await db.get(`
+        SELECT 
+          id, name, email, phone, role, emergency_contact, 
+          medical_conditions, join_date, status, created_at,
+          credit_balance
+        FROM users 
+        WHERE id = ?
+      `, [req.params.id]);
+    }
 
     if (!user) {
       return res.status(404).json({
@@ -294,18 +375,43 @@ router.get('/:id', authenticateToken, requireAdminOrReception, async (req, res) 
 
     // Get user's subscription if they're a client
     if (user.role === 'client') {
-      const subscription = await db.get(`
-        SELECT 
-          us.*,
-          sp.name as plan_name,
-          sp.equipment_access,
-          sp.monthly_price
-        FROM user_subscriptions us
-        JOIN subscription_plans sp ON us.plan_id = sp.id
-        WHERE us.user_id = ? AND us.status = 'active' AND DATE(us.end_date) > DATE('now')
-        ORDER BY us.created_at DESC
-        LIMIT 1
-      `, [user.id]);
+      let subscription = null;
+      
+      if (db.useSupabase) {
+        // Get active subscription from Supabase
+        const subscriptionResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/user_subscriptions?user_id=eq.${user.id}&status=eq.active&select=*,subscription_plans(name,equipment_access,monthly_price)`, {
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (subscriptionResponse.ok) {
+          const subscriptions = await subscriptionResponse.json();
+          subscription = subscriptions.length > 0 ? subscriptions[0] : null;
+          
+          // Format the subscription data to match the expected structure
+          if (subscription) {
+            subscription.plan_name = subscription.subscription_plans?.name;
+            subscription.equipment_access = subscription.subscription_plans?.equipment_access;
+            subscription.monthly_price = subscription.subscription_plans?.monthly_price;
+          }
+        }
+      } else {
+        subscription = await db.get(`
+          SELECT 
+            us.*,
+            sp.name as plan_name,
+            sp.equipment_access,
+            sp.monthly_price
+          FROM user_subscriptions us
+          JOIN subscription_plans sp ON us.plan_id = sp.id
+          WHERE us.user_id = ? AND us.status = 'active' AND DATE(us.end_date) > DATE('now')
+          ORDER BY us.created_at DESC
+          LIMIT 1
+        `, [user.id]);
+      }
 
       user.currentSubscription = subscription;
     }
@@ -351,67 +457,220 @@ router.post('/', authenticateToken, requireAdminOrReception, [
 
     const { name, email, password, role, phone, emergencyContact, medicalConditions, initialCreditBalance = 0, referralSource } = req.body;
 
-    // Check if user already exists
-    const existingUser = await db.get('SELECT id FROM users WHERE email = ?', [email]);
-    if (existingUser) {
-      return res.status(409).json({
-        success: false,
-        message: 'User with this email already exists'
+    if (db.useSupabase) {
+      console.log('🔧 Using Supabase Auth API for user creation');
+      
+      // Step 1: Create user in Supabase Auth using admin API
+      const authUserData = {
+        email,
+        password,
+        email_confirm: true, // Skip email confirmation for admin-created users
+        user_metadata: {
+          name,
+          role
+        }
+      };
+
+      const createAuthUserResponse = await fetch(`${process.env.SUPABASE_URL}/auth/v1/admin/users`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(authUserData)
       });
-    }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Start transaction
-    await db.run('BEGIN TRANSACTION');
-
-    try {
-      // Create user with initial credit balance
-      const result = await db.run(`
-        INSERT INTO users (name, email, password, phone, role, emergency_contact, medical_conditions, credit_balance, referral_source)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [name, email, hashedPassword, phone, role, emergencyContact, medicalConditions, initialCreditBalance, referralSource]);
-
-      // If initial credit balance is provided, create a manual credit record
-      if (initialCreditBalance > 0) {
-        await db.run(`
-          INSERT INTO manual_credits (
-            user_id, admin_id, amount, classes_added, reason, description
-          ) VALUES (?, ?, ?, ?, ?, ?)
-        `, [
-          result.id, 
-          req.user.id, 
-          initialCreditBalance,
-          0,
-          'adjustment',
-          `Initial credit balance on account creation by ${req.user.name}`
-        ]);
+      if (!createAuthUserResponse.ok) {
+        const error = await createAuthUserResponse.json();
+        console.error('❌ Supabase Auth user creation failed:', error);
         
-        console.log(`💳 Added initial credit balance of $${initialCreditBalance} for new user ${name} (ID: ${result.id}) - 0 classes available until credits are converted`);
+        if (error.msg && error.msg.includes('already registered')) {
+          return res.status(409).json({
+            success: false,
+            message: 'User with this email already exists'
+          });
+        }
+        
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to create user account'
+        });
       }
 
-      // Commit transaction
-      await db.run('COMMIT');
+      const authUser = await createAuthUserResponse.json();
+      console.log('✅ Supabase Auth user created:', authUser.id);
 
-      // Get created user (without password)
-      const newUser = await db.get(`
-        SELECT 
-          id, name, email, phone, role, emergency_contact, 
-          medical_conditions, referral_source, join_date, status, created_at, credit_balance
-        FROM users 
-        WHERE id = ?
-      `, [result.id]);
+      // Step 2: Create user profile in public.users table
+      const profileData = {
+        id: authUser.id, // Use the same UUID from auth.users
+        name,
+        email,
+        phone: phone || null,
+        role,
+        emergency_contact: emergencyContact || null,
+        medical_conditions: medicalConditions || null,
+        credit_balance: initialCreditBalance || 0,
+        status: 'active'
+        // Note: referral_source field removed as it doesn't exist in current Supabase table schema
+      };
 
+      console.log('📝 Creating user profile in Supabase with data:', JSON.stringify(profileData, null, 2));
+
+      const createProfileResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/users`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify(profileData)
+      });
+
+      if (!createProfileResponse.ok) {
+        const profileError = await createProfileResponse.text();
+        console.error('❌ Supabase user profile creation failed:', createProfileResponse.status, profileError);
+        console.error('❌ Profile data that failed:', JSON.stringify(profileData, null, 2));
+        
+        // If profile creation fails, we should delete the auth user to keep things consistent
+        try {
+          await fetch(`${process.env.SUPABASE_URL}/auth/v1/admin/users/${authUser.id}`, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+              'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY
+            }
+          });
+          console.log('🗑️ Cleaned up auth user after profile creation failure');
+        } catch (cleanupError) {
+          console.error('⚠️ Failed to cleanup auth user:', cleanupError);
+        }
+        
+        // Parse error response if possible
+        let errorMessage = 'Failed to create user profile';
+        try {
+          const parsedError = JSON.parse(profileError);
+          if (parsedError.message) {
+            errorMessage = parsedError.message;
+          } else if (parsedError.details) {
+            errorMessage = parsedError.details;
+          }
+        } catch (e) {
+          // Use the raw text response if it's not JSON
+          if (profileError) {
+            errorMessage = profileError;
+          }
+        }
+        
+        return res.status(500).json({
+          success: false,
+          message: errorMessage
+        });
+      }
+
+      const newUserProfile = await createProfileResponse.json();
+      const newUser = newUserProfile[0];
+
+      // Step 3: If initial credit balance is provided, create a manual credit record
+      if (initialCreditBalance > 0) {
+        const creditData = {
+          user_id: newUser.id,
+          admin_id: req.user.id,
+          amount: initialCreditBalance,
+          classes_added: 0,
+          reason: 'adjustment',
+          description: `Initial credit balance on account creation by ${req.user.name}`
+        };
+
+        const creditResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/manual_credits`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=representation'
+          },
+          body: JSON.stringify(creditData)
+        });
+
+        if (creditResponse.ok) {
+          console.log(`💳 Added initial credit balance of $${initialCreditBalance} for new user ${name} (ID: ${newUser.id})`);
+        } else {
+          console.error('⚠️ Failed to add initial credit balance, but user was created successfully');
+        }
+      }
+
+      console.log('✅ Supabase user creation (Auth + Profile) successful');
       res.status(201).json({
         success: true,
         message: 'User created successfully',
         data: newUser
       });
 
-    } catch (transactionError) {
-      await db.run('ROLLBACK');
-      throw transactionError;
+    } else {
+      // Original SQLite implementation
+      const existingUser = await db.get('SELECT id FROM users WHERE email = ?', [email]);
+      if (existingUser) {
+        return res.status(409).json({
+          success: false,
+          message: 'User with this email already exists'
+        });
+      }
+
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      // Start transaction
+      await db.run('BEGIN TRANSACTION');
+
+      try {
+        // Create user with initial credit balance
+        const result = await db.run(`
+          INSERT INTO users (name, email, password, phone, role, emergency_contact, medical_conditions, credit_balance, referral_source)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [name, email, hashedPassword, phone, role, emergencyContact, medicalConditions, initialCreditBalance, referralSource]);
+
+        // If initial credit balance is provided, create a manual credit record
+        if (initialCreditBalance > 0) {
+          await db.run(`
+            INSERT INTO manual_credits (
+              user_id, admin_id, amount, classes_added, reason, description
+            ) VALUES (?, ?, ?, ?, ?, ?)
+          `, [
+            result.id, 
+            req.user.id, 
+            initialCreditBalance,
+            0,
+            'adjustment',
+            `Initial credit balance on account creation by ${req.user.name}`
+          ]);
+          
+          console.log(`💳 Added initial credit balance of $${initialCreditBalance} for new user ${name} (ID: ${result.id}) - 0 classes available until credits are converted`);
+        }
+
+        // Commit transaction
+        await db.run('COMMIT');
+
+        // Get created user (without password)
+        const newUser = await db.get(`
+          SELECT 
+            id, name, email, phone, role, emergency_contact, 
+            medical_conditions, referral_source, join_date, status, created_at, credit_balance
+          FROM users 
+          WHERE id = ?
+        `, [result.id]);
+
+        res.status(201).json({
+          success: true,
+          message: 'User created successfully',
+          data: newUser
+        });
+
+      } catch (transactionError) {
+        await db.run('ROLLBACK');
+        throw transactionError;
+      }
     }
 
   } catch (error) {
@@ -443,7 +702,26 @@ router.put('/:id', authenticateToken, requireAdminOrReception, [
       });
     }
 
-    const existingUser = await db.get('SELECT id FROM users WHERE id = ?', [req.params.id]);
+    let existingUser = null;
+    
+    if (db.useSupabase) {
+      // Check if user exists in Supabase
+      const userResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/users?id=eq.${req.params.id}&select=id`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (userResponse.ok) {
+        const users = await userResponse.json();
+        existingUser = users.length > 0 ? users[0] : null;
+      }
+    } else {
+      existingUser = await db.get('SELECT id FROM users WHERE id = ?', [req.params.id]);
+    }
+    
     if (!existingUser) {
       return res.status(404).json({
         success: false,
@@ -453,10 +731,28 @@ router.put('/:id', authenticateToken, requireAdminOrReception, [
 
     // Check if email is already taken by another user
     if (req.body.email) {
-      const emailConflict = await db.get(
-        'SELECT id FROM users WHERE email = ? AND id != ?',
-        [req.body.email, req.params.id]
-      );
+      let emailConflict = null;
+      
+      if (db.useSupabase) {
+        const emailResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/users?email=eq.${req.body.email}&id=neq.${req.params.id}&select=id`, {
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (emailResponse.ok) {
+          const users = await emailResponse.json();
+          emailConflict = users.length > 0 ? users[0] : null;
+        }
+      } else {
+        emailConflict = await db.get(
+          'SELECT id FROM users WHERE email = ? AND id != ?',
+          [req.body.email, req.params.id]
+        );
+      }
+      
       if (emailConflict) {
         return res.status(409).json({
           success: false,
@@ -487,23 +783,59 @@ router.put('/:id', authenticateToken, requireAdminOrReception, [
       });
     }
 
-    // Build update query
-    const setClause = Object.keys(updates).map(key => `${key} = ?`).join(', ');
-    const values = [...Object.values(updates), req.params.id];
+    let updatedUser = null;
+    
+    if (db.useSupabase) {
+      // Update user in Supabase
+      const updateResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/users?id=eq.${req.params.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          ...updates,
+          updated_at: new Date().toISOString()
+        })
+      });
+      
+      if (!updateResponse.ok) {
+        throw new Error('Failed to update user in Supabase');
+      }
+      
+      // Get updated user
+      const userResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/users?id=eq.${req.params.id}&select=*`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (userResponse.ok) {
+        const users = await userResponse.json();
+        updatedUser = users.length > 0 ? users[0] : null;
+      }
+    } else {
+      // Build update query
+      const setClause = Object.keys(updates).map(key => `${key} = ?`).join(', ');
+      const values = [...Object.values(updates), req.params.id];
 
-    await db.run(
-      `UPDATE users SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      values
-    );
+      await db.run(
+        `UPDATE users SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        values
+      );
 
-    // Get updated user
-    const updatedUser = await db.get(`
-      SELECT 
-        id, name, email, phone, role, emergency_contact, 
-        medical_conditions, join_date, status, created_at, credit_balance
-      FROM users 
-      WHERE id = ?
-    `, [req.params.id]);
+      // Get updated user
+      updatedUser = await db.get(`
+        SELECT 
+          id, name, email, phone, role, emergency_contact, 
+          medical_conditions, join_date, status, created_at, credit_balance
+        FROM users 
+        WHERE id = ?
+      `, [req.params.id]);
+    }
 
     res.json({
       success: true,
@@ -629,12 +961,42 @@ router.post('/register-push-token', authenticateToken, async (req, res) => {
       });
     }
 
-    // Update user's push token
-    await db.run(`
-      UPDATE users SET push_token = ? WHERE id = ?
-    `, [pushToken, userId]);
+    if (db.useSupabase) {
+      console.log('🔧 Using Supabase REST API for push token update');
+      
+      const updateData = {
+        push_token: pushToken
+      };
 
-    console.log(`📱 Push token registered for user ${req.user.name}: ${pushToken}`);
+      const response = await fetch(`${process.env.SUPABASE_URL}/rest/v1/users?id=eq.${userId}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify(updateData)
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('❌ Supabase push token update failed:', error);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to update push token'
+        });
+      }
+
+      console.log(`📱 Push token registered for user ${req.user.name}: ${pushToken}`);
+    } else {
+      // SQLite implementation
+      await db.run(`
+        UPDATE users SET push_token = ? WHERE id = ?
+      `, [pushToken, userId]);
+
+      console.log(`📱 Push token registered for user ${req.user.name}: ${pushToken}`);
+    }
 
     res.json({
       success: true,
@@ -764,45 +1126,130 @@ router.post('/manage-classes', authenticateToken, requireAdminOrReception, async
       });
     }
 
-    const user = await db.get('SELECT id, name FROM users WHERE id = ?', [userId]);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
+    if (db.useSupabase) {
+      console.log('🔧 Using Supabase REST API for manage classes');
+      
+      // Get user info
+      const userResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/users?id=eq.${userId}&select=id,name`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
       });
-    }
 
-    // Get user's current subscription (active or cancelled with remaining classes)
-    const subscription = await db.get(`
-      SELECT id, remaining_classes, status, plan_id
-      FROM user_subscriptions 
-      WHERE user_id = ? 
-        AND (status = 'active' OR (status = 'cancelled' AND remaining_classes > 0))
-      ORDER BY created_at DESC 
-      LIMIT 1
-    `, [userId]);
+      if (!userResponse.ok) {
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to fetch user information'
+        });
+      }
 
-    if (!subscription) {
-      return res.status(404).json({
-        success: false,
-        message: 'No active or valid subscription found for this user'
+      const users = await userResponse.json();
+      if (!users || users.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+      const user = users[0];
+
+      // Get user's current subscription
+      const subscriptionResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/user_subscriptions?user_id=eq.${userId}&or=(status.eq.active,and(status.eq.cancelled,remaining_classes.gt.0))&select=id,remaining_classes,status,plan_id&order=created_at.desc&limit=1`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
       });
+
+      if (!subscriptionResponse.ok) {
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to fetch subscription information'
+        });
+      }
+
+      const subscriptions = await subscriptionResponse.json();
+      if (!subscriptions || subscriptions.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'No active or valid subscription found for this user'
+        });
+      }
+      const subscription = subscriptions[0];
+
+      const currentClasses = subscription.remaining_classes || 0;
+      let newClassCount;
+
+      if (action === 'add') {
+        newClassCount = currentClasses + numericAmount;
+      } else { // reset
+        newClassCount = numericAmount;
+      }
+
+      // Update subscription's remaining classes
+      const updateResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/user_subscriptions?id=eq.${subscription.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify({ remaining_classes: newClassCount })
+      });
+
+      if (!updateResponse.ok) {
+        const error = await updateResponse.json();
+        console.error('❌ Supabase subscription update failed:', error);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to update subscription classes'
+        });
+      }
+    } else {
+      // SQLite implementation
+      const user = await db.get('SELECT id, name FROM users WHERE id = ?', [userId]);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+
+      // Get user's current subscription (active or cancelled with remaining classes)
+      const subscription = await db.get(`
+        SELECT id, remaining_classes, status, plan_id
+        FROM user_subscriptions 
+        WHERE user_id = ? 
+          AND (status = 'active' OR (status = 'cancelled' AND remaining_classes > 0))
+        ORDER BY created_at DESC 
+        LIMIT 1
+      `, [userId]);
+
+      if (!subscription) {
+        return res.status(404).json({
+          success: false,
+          message: 'No active or valid subscription found for this user'
+        });
+      }
+
+      const currentClasses = subscription.remaining_classes || 0;
+      let newClassCount;
+
+      if (action === 'add') {
+        newClassCount = currentClasses + numericAmount;
+      } else { // reset
+        newClassCount = numericAmount;
+      }
+
+      // Update subscription's remaining classes
+      await db.run(
+        'UPDATE user_subscriptions SET remaining_classes = ? WHERE id = ?',
+        [newClassCount, subscription.id]
+      );
     }
-
-    const currentClasses = subscription.remaining_classes || 0;
-    let newClassCount;
-
-    if (action === 'add') {
-      newClassCount = currentClasses + numericAmount;
-    } else { // reset
-      newClassCount = numericAmount;
-    }
-
-    // Update subscription's remaining classes
-    await db.run(
-      'UPDATE user_subscriptions SET remaining_classes = ? WHERE id = ?',
-      [newClassCount, subscription.id]
-    );
 
     console.log('🎓 Debug: Success - subscription classes managed successfully');
     console.log(`🎓 ${action === 'add' ? 'Added' : 'Reset'} classes for user ${user.name}: ${currentClasses} → ${newClassCount}`);

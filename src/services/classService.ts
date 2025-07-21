@@ -1,4 +1,5 @@
-import { ApiResponse, apiService } from './api';
+import { supabase } from '../config/supabase.config';
+import { ApiResponse } from './api';
 
 export interface BackendClass {
   id: number;
@@ -24,7 +25,7 @@ export interface BackendClass {
 
 export interface CreateClassRequest {
   name: string;
-  instructorId: number;
+  instructorId: number | string; // Support both integer (SQLite) and UUID string (Supabase)
   date: string;
   time: string;
   duration: number;
@@ -42,7 +43,7 @@ export interface CreateClassRequest {
 
 export interface UpdateClassRequest {
   name?: string;
-  instructorId?: number;
+  instructorId?: number | string; // Support both integer (SQLite) and UUID string (Supabase)
   date?: string;
   time?: string;
   duration?: number;
@@ -67,6 +68,7 @@ export interface ClassFilters {
   equipmentType?: string;
   status?: string;
   room?: string;
+  upcoming?: boolean; // Added for upcoming classes
 }
 
 export interface RoomAvailability {
@@ -78,124 +80,202 @@ export interface RoomAvailability {
 
 class ClassService {
   async getClasses(filters?: ClassFilters): Promise<ApiResponse<BackendClass[]>> {
-    const queryParams = new URLSearchParams();
-    if (filters) {
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value !== undefined && value !== '') {
-          queryParams.append(key, value.toString());
-        }
-      });
+    try {
+      let query = supabase
+        .from('classes')
+        .select(`
+          *,
+          users!classes_instructor_id_fkey (name, email)
+        `)
+        .eq('status', 'active');
+      
+      if (filters?.date) {
+        query = query.eq('date', filters.date);
+      }
+      
+      if (filters?.instructor) {
+        query = query.eq('instructor_id', filters.instructor);
+      }
+      
+      if (filters?.level) {
+        query = query.eq('level', filters.level);
+      }
+      
+      if (filters?.equipmentType) {
+        query = query.eq('equipment_type', filters.equipmentType);
+      }
+      
+      if (filters?.upcoming) {
+        const now = new Date();
+        query = query.gte('date', now.toISOString().split('T')[0]);
+      }
+      
+      const { data, error } = await query;
+      
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      
+      return { success: true, data: data || [] };
+    } catch (error) {
+      return { success: false, error: 'Failed to get classes' };
     }
-    
-    const endpoint = `/classes${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    const response = await apiService.get<any>(endpoint);
-    
-    // Handle nested response structure from backend
-    if (response.success && response.data && response.data.data) {
-      return {
-        success: true,
-        data: response.data.data
-      };
-    } else if (response.success && response.data) {
-      // Handle direct data structure
-      return {
-        success: true,
-        data: response.data
-      };
-    }
-    
-    return {
-      success: false,
-      error: response.error || 'Failed to fetch classes'
-    };
   }
 
-  async getClass(id: number): Promise<ApiResponse<BackendClass>> {
-    const response = await apiService.get<any>(`/classes/${id}`);
-    
-    if (response.success && response.data && response.data.data) {
-      return {
-        success: true,
-        data: response.data.data
-      };
-    } else if (response.success && response.data) {
-      return {
-        success: true,
-        data: response.data
-      };
+  async getClassById(id: number): Promise<ApiResponse<BackendClass>> {
+    try {
+      const { data, error } = await supabase
+        .from('classes')
+        .select(`
+          *,
+          users!classes_instructor_id_fkey (name, email)
+        `)
+        .eq('id', id)
+        .single();
+      
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: 'Failed to get class' };
     }
-    
-    return {
-      success: false,
-      error: response.error || 'Failed to fetch class'
-    };
   }
 
   async createClass(classData: CreateClassRequest): Promise<ApiResponse<BackendClass>> {
-    const response = await apiService.post<any>('/classes', classData);
-    
-    if (response.success && response.data && response.data.data) {
-      return {
-        success: true,
-        data: response.data.data
-      };
-    } else if (response.success && response.data) {
-      return {
-        success: true,
-        data: response.data
-      };
+    try {
+      const { data, error } = await supabase
+        .from('classes')
+        .insert({
+          name: classData.name,
+          instructor_id: classData.instructorId,
+          date: classData.date,
+          time: classData.time,
+          duration: classData.duration,
+          level: classData.level,
+          capacity: classData.capacity,
+          equipment_type: classData.equipmentType,
+          equipment: classData.equipment,
+          description: classData.description,
+          room: classData.room,
+          status: 'active'
+        })
+        .select(`
+          *,
+          users!classes_instructor_id_fkey (name, email)
+        `)
+        .single();
+      
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: 'Failed to create class' };
     }
-    
-    return {
-      success: false,
-      error: response.error || 'Failed to create class'
-    };
   }
 
-  async updateClass(id: number, classData: UpdateClassRequest): Promise<ApiResponse<BackendClass>> {
-    const response = await apiService.put<any>(`/classes/${id}`, classData);
-    
-    if (response.success && response.data && response.data.data) {
-      return {
-        success: true,
-        data: response.data.data
-      };
-    } else if (response.success && response.data) {
-      return {
-        success: true,
-        data: response.data
-      };
+  async updateClass(id: number, updates: UpdateClassRequest): Promise<ApiResponse<BackendClass>> {
+    try {
+      const { data, error } = await supabase
+        .from('classes')
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select(`
+          *,
+          users!classes_instructor_id_fkey (name, email)
+        `)
+        .single();
+      
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: 'Failed to update class' };
     }
-    
-    return {
-      success: false,
-      error: response.error || 'Failed to update class'
-    };
   }
 
   async deleteClass(id: number): Promise<ApiResponse<void>> {
-    return apiService.delete<void>(`/classes/${id}`);
+    try {
+      const { error } = await supabase
+        .from('classes')
+        .update({ 
+          status: 'cancelled',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id);
+      
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: 'Failed to delete class' };
+    }
   }
 
   async cancelClass(id: number): Promise<ApiResponse<BackendClass>> {
-    return this.updateClass(id, { status: 'cancelled' });
+    try {
+      const { data, error } = await supabase
+        .from('classes')
+        .update({ 
+          status: 'cancelled',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select(`
+          *,
+          users!classes_instructor_id_fkey (name, email)
+        `)
+        .single();
+      
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: 'Failed to cancel class' };
+    }
   }
 
   // Check room availability for a specific date and time
   async checkRoomAvailability(date: string, time: string, duration: number): Promise<ApiResponse<RoomAvailability>> {
-    const response = await apiService.get<any>(`/classes/room-availability?date=${date}&time=${time}&duration=${duration}`);
-    
-    if (response.success && response.data) {
-      return {
-        success: true,
-        data: response.data
-      };
+    try {
+      const { data, error } = await supabase
+        .from('classes')
+        .select('*')
+        .eq('date', date)
+        .eq('time', time)
+        .eq('duration', duration)
+        .eq('status', 'active');
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      const classes = data || [];
+      const roomAvailability: RoomAvailability = {};
+
+      for (const class_ of classes) {
+        roomAvailability[class_.room || ''] = {
+          available: false,
+          conflictClass: class_
+        };
+      }
+
+      return { success: true, data: roomAvailability };
+    } catch (error) {
+      return { success: false, error: 'Failed to check room availability' };
     }
-    
-    return {
-      success: false,
-      error: response.error || 'Failed to check room availability'
-    };
   }
 
   // Check for instructor scheduling conflicts

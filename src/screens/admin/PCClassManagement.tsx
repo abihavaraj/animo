@@ -99,7 +99,6 @@ function PCClassManagement() {
     description: '',
     equipmentType: 'mat' as BackendClass['equipment_type'],
     room: '' as 'Reformer Room' | 'Mat Room' | 'Cadillac Room' | 'Wall Room' | '',
-    level: '' as 'Beginner' | 'Intermediate' | 'Advanced' | '',
     notes: '', // Add notes field
   });
 
@@ -171,18 +170,25 @@ function PCClassManagement() {
 
   const loadInstructors = async () => {
     try {
+      console.log('🎓 Loading instructors...');
       const response = await userService.getInstructors();
+      console.log('🎓 Instructors response:', response);
       if (response.success && response.data) {
         setInstructors(response.data);
+        console.log('🎓 Loaded instructors:', response.data.length, 'instructors:', response.data.map(i => `${i.name} (ID: ${i.id})`));
+      } else {
+        console.error('❌ Failed to load instructors:', response.error);
+        setInstructors([]);
       }
     } catch (error) {
-      console.error('Error loading instructors:', error);
+      console.error('❌ Error loading instructors:', error);
+      setInstructors([]);
     }
   };
 
   const loadBookings = async () => {
     try {
-      const response = await apiService.get('/bookings');
+      const response = await apiService.get('/api/bookings');
       if (response.success && response.data) {
         setBookings(Array.isArray(response.data) ? response.data : []);
       } else {
@@ -289,15 +295,32 @@ function PCClassManagement() {
       description: classItem.description || '',
       equipmentType: classItem.equipment_type,
       room: (classItem as any).room || '',
-      level: classItem.level || '',
+      
       notes: classItem.notes || '', // Set notes from classItem
     });
     setModalVisible(true);
   };
 
   const handleSaveClass = async () => {
+    console.log('🎯 Form validation starting...');
+    console.log('🎯 Available instructors:', instructors.length);
+    console.log('🎯 Form data instructorId:', formData.instructorId, 'type:', typeof formData.instructorId);
+    console.log('🎯 Form data instructorName:', formData.instructorName);
+
+    // Check if instructors are available
+    if (instructors.length === 0) {
+      Alert.alert('Error', 'No instructors available. Please make sure instructors are created in the system first.');
+      return;
+    }
+
     if (!formData.name || !formData.instructorId || !formData.date || !formData.time) {
       Alert.alert('Error', 'Please fill in all required fields');
+      return;
+    }
+
+    // Validate instructor ID is not null or empty
+    if (!formData.instructorId || formData.instructorId === '' || formData.instructorId === 'null') {
+      Alert.alert('Error', `Please select an instructor from the available ${instructors.length} instructor(s)`);
       return;
     }
 
@@ -314,7 +337,6 @@ function PCClassManagement() {
       description: formData.description,
       equipmentType: formData.equipmentType,
       room: formData.room,
-      level: formData.level,
       notes: formData.notes
     });
 
@@ -325,7 +347,7 @@ function PCClassManagement() {
       if (editingClass) {
         const updateData: UpdateClassRequest = {
           name: formData.name,
-          instructorId: parseInt(formData.instructorId),
+          instructorId: formData.instructorId, // Use string UUID directly for Supabase
           date: formData.date,
           time: formData.time,
           duration: formData.duration,
@@ -335,7 +357,6 @@ function PCClassManagement() {
           description: formData.description,
           equipmentType: formData.equipmentType,
           room: formData.room || '',
-          level: formData.level || undefined,
           notes: formData.notes || undefined, // Include notes in update
         };
 
@@ -360,9 +381,18 @@ function PCClassManagement() {
           return;
         }
       } else {
+        // For Supabase, instructorId is a UUID string, not an integer
+        const instructorId = formData.instructorId;
+        console.log('🎯 Using instructorId:', instructorId, 'type:', typeof instructorId);
+        
+        if (!instructorId || instructorId.trim() === '') {
+          Alert.alert('Error', 'Invalid instructor selected. Please select a valid instructor.');
+          return;
+        }
+
         const createData: CreateClassRequest = {
           name: formData.name,
-          instructorId: parseInt(formData.instructorId),
+          instructorId: instructorId,
           date: formData.date,
           time: formData.time,
           duration: formData.duration,
@@ -372,7 +402,6 @@ function PCClassManagement() {
           description: formData.description,
           equipmentType: formData.equipmentType,
           room: formData.room || '',
-          level: formData.level || undefined,
           notes: formData.notes || undefined, // Include notes in create
         };
 
@@ -846,8 +875,15 @@ function PCClassManagement() {
     }
   };
 
-  const getBookingsForClass = (classId: number) => {
-    return bookings.filter(booking => booking.class_id === classId);
+  const getBookingsForClass = (classId: string | number) => {
+    console.log('🔍 getBookingsForClass called with classId:', classId, 'type:', typeof classId);
+    console.log('📋 Available bookings:', bookings);
+    const filteredBookings = bookings.filter(booking => {
+      console.log('🔍 Comparing booking.class_id:', booking.class_id, 'type:', typeof booking.class_id, 'with classId:', classId);
+      return booking.class_id == classId; // Use == to handle both string and number
+    });
+    console.log('✅ Filtered bookings for class:', filteredBookings);
+    return filteredBookings;
   };
 
   const getStatusColor = (status: string) => {
@@ -883,7 +919,7 @@ function PCClassManagement() {
   const handleUpdateBookingStatus = async (bookingId: number, newStatus: string) => {
     try {
       setUpdatingBooking(bookingId);
-      const response = await apiService.put(`/bookings/${bookingId}`, {
+              const response = await apiService.put(`/api/bookings/${bookingId}`, {
         status: newStatus
       });
       
@@ -921,7 +957,6 @@ function PCClassManagement() {
         description: formData.description,
         equipmentType: formData.equipmentType,
         room: formData.room,
-        level: formData.level,
         notes: formData.notes,
         created_at: new Date().toISOString()
       };
@@ -955,7 +990,6 @@ function PCClassManagement() {
       description: template.description,
       equipmentType: template.equipmentType,
       room: template.room,
-      level: template.level,
       notes: template.notes,
       date: '', // Reset date and time for new class
       time: ''
@@ -1275,7 +1309,13 @@ function PCClassManagement() {
                     onDismiss={() => setInstructorMenuVisible(false)}
                     anchor={
                       <Pressable 
-                        onPress={() => setInstructorMenuVisible(true)}
+                        onPress={() => {
+                          if (instructors.length === 0) {
+                            Alert.alert('No Instructors Available', 'Please create instructor accounts first before creating classes.');
+                            return;
+                          }
+                          setInstructorMenuVisible(true);
+                        }}
                         style={styles.dropdownButton}
                       >
                         <View style={styles.dropdownContent}>
@@ -1284,7 +1324,9 @@ function PCClassManagement() {
                             ...styles.dropdownText,
                             color: !formData.instructorName ? Colors.light.textSecondary : Colors.light.text
                           }}>
-                            {formData.instructorName || 'Select instructor'}
+                            {instructors.length === 0 ? 
+                              'No instructors available' : 
+                              (formData.instructorName || `Select from ${instructors.length} instructor(s)`)}
                           </Body>
                           <Icon source="chevron-down" size={20} color={Colors.light.textSecondary} />
                         </View>
@@ -1295,12 +1337,14 @@ function PCClassManagement() {
                       <Menu.Item
                         key={instructor.id}
                         onPress={() => {
+                          console.log('🎓 Instructor selected:', instructor.name, 'ID:', instructor.id);
                           setFormData({
                             ...formData, 
                             instructorId: instructor.id.toString(),
                             instructorName: instructor.name
                           });
                           setInstructorMenuVisible(false);
+                          console.log('🎓 Form data updated - instructorId:', instructor.id.toString(), 'instructorName:', instructor.name);
                         }}
                         title={instructor.name}
                         leadingIcon="account"

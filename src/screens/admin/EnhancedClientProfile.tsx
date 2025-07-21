@@ -257,7 +257,7 @@ const EnhancedClientProfile: React.FC = () => {
       };
 
       try {
-        const bookingStatsResponse = await apiService.get(`/bookings/user/${userId}/stats`);
+        const bookingStatsResponse = await apiService.get(`/api/bookings/user/${userId}/stats`);
         if (bookingStatsResponse.success) {
           const bookingData = bookingStatsResponse.data as any;
           stats.totalClasses = bookingData.statusBreakdown?.completed || 0;
@@ -275,7 +275,7 @@ const EnhancedClientProfile: React.FC = () => {
       }
 
       try {
-        const subscriptionStatsResponse = await apiService.get(`/subscriptions/user/${userId}/stats`);
+        const subscriptionStatsResponse = await apiService.get(`/api/subscriptions/user/${userId}/stats`);
         if (subscriptionStatsResponse.success) {
           const subscriptionData = subscriptionStatsResponse.data as any;
           stats.totalSpent = subscriptionData.totalSpent || 0;
@@ -293,7 +293,7 @@ const EnhancedClientProfile: React.FC = () => {
 
   const loadNotes = async () => {
     try {
-      const response = await apiService.get(`/client-notes/${userId}`);
+      const response = await apiService.get(`/api/client-notes/${userId}`);
       if (response.success) {
         setNotes((response.data as ClientNote[]) || []);
       }
@@ -306,7 +306,7 @@ const EnhancedClientProfile: React.FC = () => {
 
   const loadDocuments = async () => {
     try {
-      const response = await apiService.get(`/client-documents/${userId}`);
+      const response = await apiService.get(`/api/client-documents/${userId}`);
       if (response.success) {
         setDocuments((response.data as ClientDocument[]) || []);
       }
@@ -317,7 +317,7 @@ const EnhancedClientProfile: React.FC = () => {
 
   const loadActivities = async () => {
     try {
-      const response = await apiService.get(`/client-activity/${userId}?limit=50`);
+      const response = await apiService.get(`/api/client-activity/${userId}?limit=50`);
       if (response.success) {
         setActivities((response.data as ClientActivity[]) || []);
       }
@@ -328,7 +328,7 @@ const EnhancedClientProfile: React.FC = () => {
 
   const loadLifecycle = async () => {
     try {
-      const response = await apiService.get(`/client-lifecycle/${userId}`);
+      const response = await apiService.get(`/api/client-lifecycle/${userId}`);
       if (response.success) {
         setLifecycle(response.data as ClientLifecycle);
       }
@@ -341,7 +341,7 @@ const EnhancedClientProfile: React.FC = () => {
     console.log('🔧 loadPaymentSettings called for userId:', userId);
     
     try {
-      const response = await apiService.get(`/payment-settings/${userId}`);
+      const response = await apiService.get(`/api/payment-settings/${userId}`);
       if (response.success && response.data) {
         console.log('✅ Payment settings loaded successfully:', response.data);
         setPaymentSettings(response.data as PaymentSettings);
@@ -366,7 +366,7 @@ const EnhancedClientProfile: React.FC = () => {
       };
       
       console.log('🔧 Creating default payment settings on backend:', defaultSettings);
-      const response = await apiService.post('/payment-settings', defaultSettings);
+      const response = await apiService.post('/api/payment-settings', defaultSettings);
       
       if (response.success && response.data) {
         console.log('✅ Default payment settings created successfully:', response.data);
@@ -402,7 +402,7 @@ const EnhancedClientProfile: React.FC = () => {
 
   const loadManualCredits = async () => {
     try {
-      const response = await apiService.get(`/manual-credits/${userId}`);
+      const response = await apiService.get(`/api/manual-credits/${userId}`);
       if (response.success && response.data) {
         // The API returns {credits: ManualCredit[], balance: {...}}
         const responseData = response.data as { credits: ManualCredit[], balance: { total_credits: number, total_classes: number } };
@@ -417,7 +417,7 @@ const EnhancedClientProfile: React.FC = () => {
 
   const loadPaymentHistory = async () => {
     try {
-      const response = await apiService.get(`/payments/all?userId=${userId}`);
+      const response = await apiService.get(`/api/payments/all?userId=${userId}`);
       if (response.success) {
         setPaymentHistory((response.data as PaymentHistory[]) || []);
       }
@@ -445,7 +445,7 @@ const EnhancedClientProfile: React.FC = () => {
         reminderMessage: reminderMessage || undefined,
       };
 
-      const response = await apiService.post('/client-notes', noteData);
+      const response = await apiService.post('/api/client-notes', noteData);
       if (response.success) {
         setNoteDialogVisible(false);
         setNewNoteTitle('');
@@ -464,7 +464,7 @@ const EnhancedClientProfile: React.FC = () => {
 
   const handleCalculateRiskScore = async () => {
     try {
-      const response = await apiService.post(`/client-lifecycle/calculate-risk/${userId}`, {});
+      const response = await apiService.post(`/api/client-lifecycle/calculate-risk/${userId}`, {});
       if (response.success) {
         await loadLifecycle();
         const riskData = response.data as any;
@@ -494,7 +494,7 @@ const EnhancedClientProfile: React.FC = () => {
         receiptNumber: receiptNumber || undefined
       };
 
-      const response = await apiService.post('/manual-credits', creditData);
+      const response = await apiService.post('/api/manual-credits', creditData);
       if (response.success) {
         setCreditDialogVisible(false);
         setCreditAmount('');
@@ -1131,7 +1131,7 @@ const EnhancedClientProfile: React.FC = () => {
       console.log('🎓 Debug: classAmount:', classAmount);
       console.log('🎓 Debug: classReason:', classReason);
 
-      const response = await apiService.post('/users/manage-classes', classData);
+      const response = await apiService.post('/api/users/manage-classes', classData);
       if (response.success) {
         setClassDialogVisible(false);
         setClassAmount('');

@@ -74,7 +74,7 @@ const seedDatabase = async () => {
         monthly_classes: 4,
         monthly_price: 89.00,
         equipment_access: 'mat',
-        category: 'basic',
+        category: 'group',
         description: 'Perfect for beginners starting their Pilates journey with mat work.',
         features: ['4 Mat Classes per Month', 'Beginner-Friendly', 'Basic Equipment Access', 'Online Class Library']
       },
@@ -83,7 +83,7 @@ const seedDatabase = async () => {
         monthly_classes: 999,
         monthly_price: 149.00,
         equipment_access: 'mat',
-        category: 'unlimited',
+        category: 'group',
         description: 'Unlimited access to all mat classes for dedicated practitioners.',
         features: ['Unlimited Mat Classes', 'All Levels Welcome', 'Priority Booking', 'Online Class Library', 'Workshop Discounts']
       },
@@ -92,34 +92,43 @@ const seedDatabase = async () => {
         monthly_classes: 8,
         monthly_price: 189.00,
         equipment_access: 'reformer',
-        category: 'standard',
+        category: 'group',
         description: 'Introduction to reformer work with professional guidance.',
         features: ['8 Reformer Classes per Month', 'Equipment Instruction', 'Small Group Sessions', 'Personalized Attention']
       },
       {
         name: 'Reformer Premium',
         monthly_classes: 16,
-        monthly_price: 329.00,
+        monthly_price: 299.00,
         equipment_access: 'reformer',
-        category: 'premium',
+        category: 'group',
         description: 'Comprehensive reformer training for serious practitioners.',
-        features: ['16 Reformer Classes per Month', 'Advanced Techniques', 'Priority Booking', 'Equipment Instruction', 'Workshop Access']
+        features: ['16 Reformer Classes per Month', 'Advanced Techniques', 'Priority Booking', 'Equipment Maintenance Included', 'Guest Pass']
       },
       {
-        name: 'Full Access',
-        monthly_classes: 20,
+        name: 'Personal Training',
+        monthly_classes: 4,
         monthly_price: 399.00,
         equipment_access: 'both',
-        category: 'premium',
-        description: 'Complete studio access with both mat and reformer classes.',
-        features: ['20 Classes per Month', 'Mat & Reformer Access', 'All Level Classes', 'Priority Booking', 'Workshop Included', 'Guest Pass']
+        category: 'personal',
+        description: 'One-on-one personal training sessions.',
+        features: ['4 Personal Sessions per Month', 'Customized Workout Plans', 'Mat & Reformer Access', 'Progress Tracking']
       },
       {
-        name: 'Ultimate Unlimited',
+        name: 'Personal Duo',
+        monthly_classes: 8,
+        monthly_price: 299.00,
+        equipment_access: 'both',
+        category: 'personal_duo',
+        description: 'Semi-private sessions for two people.',
+        features: ['8 Duo Sessions per Month', 'Partner Training', 'Mat & Reformer Access', 'Shared Progress Tracking']
+      },
+      {
+        name: 'Full Access Premium',
         monthly_classes: 999,
         monthly_price: 499.00,
         equipment_access: 'both',
-        category: 'unlimited',
+        category: 'group',
         description: 'The ultimate Pilates experience with unlimited access to everything.',
         features: ['Unlimited Classes', 'Mat & Reformer Access', 'Private Session Discount', 'Workshop Included', '2 Guest Passes', 'Nutrition Consultation']
       }

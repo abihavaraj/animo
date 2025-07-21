@@ -1,13 +1,13 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { Button, Card, Divider, Modal, Portal } from 'react-native-paper';
 import { apiService } from '../services/api';
@@ -66,11 +66,11 @@ function ReceptionReports() {
         paymentsResponse,
         notesResponse,
       ] = await Promise.all([
-        apiService.get(`/classes?date=${today}`),
-        apiService.get('/bookings'),
-        apiService.get('/users?role=client'),
-        apiService.get('/payments'),
-        apiService.get('/client-notes/reminders'),
+        apiService.get(`/api/classes?date=${today}`),
+        apiService.get('/api/bookings'),
+        apiService.get('/api/users?role=client'),
+        apiService.get('/api/payments'),
+        apiService.get('/api/client-notes/reminders'),
       ]);
 
       // Process today's schedule

@@ -5,7 +5,7 @@ export const API_CONFIG = {
   SUPABASE_ANON_KEY: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'your-anon-key',
   
   // Legacy REST API (fallback)
-  REST_API_URL: process.env.EXPO_PUBLIC_API_URL || 'https://your-backend.vercel.app',
+  REST_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000',
   
   // API endpoints for Supabase
   ENDPOINTS: {
@@ -13,7 +13,8 @@ export const API_CONFIG = {
     CLASSES: 'classes',
     BOOKINGS: 'bookings',
     USERS: 'users',
-    SUBSCRIPTIONS: 'subscriptions',
+    SUBSCRIPTIONS: 'user_subscriptions',
+    SUBSCRIPTION_PLANS: 'subscription_plans',
     PAYMENTS: 'payments',
     NOTIFICATIONS: 'notifications',
     
@@ -38,9 +39,8 @@ export const API_CONFIG = {
 
 // Get the appropriate API URL based on current mode
 export const getApiUrl = () => {
-  // For now, return the REST API URL as fallback
-  // This will be updated when we switch to Supabase mode
-  return API_CONFIG.REST_API_URL + '/api';
+  // Use REST API URL since we're using local backend
+  return API_CONFIG.REST_API_URL;
 };
 
 // Log current API configuration
@@ -49,4 +49,5 @@ export const logApiConfig = () => {
   console.log('Supabase URL:', API_CONFIG.SUPABASE_URL);
   console.log('REST API URL:', API_CONFIG.REST_API_URL);
   console.log('Current API URL:', getApiUrl());
+  console.log('Using REST API as primary backend');
 }; 

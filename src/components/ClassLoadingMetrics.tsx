@@ -81,7 +81,7 @@ export default function ClassLoadingMetrics({
       if (date) params.append('date', date);
       params.append('period', selectedPeriod);
 
-      const response = await apiService.get(`/classes/loading-metrics?${params.toString()}`);
+      const response = await apiService.get(`/api/classes/loading-metrics?${params.toString()}`);
       
       if (response.success && response.data) {
         setMetricsData(response.data);

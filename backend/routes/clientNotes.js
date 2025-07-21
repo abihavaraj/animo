@@ -11,35 +11,44 @@ router.get('/:clientId', authenticateToken, requireAdminOrReception, async (req,
     const { clientId } = req.params;
     const { type, priority, limit = 50, offset = 0 } = req.query;
     
-    let query = `
-      SELECT 
-        cn.*,
-        u.name as admin_name
-      FROM client_notes cn
-      JOIN users u ON cn.admin_id = u.id
-      WHERE cn.client_id = ?
-    `;
-    
-    const params = [clientId];
+    // Build Supabase query parameters
+    let queryParams = new URLSearchParams();
+    queryParams.append('client_id', `eq.${clientId}`);
+    queryParams.append('select', '*,users!client_notes_created_by_fkey(name)');
+    queryParams.append('order', 'created_at.desc');
+    queryParams.append('limit', limit.toString());
+    queryParams.append('offset', offset.toString());
 
     if (type) {
-      query += ' AND cn.note_type = ?';
-      params.push(type);
+      queryParams.append('note_type', `eq.${type}`);
     }
 
     if (priority) {
-      query += ' AND cn.priority = ?';
-      params.push(priority);
+      queryParams.append('priority', `eq.${priority}`);
     }
 
-    query += ' ORDER BY cn.created_at DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), parseInt(offset));
+    const notesUrl = `${process.env.SUPABASE_URL}/rest/v1/client_notes?${queryParams.toString()}`;
+    console.log('🔍 Fetching client notes with URL:', notesUrl);
+    const notesResponse = await fetch(notesUrl, {
+      headers: {
+        'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+        'Content-Type': 'application/json'
+      }
+    });
 
-    const notes = await db.all(query, params);
+    if (!notesResponse.ok) {
+      const errorText = await notesResponse.text();
+      console.error('❌ Supabase error response:', errorText);
+      throw new Error('Failed to fetch client notes: ' + errorText);
+    }
 
-    // Parse tags JSON
-    const formattedNotes = notes.map(note => ({
+    const notesData = await notesResponse.json();
+
+    // Format notes and parse tags JSON
+    const formattedNotes = notesData.map(note => ({
       ...note,
+      admin_name: note.users?.name,
       tags: note.tags ? JSON.parse(note.tags) : []
     }));
 
@@ -59,7 +68,7 @@ router.get('/:clientId', authenticateToken, requireAdminOrReception, async (req,
 
 // POST /api/client-notes - Create a new note for a client
 router.post('/', authenticateToken, requireAdminOrReception, [
-  body('clientId').isInt({ min: 1 }).withMessage('Valid client ID is required'),
+  body('clientId').isString().withMessage('Valid client ID is required'),
   body('title').trim().isLength({ min: 1 }).withMessage('Title is required'),
   body('content').trim().isLength({ min: 1 }).withMessage('Content is required'),
   body('noteType').optional().isIn(['general', 'medical', 'billing', 'behavior', 'retention', 'complaint', 'compliment']),
@@ -90,54 +99,96 @@ router.post('/', authenticateToken, requireAdminOrReception, [
       reminderMessage = null
     } = req.body;
 
-    // Verify client exists
-    const client = await db.get('SELECT id, name FROM users WHERE id = ? AND role = "client"', [clientId]);
-    if (!client) {
+    // Verify client exists using Supabase
+    const clientResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/users?id=eq.${clientId}&role=eq.client&select=id,name`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!clientResponse.ok) {
+      throw new Error('Failed to verify client');
+    }
+
+    const clientData = await clientResponse.json();
+    if (clientData.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Client not found'
       });
     }
 
-    // Create the note
-    const result = await db.run(`
-      INSERT INTO client_notes (
-        client_id, admin_id, note_type, title, content, priority, is_private, tags, reminder_at, reminder_message, reminder_sent
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-    `, [
-      clientId,
-      req.user.id,
-      noteType,
-      title,
-      content,
-      priority,
-      isPrivate ? 1 : 0,
-      JSON.stringify(tags),
-      reminderAt,
-      reminderMessage
-    ]);
+    // Create the note using Supabase
+    const noteData = {
+      client_id: clientId,
+      created_by: req.user.id, // was admin_id
+      note_type: noteType,
+      title: title,
+      content: content,
+      priority: priority,
+      is_private: isPrivate,
+      tags: JSON.stringify(tags),
+      reminder_at: reminderAt,
+      reminder_message: reminderMessage,
+      reminder_sent: false
+    };
 
-    // Log the activity
-    await db.run(`
-      INSERT INTO client_activity_log (
-        client_id, activity_type, description, performed_by
-      ) VALUES (?, ?, ?, ?)
-    `, [
-      clientId,
-      'note_added',
-      `Admin note added: "${title}"`,
-      req.user.id
-    ]);
+    const noteResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/client_notes`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation'
+      },
+      body: JSON.stringify(noteData)
+    });
+
+    if (!noteResponse.ok) {
+      const errorText = await noteResponse.text();
+      console.error('❌ Supabase error response (POST client_notes):', errorText);
+      throw new Error('Failed to create note: ' + errorText);
+    }
+
+    const newNoteData = await noteResponse.json();
+    const newNote = newNoteData[0];
+
+    // Log the activity using Supabase
+    const activityData = {
+      client_id: clientId,
+      activity_type: 'note_added',
+      description: `Admin note added: "${title}"`,
+      performed_by: req.user.id
+    };
+
+    await fetch(`${process.env.SUPABASE_URL}/rest/v1/client_activity_log`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(activityData)
+    });
 
     // Get the created note with admin name
-    const newNote = await db.get(`
-      SELECT 
-        cn.*,
-        u.name as admin_name
-      FROM client_notes cn
-      JOIN users u ON cn.admin_id = u.id
-      WHERE cn.id = ?
-    `, [result.id]);
+    const noteWithAdminResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/client_notes?id=eq.${newNote.id}&select=*,users!client_notes_admin_id_fkey(name)`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (noteWithAdminResponse.ok) {
+      const noteWithAdminData = await noteWithAdminResponse.json();
+      if (noteWithAdminData.length > 0) {
+        const noteWithAdmin = noteWithAdminData[0];
+        newNote.admin_name = noteWithAdmin.users?.name;
+      }
+    }
 
     // Parse tags
     newNote.tags = newNote.tags ? JSON.parse(newNote.tags) : [];

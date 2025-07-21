@@ -10,7 +10,7 @@ import {
     View
 } from 'react-native';
 import { useSelector } from 'react-redux';
-import { apiService } from '../../services/api';
+import { notificationService } from '../../services/notificationService';
 import { RootState } from '../../store';
 import { formatDetailedTime, formatLocalTime, formatUTCToLocal, isUTCFormat } from '../../utils/timeUtils';
 
@@ -39,9 +39,9 @@ export default function NotificationsView() {
 
   const loadNotifications = async () => {
     try {
-      const response = await apiService.get(`/notifications/user/${user?.id}`);
+      const response = await notificationService.getUserNotifications(parseInt(user?.id || '0'));
       if (response.success && response.data) {
-        setNotifications(response.data as Notification[]);
+        setNotifications(response.data as any[]);
       } else {
         setNotifications([]);
       }

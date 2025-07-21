@@ -56,6 +56,30 @@ function LoginScreen() {
     }
   };
 
+  // Demo account configurations
+  const demoAccounts = [
+    {
+      label: '👨‍�� Admin Demo',
+      credentials: { emailOrPhone: 'admin@pilatesstudio.com', password: 'admin123' },
+      description: 'Full system access'
+    },
+    {
+      label: '📞 Reception Demo', 
+      credentials: { emailOrPhone: 'reception@pilatesstudio.com', password: 'reception123' },
+      description: 'Client management'
+    },
+    {
+      label: '🧘‍♀️ Instructor Demo',
+      credentials: { emailOrPhone: 'sarah@instructor.com', password: 'instructor123' },
+      description: 'Class management'
+    },
+    {
+      label: '👤 Client Demo',
+      credentials: { emailOrPhone: 'jennifer@example.com', password: 'client123' },
+      description: 'Book classes'
+    }
+  ];
+
   return (
     <View style={styles.container}>
       <PaperCard style={styles.card}>

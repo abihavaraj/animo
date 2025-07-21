@@ -1,7 +1,7 @@
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import { apiService } from './api';
+import { supabase } from '../config/supabase.config';
 
 // Completely safe notification handler setup
 let notificationHandlerSet = false;
@@ -74,7 +74,7 @@ class PushNotificationService {
       }
 
       if (finalStatus !== 'granted') {
-        console.log('❌ Push notification permission denied');
+        console.log('⚠️ Permission not granted for push notifications');
         return;
       }
 
@@ -96,157 +96,69 @@ class PushNotificationService {
 
   private async getPushTokenSafely(): Promise<string | null> {
     try {
-      if (!Device.isDevice) {
+      // Check if we have a valid project ID
+      const projectId = process.env.EXPO_PROJECT_ID || process.env.EXPO_PUBLIC_PROJECT_ID;
+      
+      if (!projectId || projectId === 'default-project-id') {
+        console.log('⚠️ No valid Expo project ID configured - push notifications disabled');
         return null;
       }
 
-      // Multiple safety layers for token retrieval
-      let token;
-      try {
-        // Attempt 1: Standard token retrieval
-        const tokenResult = await Notifications.getExpoPushTokenAsync();
-        
-        if (tokenResult && tokenResult.data) {
-          console.log('📱 Got push token successfully');
-          return tokenResult.data;
-        }
-      } catch (tokenError) {
-        console.log('⚠️ Standard push token failed (expected in development)');
-        
-        // Attempt 2: Try with explicit project ID if available
-        try {
-          const projectId = require('../../app.json').expo?.extra?.eas?.projectId;
-          if (projectId) {
-            const tokenResult = await Notifications.getExpoPushTokenAsync({ projectId });
-            if (tokenResult && tokenResult.data) {
-              console.log('📱 Got push token with project ID');
-              return tokenResult.data;
-            }
-          }
-        } catch (projectTokenError) {
-          console.log('⚠️ Project ID token also failed');
-        }
-      }
-
-      console.log('⚠️ Could not retrieve push token (this is normal in development)');
-      return null;
-
+      const token = await Notifications.getExpoPushTokenAsync({
+        projectId: projectId,
+      });
+      console.log('📱 Got push token successfully');
+      return token.data;
     } catch (error) {
-      console.error('❌ Complete failure in push token retrieval:', error);
+      console.error('❌ Failed to get push token:', error);
       return null;
     }
   }
 
   private async registerTokenWithServerSafely(token: string): Promise<void> {
     try {
-      const response = await apiService.post('/users/register-push-token', {
-        pushToken: token
-      });
-
-      if (response.success) {
-        console.log('✅ Push token registered with server');
-      } else {
-        console.error('❌ Failed to register push token:', response.error);
-      }
-
-    } catch (error) {
-      console.error('❌ Error registering push token:', error);
-      // Never throw - server registration failure shouldn't crash app
-    }
-  }
-
-  async setupNotificationListenersSafely(): Promise<void> {
-    try {
-      // Only set up listeners if notifications are available
-      if (!this.isInitialized) {
-        console.log('⚠️ Push notifications not initialized, skipping listeners');
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log('⚠️ No authenticated user for push token registration');
         return;
       }
 
-      // Wrap each listener setup individually
-      try {
-        Notifications.addNotificationReceivedListener(notification => {
-          try {
-            console.log('📱 Notification received:', notification);
-          } catch (listenerError) {
-            console.error('❌ Error in notification received listener:', listenerError);
-          }
-        });
-      } catch (receivedError) {
-        console.error('❌ Failed to set up received listener:', receivedError);
-      }
+      // Update user's push token in Supabase
+      const { error } = await supabase
+        .from('users')
+        .update({ 
+          push_token: token,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', user.id);
 
-      try {
-        Notifications.addNotificationResponseReceivedListener(response => {
-          try {
-            console.log('📱 Notification tapped:', response);
-            
-            const data = response.notification.request.content.data;
-            if (data?.classId) {
-              console.log(`📅 Navigate to class ${data.classId}`);
-            }
-          } catch (responseError) {
-            console.error('❌ Error in notification response listener:', responseError);
-          }
-        });
-      } catch (responseListenerError) {
-        console.error('❌ Failed to set up response listener:', responseListenerError);
+      if (error) {
+        console.error('❌ Failed to register push token:', error.message);
+      } else {
+        console.log('✅ Push token registered with server');
       }
-
-      console.log('✅ Notification listeners set up safely');
     } catch (error) {
-      console.error('❌ Failed to set up notification listeners:', error);
-      // Never throw - listener setup failure shouldn't crash app
+      console.error('❌ Failed to register push token:', error);
     }
   }
 
-  // Safe lazy initialization - call this when you actually need push notifications
-  async lazyInitialize(): Promise<boolean> {
-    if (!this.isInitialized && !this.initializationAttempted) {
-      await this.initialize();
-      if (this.isInitialized) {
-        await this.setupNotificationListenersSafely();
-      }
-    }
-    return this.isInitialized;
+  getPushTokenValue(): string | null {
+    return this.pushToken;
   }
 
-  // Utility method to check if service is properly initialized
-  isReady(): boolean {
-    return this.isInitialized && this.pushToken !== null;
-  }
-
-  // Method to safely send local notifications
-  async sendLocalNotificationSafely(title: string, body: string, data?: any): Promise<boolean> {
+  async sendNotification(title: string, body: string, data?: any): Promise<void> {
     try {
-      if (!this.isInitialized) {
-        console.log('⚠️ Push notifications not initialized');
-        return false;
-      }
-
       await Notifications.scheduleNotificationAsync({
         content: {
           title,
           body,
-          data: data || {},
+          data,
         },
         trigger: null, // Send immediately
       });
-
-      return true;
     } catch (error) {
       console.error('❌ Failed to send local notification:', error);
-      return false;
     }
-  }
-
-  // Get status without triggering initialization
-  getStatus(): { initialized: boolean; hasToken: boolean; attempted: boolean } {
-    return {
-      initialized: this.isInitialized,
-      hasToken: this.pushToken !== null,
-      attempted: this.initializationAttempted
-    };
   }
 }
 

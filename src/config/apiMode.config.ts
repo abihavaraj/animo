@@ -8,14 +8,14 @@ interface ApiModeConfig {
 }
 
 export const API_MODE_CONFIG: ApiModeConfig = {
-  // Using Supabase as our backend - no separate backend needed
-  currentMode: 'SUPABASE', // Supabase is our backend
+  // Use Supabase PostgreSQL database
+  currentMode: 'SUPABASE', // Use Supabase backend
   
   // Fallback mode if Supabase fails
   fallbackMode: 'REST',
   
-  // Enable real-time features (Supabase specialty)
-  enableRealTime: true, // Real-time updates from Supabase
+  // Enable real-time features for Supabase
+  enableRealTime: true, // Real-time only works with Supabase
 };
 
 // Helper function to get current mode

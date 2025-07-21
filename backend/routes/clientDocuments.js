@@ -94,7 +94,7 @@ router.get('/:clientId', authenticateToken, requireAdminOrReception, async (req,
 
 // POST /api/client-documents/upload - Upload a document for a client
 router.post('/upload', authenticateToken, requireAdminOrReception, upload.single('file'), [
-  body('clientId').isInt({ min: 1 }).withMessage('Valid client ID is required'),
+  body('clientId').notEmpty().withMessage('Valid client ID is required'),
   body('documentType').isIn(['photo', 'contract', 'medical_form', 'id_copy', 'waiver', 'receipt', 'other']).withMessage('Valid document type is required'),
   body('description').optional().trim()
 ], async (req, res) => {

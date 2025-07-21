@@ -19,7 +19,7 @@ export const testBackendConnection = async () => {
     
     // Test plans endpoint using API service
     console.log('Testing plans endpoint via API service...');
-    const plansResponse = await apiService.get('/plans');
+    const plansResponse = await apiService.get('/api/plans');
     console.log('Plans response:', plansResponse);
     
     return {

@@ -252,7 +252,7 @@ function ClientProfile() {
       console.log('📊 Loading client stats for user:', userId);
       
       // Get booking stats using apiService
-      const bookingStatsResponse = await apiService.get(`/bookings/user/${userId}/stats`);
+      const bookingStatsResponse = await apiService.get(`/api/bookings/user/${userId}/stats`);
       console.log('📊 Booking stats response:', bookingStatsResponse);
       
       if (bookingStatsResponse.success && bookingStatsResponse.data) {
@@ -274,7 +274,7 @@ function ClientProfile() {
         
         // Get subscription stats using apiService
         console.log('💳 Loading subscription stats for user:', userId);
-        const subscriptionStatsResponse = await apiService.get(`/subscriptions/user/${userId}/stats`);
+        const subscriptionStatsResponse = await apiService.get(`/api/subscriptions/user/${userId}/stats`);
         console.log('💳 Subscription stats response:', subscriptionStatsResponse);
         
         if (subscriptionStatsResponse.success && subscriptionStatsResponse.data) {
@@ -300,7 +300,7 @@ function ClientProfile() {
     
     try {
       console.log('📅 Loading booking history for user:', userId);
-      const response = await apiService.get(`/bookings/user/${userId}`);
+      const response = await apiService.get(`/api/bookings/user/${userId}`);
       console.log('📅 Booking history response:', response);
       
       if (response.success && response.data) {
@@ -341,7 +341,7 @@ function ClientProfile() {
     
     try {
       console.log('💳 🆕 UPDATED CODE - Loading subscription history for user:', userId, 'at', new Date().toISOString());
-      const response = await apiService.get(`/subscriptions/user/${userId}`);
+      const response = await apiService.get(`/api/subscriptions/user/${userId}`);
       console.log('💳 Subscription history response:', response);
       
       if (response.success && response.data) {
@@ -391,7 +391,7 @@ function ClientProfile() {
     
     try {
       console.log('📊 Loading assignment history for user:', userId);
-      const response = await apiService.get(`/subscriptions/assignments?userId=${userId}`);
+      const response = await apiService.get(`/api/subscriptions/assignments?userId=${userId}`);
       console.log('📊 Assignment history response:', response);
       
       if (response.success && response.data) {
@@ -415,7 +415,7 @@ function ClientProfile() {
     
     try {
       console.log('📝 Loading client notes for user:', userId);
-      const response = await apiService.get(`/client-notes/${userId}`);
+              const response = await apiService.get(`/api/client-notes/${userId}`);
       console.log('📝 Client notes response:', response);
       
       if (response.success && response.data && Array.isArray(response.data)) {
@@ -439,7 +439,7 @@ function ClientProfile() {
     
     try {
       console.log('📄 Loading client documents for user:', userId);
-      const response = await apiService.get(`/client-documents/${userId}`);
+      const response = await apiService.get(`/api/client-documents/${userId}`);
       console.log('📄 Client documents response:', response);
       
       if (response.success && response.data && Array.isArray(response.data)) {
@@ -463,7 +463,7 @@ function ClientProfile() {
     
     try {
       console.log('👥 Loading client lifecycle for user:', userId);
-      const response = await apiService.get(`/client-lifecycle/${userId}`);
+      const response = await apiService.get(`/api/client-lifecycle/${userId}`);
       console.log('👥 Client lifecycle response:', response);
       
       if (response.success && response.data) {
@@ -488,9 +488,9 @@ function ClientProfile() {
     try {
       console.log('📊 Loading client activity for user:', userId);
       console.log('📊 API token exists:', !!token);
-      console.log('📊 Making API call to:', `/client-activity/${userId}`);
+      console.log('📊 Making API call to:', `/api/client-activity/${userId}`);
       
-      const response = await apiService.get(`/client-activity/${userId}`);
+      const response = await apiService.get(`/api/client-activity/${userId}`);
       console.log('📊 Client activity response:', response);
       console.log('📊 Response success:', response.success);
       console.log('📊 Response data type:', typeof response.data);
@@ -617,7 +617,7 @@ function ClientProfile() {
     try {
       if (selectedNote) {
         // Update existing note
-        const response = await apiService.put(`/client-notes/${selectedNote.id}`, {
+        const response = await apiService.put(`/api/client-notes/${selectedNote.id}`, {
           title: noteForm.title,
           content: noteForm.content,
           noteType: noteForm.noteType,
@@ -637,7 +637,7 @@ function ClientProfile() {
         }
       } else {
         // Create new note
-        const response = await apiService.post('/client-notes', {
+        const response = await apiService.post('/api/client-notes', {
           clientId: userId,
           title: noteForm.title,
           content: noteForm.content,
@@ -673,7 +673,7 @@ function ClientProfile() {
             text: 'Delete',
             style: 'destructive',
             onPress: async () => {
-              const response = await apiService.delete(`/client-notes/${noteId}`);
+              const response = await apiService.delete(`/api/client-notes/${noteId}`);
               if (response.success) {
                 console.log('✅ Note deleted successfully');
                 await loadClientNotes();
@@ -734,7 +734,7 @@ function ClientProfile() {
             text: 'Delete',
             style: 'destructive',
             onPress: async () => {
-              const response = await apiService.delete(`/client-documents/${documentId}`);
+              const response = await apiService.delete(`/api/client-documents/${documentId}`);
               if (response.success) {
                 console.log('✅ Document deleted successfully');
                 await loadClientDocuments();
@@ -789,7 +789,7 @@ function ClientProfile() {
 
   const updateStage = async () => {
     try {
-      const response = await apiService.put(`/client-lifecycle/${userId}/stage`, {
+              const response = await apiService.put(`/api/client-lifecycle/${userId}/stage`, {
         newStage: lifecycleForm.newStage,
         notes: lifecycleForm.notes
       });
@@ -818,7 +818,7 @@ function ClientProfile() {
 
   const calculateRiskScore = async () => {
     try {
-      const response = await apiService.post(`/client-lifecycle/calculate-risk/${userId}`);
+      const response = await apiService.post(`/api/client-lifecycle/calculate-risk/${userId}`);
 
       if (response.success) {
         console.log('✅ Risk score calculated successfully');
@@ -841,7 +841,7 @@ function ClientProfile() {
 
   const updateRiskScore = async () => {
     try {
-      const response = await apiService.put(`/client-lifecycle/${userId}/risk-score`, {
+              const response = await apiService.put(`/api/client-lifecycle/${userId}/risk-score`, {
         riskScore: lifecycleForm.riskScore,
         notes: lifecycleForm.notes
       });

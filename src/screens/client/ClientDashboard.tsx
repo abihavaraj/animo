@@ -7,9 +7,9 @@ import { ActivityIndicator, Button, Card, Surface } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 import { Body, Caption, H1, H2, H3 } from '../../../components/ui/Typography';
 import { useThemeColor } from '../../../hooks/useThemeColor';
-import { apiService } from '../../services/api';
 import { Booking, bookingService } from '../../services/bookingService';
 import { BackendClass, classService } from '../../services/classService';
+import { notificationService } from '../../services/notificationService';
 import { pushNotificationService } from '../../services/pushNotificationService';
 import { subscriptionService } from '../../services/subscriptionService';
 import { AppDispatch, RootState } from '../../store';
@@ -88,12 +88,8 @@ function ClientDashboard() {
         // Wait a bit more to ensure everything is ready
         setTimeout(async () => {
           try {
-            const success = await pushNotificationService.lazyInitialize();
-            if (success) {
-              console.log('✅ Push notifications initialized from dashboard');
-            } else {
-              console.log('⚠️ Push notifications not available (normal in development)');
-            }
+            await pushNotificationService.initialize();
+            console.log('✅ Push notifications initialized from dashboard');
           } catch (error) {
             console.error('❌ Push notification initialization failed (non-critical):', error);
             // This error is non-critical - app continues normally
@@ -187,10 +183,10 @@ function ClientDashboard() {
       // Load recent notifications
       let notifications: Notification[] = [];
       try {
-        const notificationsResponse = await apiService.get(`/notifications/user/${user.id}`);
+        const notificationsResponse = await notificationService.getUserNotifications(parseInt(user.id));
         if (notificationsResponse.success && notificationsResponse.data) {
           // Get recent subscription-related notifications
-          notifications = (notificationsResponse.data as Notification[])
+          notifications = (notificationsResponse.data as any[])
             .filter(n => n.type === 'subscription_expiring' || n.type === 'subscription_changed')
             .slice(0, 3); // Show only last 3 subscription notifications
         }

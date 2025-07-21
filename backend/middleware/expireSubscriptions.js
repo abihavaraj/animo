@@ -3,6 +3,13 @@ const db = require('../config/database');
 // Middleware to automatically expire old subscriptions before processing requests
 const expireSubscriptions = async (req, res, next) => {
   try {
+    // TEMPORARY: Skip for Supabase due to RLS policy issues
+    if (db.useSupabase) {
+      console.log('⚠️ Skipping expireSubscriptions for Supabase due to RLS policy issues');
+      next();
+      return;
+    }
+    
     // Run this for any endpoint that might check subscription status
     const needsSubscriptionCheck = (
       req.path.includes('/subscriptions') ||
@@ -13,8 +20,8 @@ const expireSubscriptions = async (req, res, next) => {
       req.method === 'GET' // Most GET requests might need subscription info
     );
     
-    if (needsSubscriptionCheck) {
-      // Update any active subscriptions that have passed their end date
+    if (needsSubscriptionCheck && !db.useSupabase) {
+      // Original SQLite logic
       const result = await db.run(`
         UPDATE user_subscriptions 
         SET status = 'expired', updated_at = CURRENT_TIMESTAMP 

@@ -1,4 +1,5 @@
-import { ApiResponse, apiService } from './api';
+import { supabase } from '../config/supabase.config';
+import { ApiResponse } from './api';
 
 export interface Booking {
   id: number;
@@ -68,73 +69,316 @@ export interface WaitlistRequest {
 
 class BookingService {
   async getBookings(filters?: BookingFilters): Promise<ApiResponse<Booking[]>> {
-    const queryParams = new URLSearchParams();
-    if (filters) {
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value !== undefined) {
-          queryParams.append(key, value);
-        }
-      });
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return { success: false, error: 'User not authenticated' };
+      }
+      
+      let query = supabase
+        .from('bookings')
+        .select(`
+          *,
+          classes (*),
+          users!bookings_user_id_fkey (name, email)
+        `)
+        .eq('user_id', user.id);
+      
+      if (filters?.status) {
+        query = query.eq('status', filters.status);
+      }
+      
+      const { data, error } = await query;
+      
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      
+      return { success: true, data: data || [] };
+    } catch (error) {
+      return { success: false, error: 'Failed to get bookings' };
     }
-    
-    const endpoint = `/bookings${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    return apiService.get<Booking[]>(endpoint);
   }
 
   async createBooking(bookingData: BookingRequest): Promise<ApiResponse<Booking>> {
-    return apiService.post<Booking>('/bookings', bookingData);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return { success: false, error: 'User not authenticated' };
+      }
+      
+      const { data, error } = await supabase
+        .from('bookings')
+        .insert({
+          user_id: user.id,
+          class_id: bookingData.classId,
+          status: 'confirmed',
+          booking_date: new Date().toISOString()
+        })
+        .select(`
+          *,
+          classes (*),
+          users!bookings_user_id_fkey (name, email)
+        `)
+        .single();
+      
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: 'Failed to create booking' };
+    }
   }
 
   async cancelBooking(id: number): Promise<ApiResponse<Booking>> {
-    return apiService.put<Booking>(`/bookings/${id}/cancel`);
+    try {
+      const { data, error } = await supabase
+        .from('bookings')
+        .update({ 
+          status: 'cancelled',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select(`
+          *,
+          classes (*),
+          users!bookings_user_id_fkey (name, email)
+        `)
+        .single();
+      
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: 'Failed to cancel booking' };
+    }
   }
 
   async checkIn(id: number): Promise<ApiResponse<Booking>> {
-    return apiService.put<Booking>(`/bookings/${id}/checkin`);
+    try {
+      const { data, error } = await supabase
+        .from('bookings')
+        .update({ 
+          checked_in: true,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select(`
+          *,
+          classes (*),
+          users!bookings_user_id_fkey (name, email)
+        `)
+        .single();
+      
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: 'Failed to check in' };
+    }
   }
 
   async markCompleted(id: number): Promise<ApiResponse<Booking>> {
-    return apiService.put<Booking>(`/bookings/${id}/complete`);
+    try {
+      const { data, error } = await supabase
+        .from('bookings')
+        .update({ 
+          status: 'completed',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select(`
+          *,
+          classes (*),
+          users!bookings_user_id_fkey (name, email)
+        `)
+        .single();
+      
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: 'Failed to mark as completed' };
+    }
   }
 
   async getClassAttendees(classId: number): Promise<ApiResponse<any[]>> {
-    return apiService.get<any[]>(`/bookings/class/${classId}/attendees`);
+    try {
+      const { data, error } = await supabase
+        .from('bookings')
+        .select(`
+          *,
+          users!bookings_user_id_fkey (name, email, medical_conditions)
+        `)
+        .eq('class_id', classId)
+        .eq('status', 'confirmed');
+      
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      
+      return { success: true, data: data || [] };
+    } catch (error) {
+      return { success: false, error: 'Failed to get class attendees' };
+    }
   }
 
-  // Waitlist methods
   async joinWaitlist(waitlistData: WaitlistRequest): Promise<ApiResponse<WaitlistEntry>> {
-    return apiService.post<WaitlistEntry>('/bookings/waitlist', waitlistData);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return { success: false, error: 'User not authenticated' };
+      }
+      
+      const { data, error } = await supabase
+        .from('waitlist')
+        .insert({
+          user_id: user.id,
+          class_id: waitlistData.classId,
+          position: 1 // This should be calculated based on existing waitlist
+        })
+        .select(`
+          *,
+          classes (name, date, time, level, room)
+        `)
+        .single();
+      
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: 'Failed to join waitlist' };
+    }
   }
 
   async leaveWaitlist(waitlistId: number): Promise<ApiResponse<void>> {
-    return apiService.delete<void>(`/bookings/waitlist/${waitlistId}`);
+    try {
+      const { error } = await supabase
+        .from('waitlist')
+        .delete()
+        .eq('id', waitlistId);
+      
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: 'Failed to leave waitlist' };
+    }
   }
 
   async getUserWaitlist(userId?: number): Promise<ApiResponse<WaitlistEntry[]>> {
-    const endpoint = userId ? `/bookings/waitlist/${userId}` : '/bookings/waitlist/user';
-    return apiService.get<WaitlistEntry[]>(endpoint);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return { success: false, error: 'User not authenticated' };
+      }
+      
+      const { data, error } = await supabase
+        .from('waitlist')
+        .select(`
+          *,
+          classes (name, date, time, level, room)
+        `)
+        .eq('user_id', user.id);
+      
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      
+      return { success: true, data: data || [] };
+    } catch (error) {
+      return { success: false, error: 'Failed to get user waitlist' };
+    }
   }
 
   async getClassWaitlist(classId: number): Promise<ApiResponse<WaitlistEntry[]>> {
-    return apiService.get<WaitlistEntry[]>(`/bookings/waitlist/class/${classId}`);
+    try {
+      const { data, error } = await supabase
+        .from('waitlist')
+        .select(`
+          *,
+          users!waitlist_user_id_fkey (name, email)
+        `)
+        .eq('class_id', classId)
+        .order('position', { ascending: true });
+      
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      
+      return { success: true, data: data || [] };
+    } catch (error) {
+      return { success: false, error: 'Failed to get class waitlist' };
+    }
   }
 
-  // Reception methods
+  // Admin/Reception methods
   async assignClientToClass(userId: number, classId: number, notes?: string, overrideRestrictions?: boolean): Promise<ApiResponse<any>> {
-    return apiService.post<any>('/bookings/reception-assign', {
-      userId,
-      classId,
-      notes: notes || '',
-      overrideRestrictions: overrideRestrictions || false
-    });
+    try {
+      const { data, error } = await supabase
+        .from('bookings')
+        .insert({
+          user_id: userId,
+          class_id: classId,
+          status: 'confirmed',
+          booking_date: new Date().toISOString(),
+          notes: notes || ''
+        })
+        .select(`
+          *,
+          classes (*),
+          users!bookings_user_id_fkey (name, email)
+        `)
+        .single();
+      
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: 'Failed to assign client to class' };
+    }
   }
 
   async cancelClientBooking(userId: number, classId: number, notes?: string): Promise<ApiResponse<any>> {
-    return apiService.post<any>('/bookings/reception-cancel', {
-      userId,
-      classId,
-      notes: notes || ''
-    });
+    try {
+      const { data, error } = await supabase
+        .from('bookings')
+        .update({ 
+          status: 'cancelled',
+          updated_at: new Date().toISOString(),
+          notes: notes || ''
+        })
+        .eq('user_id', userId)
+        .eq('class_id', classId)
+        .select(`
+          *,
+          classes (*),
+          users!bookings_user_id_fkey (name, email)
+        `)
+        .single();
+      
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: 'Failed to cancel client booking' };
+    }
   }
 }
 

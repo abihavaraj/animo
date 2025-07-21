@@ -7,7 +7,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { Body, Caption, H1, H2 } from '../../../components/ui/Typography';
 import { Colors as AppColors } from '../../../constants/Colors';
 import { useThemeColor } from '../../../hooks/useThemeColor';
-import { apiService } from '../../services/api';
+import { notificationService } from '../../services/notificationService';
 import { AppDispatch, RootState } from '../../store';
 import { logout, resetAppState } from '../../store/authSlice';
 import { fetchCurrentSubscription } from '../../store/subscriptionSlice';
@@ -16,9 +16,9 @@ const { width } = Dimensions.get('window');
 
 interface NotificationSettings {
   enableNotifications: boolean;
-  reminderMinutes: number;
-  emailNotifications: boolean;
-  classUpdates: boolean;
+  defaultReminderMinutes: number;
+  enablePushNotifications: boolean;
+  enableEmailNotifications: boolean;
 }
 
 function ClientProfile({ navigation }: any) {
@@ -40,9 +40,9 @@ function ClientProfile({ navigation }: any) {
   
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
     enableNotifications: true,
-    reminderMinutes: 15,
-    emailNotifications: true,
-    classUpdates: true,
+    defaultReminderMinutes: 15,
+    enablePushNotifications: true,
+    enableEmailNotifications: true,
   });
   const [reminderModalVisible, setReminderModalVisible] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -110,13 +110,15 @@ function ClientProfile({ navigation }: any) {
 
   const getProgressValue = () => {
     if (!subscriptionData) return 0;
-    const usedClasses = subscriptionData.monthlyClasses - subscriptionData.remainingClasses;
-    return subscriptionData.monthlyClasses > 0 ? usedClasses / subscriptionData.monthlyClasses : 0;
+    const usedClasses = Math.max(0, subscriptionData.monthlyClasses - subscriptionData.remainingClasses);
+    return subscriptionData.monthlyClasses > 0 ? Math.min(1, usedClasses / subscriptionData.monthlyClasses) : 0;
   };
 
   const getUsedClasses = () => {
     if (!subscriptionData) return 0;
-    return subscriptionData.monthlyClasses - subscriptionData.remainingClasses;
+    // Handle edge case where remaining classes might be greater than monthly classes
+    const used = subscriptionData.monthlyClasses - subscriptionData.remainingClasses;
+    return Math.max(0, used); // Ensure we never show negative used classes
   };
 
   const handleLogout = () => {
@@ -214,7 +216,7 @@ function ClientProfile({ navigation }: any) {
   const loadNotificationSettings = async () => {
     try {
       console.log('📱 Loading notification settings...');
-      const response = await apiService.get('/notifications/settings');
+      const response = await notificationService.getNotificationSettings();
       if (response.success && response.data) {
         setNotificationSettings(response.data as NotificationSettings);
       }
@@ -227,7 +229,7 @@ function ClientProfile({ navigation }: any) {
   const saveNotificationSettings = async () => {
     setSavingSettings(true);
     try {
-      const response = await apiService.put('/notifications/settings', notificationSettings);
+      const response = await notificationService.updateNotificationSettings(notificationSettings);
       if (response.success) {
         Alert.alert('Success', 'Notification preferences saved successfully');
       } else {
@@ -321,7 +323,9 @@ function ClientProfile({ navigation }: any) {
                 {subscriptionData.isDayPass ? 
                   `Valid for ${subscriptionData.monthlyClasses} class${subscriptionData.monthlyClasses === 1 ? '' : 'es'}` :
                  subscriptionData.isUnlimited ? 'Enjoy unlimited classes this month!' : 
-                 `${getUsedClasses()} of ${subscriptionData.monthlyClasses} classes used`}
+                 subscriptionData.remainingClasses > subscriptionData.monthlyClasses ? 
+                   `${subscriptionData.remainingClasses} classes available (bonus credits added)` :
+                   `${getUsedClasses()} of ${subscriptionData.monthlyClasses} classes used`}
               </Caption>
             </View>
 
@@ -584,27 +588,14 @@ function ClientProfile({ navigation }: any) {
                 </Caption>
               </View>
               <Switch
-                value={notificationSettings.emailNotifications}
-                onValueChange={(value) => updateNotificationSetting('emailNotifications', value)}
+                value={notificationSettings.enableEmailNotifications}
+                onValueChange={(value) => updateNotificationSetting('enableEmailNotifications', value)}
                 trackColor={{ false: textSecondaryColor, true: `${accentColor}60` }}
-                thumbColor={notificationSettings.emailNotifications ? accentColor : textMutedColor}
+                thumbColor={notificationSettings.enableEmailNotifications ? accentColor : textMutedColor}
               />
             </View>
             
-            <View style={styles.settingsRow}>
-              <View style={styles.settingInfo}>
-                <Body style={{ ...styles.settingTitle, color: textColor }}>📢 Class Updates</Body>
-                <Caption style={{ ...styles.settingDescription, color: textSecondaryColor }}>
-                  Get notified about class changes, cancellations
-                </Caption>
-              </View>
-              <Switch
-                value={notificationSettings.classUpdates}
-                onValueChange={(value) => updateNotificationSetting('classUpdates', value)}
-                trackColor={{ false: textSecondaryColor, true: `${accentColor}60` }}
-                thumbColor={notificationSettings.classUpdates ? accentColor : textMutedColor}
-              />
-            </View>
+
             
             {notificationSettings.enableNotifications && (
               <View style={[styles.settingsRow, styles.reminderSection, { backgroundColor: `${accentColor}04` }]}>
@@ -620,7 +611,7 @@ function ClientProfile({ navigation }: any) {
                   style={{ ...styles.reminderButton, borderColor: accentColor }}
                   icon="clock"
                 >
-                  {notificationSettings.reminderMinutes} min
+                  {notificationSettings.defaultReminderMinutes} min
                 </Button>
               </View>
             )}
@@ -652,9 +643,9 @@ function ClientProfile({ navigation }: any) {
           {[5, 10, 15, 30, 60].map((minutes) => (
             <Button
               key={minutes}
-              mode={notificationSettings.reminderMinutes === minutes ? "contained" : "outlined"}
+              mode={notificationSettings.defaultReminderMinutes === minutes ? "contained" : "outlined"}
               onPress={() => {
-                updateNotificationSetting('reminderMinutes', minutes);
+                updateNotificationSetting('defaultReminderMinutes', minutes);
                 setReminderModalVisible(false);
               }}
               style={{ ...styles.reminderOption, borderColor: accentColor }}

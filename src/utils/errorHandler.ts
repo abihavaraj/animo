@@ -75,7 +75,7 @@ export const setupGlobalErrorHandlers = () => {
   }
 
   // For web environments
-  if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
     window.addEventListener('unhandledrejection', handleUnhandledRejection);
     
     // Also handle regular errors

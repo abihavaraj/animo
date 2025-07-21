@@ -10,6 +10,78 @@ router.get('/', async (req, res) => {
   try {
     const { date, instructor, level, equipmentType, status } = req.query;
     
+    // For Supabase, use direct REST API that works
+    if (db.useSupabase) {
+      console.log('🔧 Using direct Supabase REST API for classes list');
+      
+      // Build query URL - select classes with instructor info
+      let queryUrl = `${process.env.SUPABASE_URL}/rest/v1/classes?select=*,instructor:users!classes_instructor_id_fkey(name)`;
+      
+      const queryParams = [];
+      
+      if (date) {
+        queryParams.push(`date=eq.${date}`);
+      }
+      
+      if (instructor) {
+        queryParams.push(`instructor_id=eq.${instructor}`);
+      }
+      
+      if (level) {
+        queryParams.push(`level=eq.${level}`);
+      }
+      
+      if (equipmentType) {
+        queryParams.push(`equipment_type=eq.${equipmentType}`);
+      }
+      
+      if (status) {
+        queryParams.push(`status=eq.${status}`);
+      } else {
+        queryParams.push('status=eq.active');
+      }
+      
+      if (queryParams.length > 0) {
+        queryUrl += '&' + queryParams.join('&');
+      }
+      
+      queryUrl += '&order=date.asc,time.asc';
+      
+      const response = await fetch(queryUrl, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const classes = await response.json();
+        console.log('✅ Direct Supabase REST API successful - found', classes.length, 'classes');
+        
+        // Format the response
+        const formattedClasses = (classes || []).map(class_ => ({
+          ...class_,
+          instructor_name: class_.instructor?.name || 'Unknown',
+          equipment: class_.equipment ? JSON.parse(class_.equipment) : []
+        }));
+        
+        res.json({
+          success: true,
+          data: formattedClasses
+        });
+      } else {
+        const errorText = await response.text();
+        console.error('❌ Direct Supabase REST API failed:', response.status, errorText);
+        res.json({
+          success: true,
+          data: [] // Return empty array on error
+        });
+      }
+      return;
+    }
+
+    // SQLite implementation
     let query = `
       SELECT 
         c.*,
@@ -91,12 +163,24 @@ router.get('/room-availability', authenticateToken, requireAdminOrReception, asy
     // Check availability for each room
     const roomAvailability = {};
     
-    for (const room of allRooms) {
-      const conflict = await checkRoomConflict(date, time, parseInt(duration), room);
-      roomAvailability[room] = {
-        available: !conflict.hasConflict,
-        conflictClass: conflict.conflictClass || null
-      };
+    if (db.useSupabase) {
+      // For Supabase, return all rooms as available since room column doesn't exist yet
+      console.log('🔧 Supabase detected - returning all rooms as available (room column not implemented)');
+      for (const room of allRooms) {
+        roomAvailability[room] = {
+          available: true,
+          conflictClass: null
+        };
+      }
+    } else {
+      // For SQLite, check actual room conflicts
+      for (const room of allRooms) {
+        const conflict = await checkRoomConflict(date, time, parseInt(duration), room);
+        roomAvailability[room] = {
+          available: !conflict.hasConflict,
+          conflictClass: conflict.conflictClass || null
+        };
+      }
     }
 
     res.json({
@@ -288,7 +372,17 @@ router.get('/:id', async (req, res) => {
 // POST /api/classes - Create new class (admin only)
 router.post('/', authenticateToken, requireAdminOrReception, [
   body('name').notEmpty().withMessage('Class name is required'),
-  body('instructorId').isInt({ min: 1 }).withMessage('Valid instructor ID is required'),
+  body('instructorId').custom((value) => {
+  // Accept integers (SQLite) or UUID strings (Supabase)
+  if (Number.isInteger(Number(value)) && Number(value) > 0) {
+    return true; // Valid integer ID
+  }
+  // Check if it's a valid UUID (simple regex)
+  if (typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+    return true; // Valid UUID
+  }
+  throw new Error('Valid instructor ID is required');
+}).withMessage('Valid instructor ID is required'),
   body('date').isISO8601().withMessage('Valid date is required'),
   body('time').matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Valid time is required (HH:MM)'),
   body('duration').isInt({ min: 15, max: 180 }).withMessage('Duration must be between 15-180 minutes'),
@@ -298,13 +392,21 @@ router.post('/', authenticateToken, requireAdminOrReception, [
   body('equipment').isArray().withMessage('Equipment must be an array'),
   body('description').optional(),
   body('room').optional().isIn(['Reformer Room', 'Mat Room', 'Cadillac Room', 'Wall Room', '']).withMessage('Invalid room selection'),
-  body('level').optional().isIn(['Beginner', 'Intermediate', 'Advanced']).withMessage('Invalid level'),
+  body('notes').optional().isString().withMessage('Notes must be a string'),
   body('enableNotifications').optional().isBoolean().withMessage('Invalid enableNotifications format'),
   body('notificationMinutes').optional().isInt({ min: 1, max: 1440 }).withMessage('Notification minutes must be between 1-1440')
 ], async (req, res) => {
   try {
+    console.log('🎯 POST /api/classes - Class creation request received');
+    console.log('🎯 Request body:', JSON.stringify(req.body, null, 2));
+    
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.error('❌ Class validation failed:', errors.array());
+      console.error('❌ Failed validation rules:');
+      errors.array().forEach(error => {
+        console.error(`   - ${error.path}: ${error.msg} (received: ${error.value})`);
+      });
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
@@ -324,22 +426,44 @@ router.post('/', authenticateToken, requireAdminOrReception, [
       equipment,
       description,
       room,
-      level,
+      notes,
       enableNotifications,
       notificationMinutes
     } = req.body;
 
-    // Verify instructor exists
-    const instructor = await db.get(
-      'SELECT id FROM users WHERE id = ? AND role IN ("instructor", "admin", "reception")',
-      [instructorId]
-    );
-
-    if (!instructor) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid instructor ID'
+    if (db.useSupabase) {
+      console.log('🔧 Using direct Supabase REST API for class creation');
+      
+      // Verify instructor exists using Supabase REST API
+      const instructorCheck = await fetch(`${process.env.SUPABASE_URL}/rest/v1/users?id=eq.${instructorId}&role=in.(instructor,admin,reception)&select=id`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
       });
+      
+      const instructors = await instructorCheck.json();
+      if (!instructors || instructors.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid instructor ID'
+        });
+      }
+    } else {
+      // SQLite implementation
+      const instructor = await db.get(
+        'SELECT id FROM users WHERE id = ? AND role IN ("instructor", "admin", "reception")',
+        [instructorId]
+      );
+
+      if (!instructor) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid instructor ID'
+        });
+      }
     }
 
     // Check for instructor conflicts (critical business rule)
@@ -371,8 +495,8 @@ router.post('/', authenticateToken, requireAdminOrReception, [
       });
     }
 
-    // Check for room conflicts if room is specified
-    if (room) {
+    // Check for room conflicts if room is specified (only for SQLite, skip for Supabase until room column is added)
+    if (room && !db.useSupabase) {
       const roomConflict = await checkRoomConflict(date, time, duration, room);
       if (roomConflict.hasConflict) {
         return res.status(400).json({
@@ -382,46 +506,142 @@ router.post('/', authenticateToken, requireAdminOrReception, [
       }
     }
 
-    // Create class
-    const result = await db.run(`
-      INSERT INTO classes (
-        name, instructor_id, date, time, duration, category, capacity, 
-        equipment_type, equipment, description, room, level
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      name, instructorId, date, time, duration, category, capacity,
-      equipmentType, JSON.stringify(equipment), description, room || null, level || null
-    ]);
+    if (db.useSupabase) {
+      // Create class using Supabase REST API
+      const classData = {
+        name,
+        instructor_id: instructorId,
+        date,
+        time,
+        duration,
+        category,
+        capacity,
+        equipment_type: equipmentType,
+        equipment: JSON.stringify(equipment),
+        description: description || null,
+        room: room || null,
+        notes: notes || null,
+        status: 'active'
+        // Note: level field removed as requested by user
+      };
 
-    // Save notification settings if provided
-    if (enableNotifications !== undefined || notificationMinutes !== undefined) {
-      await db.run(`
-        INSERT INTO class_notification_settings (class_id, enable_notifications, notification_minutes)
-        VALUES (?, ?, ?)
+      const createClassResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/classes`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify(classData)
+      });
+
+      if (!createClassResponse.ok) {
+        const error = await createClassResponse.json();
+        console.error('❌ Supabase class creation failed:', error);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to create class'
+        });
+      }
+
+      const newClasses = await createClassResponse.json();
+      const newClass = newClasses[0];
+
+      // Save notification settings if provided
+      if (enableNotifications !== undefined || notificationMinutes !== undefined) {
+        const notificationData = {
+          class_id: newClass.id,
+          enable_notifications: enableNotifications !== undefined ? enableNotifications : true,
+          notification_minutes: notificationMinutes || 5
+        };
+
+        const notificationResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/class_notification_settings`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(notificationData)
+        });
+
+        if (!notificationResponse.ok) {
+          console.error('⚠️ Failed to save notification settings, but class was created successfully');
+        }
+      }
+
+      // Get instructor name for response
+      const instructorResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/users?id=eq.${instructorId}&select=name`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (instructorResponse.ok) {
+        const instructorData = await instructorResponse.json();
+        if (instructorData && instructorData.length > 0) {
+          newClass.instructor_name = instructorData[0].name;
+        }
+      }
+
+      // Parse equipment JSON for response
+      if (newClass.equipment) {
+        newClass.equipment = JSON.parse(newClass.equipment);
+      }
+
+      console.log('✅ Supabase class creation successful');
+      res.status(201).json({
+        success: true,
+        message: 'Class created successfully',
+        data: newClass
+      });
+
+    } else {
+      // SQLite implementation
+      const result = await db.run(`
+        INSERT INTO classes (
+          name, instructor_id, date, time, duration, category, capacity, 
+          equipment_type, equipment, description, room, level
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
-        result.id,
-        enableNotifications !== undefined ? (enableNotifications ? 1 : 0) : 1,
-        notificationMinutes || 5
+        name, instructorId, date, time, duration, category, capacity,
+        equipmentType, JSON.stringify(equipment), description, room || null, level || null
       ]);
+
+      // Save notification settings if provided
+      if (enableNotifications !== undefined || notificationMinutes !== undefined) {
+        await db.run(`
+          INSERT INTO class_notification_settings (class_id, enable_notifications, notification_minutes)
+          VALUES (?, ?, ?)
+        `, [
+          result.id,
+          enableNotifications !== undefined ? (enableNotifications ? 1 : 0) : 1,
+          notificationMinutes || 5
+        ]);
+      }
+
+      // Get created class with instructor name
+      const newClass = await db.get(`
+        SELECT 
+          c.*,
+          u.name as instructor_name
+        FROM classes c
+        JOIN users u ON c.instructor_id = u.id
+        WHERE c.id = ?
+      `, [result.id]);
+
+      newClass.equipment = JSON.parse(newClass.equipment);
+
+      res.status(201).json({
+        success: true,
+        message: 'Class created successfully',
+        data: newClass
+      });
     }
-
-    // Get created class with instructor name
-    const newClass = await db.get(`
-      SELECT 
-        c.*,
-        u.name as instructor_name
-      FROM classes c
-      JOIN users u ON c.instructor_id = u.id
-      WHERE c.id = ?
-    `, [result.id]);
-
-    newClass.equipment = JSON.parse(newClass.equipment);
-
-    res.status(201).json({
-      success: true,
-      message: 'Class created successfully',
-      data: newClass
-    });
 
   } catch (error) {
     console.error('Create class error:', error);
@@ -443,22 +663,58 @@ async function checkRoomConflict(date, time, duration, room, excludeClassId = nu
     const remainingMinutes = endMinutes % 60;
     const endTime = `${endHours.toString().padStart(2, '0')}:${remainingMinutes.toString().padStart(2, '0')}`;
 
-    // Check for conflicts in the same room
-    let query = `
-      SELECT c.*, u.name as instructor_name
-      FROM classes c
-      JOIN users u ON c.instructor_id = u.id
-      WHERE c.date = ? AND c.room = ? AND c.status = 'active'
-    `;
-    
-    const params = [date, room];
-    
-    if (excludeClassId) {
-      query += ' AND c.id != ?';
-      params.push(excludeClassId);
-    }
+    let existingClasses;
 
-    const existingClasses = await db.all(query, params);
+    if (db.useSupabase) {
+      // Supabase implementation using REST API
+      let url = `${process.env.SUPABASE_URL}/rest/v1/classes?date=eq.${date}&room=eq.${room}&status=eq.active&select=*`;
+      
+      if (excludeClassId) {
+        url += `&id=neq.${excludeClassId}`;
+      }
+
+      console.log('🔍 Room conflict check URL:', url);
+
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Failed to fetch classes for room conflict check:', response.status, errorText);
+        return { hasConflict: false };
+      }
+
+      const classesData = await response.json();
+      console.log('✅ Room conflict check - found classes:', classesData.length);
+      
+      // Get instructor names separately if needed
+      existingClasses = classesData.map(cls => ({
+        ...cls,
+        instructor_name: 'Unknown' // We'll get this separately if needed
+      }));
+    } else {
+      // SQLite implementation
+      let query = `
+        SELECT c.*, u.name as instructor_name
+        FROM classes c
+        JOIN users u ON c.instructor_id = u.id
+        WHERE c.date = ? AND c.room = ? AND c.status = 'active'
+      `;
+      
+      const params = [date, room];
+      
+      if (excludeClassId) {
+        query += ' AND c.id != ?';
+        params.push(excludeClassId);
+      }
+
+      existingClasses = await db.all(query, params);
+    }
 
     for (const existingClass of existingClasses) {
       const existingStartMinutes = existingClass.time.split(':').map(Number);
@@ -526,22 +782,58 @@ async function checkInstructorConflict(date, time, duration, instructorId, exclu
     const remainingMinutes = endMinutes % 60;
     const endTime = `${endHours.toString().padStart(2, '0')}:${remainingMinutes.toString().padStart(2, '0')}`;
 
-    // Check for conflicts with the same instructor
-    let query = `
-      SELECT c.*, u.name as instructor_name
-      FROM classes c
-      JOIN users u ON c.instructor_id = u.id
-      WHERE c.date = ? AND c.instructor_id = ? AND c.status = 'active'
-    `;
-    
-    const params = [date, instructorId];
-    
-    if (excludeClassId) {
-      query += ' AND c.id != ?';
-      params.push(excludeClassId);
-    }
+    let existingClasses;
 
-    const existingClasses = await db.all(query, params);
+    if (db.useSupabase) {
+      // Supabase implementation using REST API
+      let url = `${process.env.SUPABASE_URL}/rest/v1/classes?date=eq.${date}&instructor_id=eq.${instructorId}&status=eq.active&select=*`;
+      
+      if (excludeClassId) {
+        url += `&id=neq.${excludeClassId}`;
+      }
+
+      console.log('🔍 Instructor conflict check URL:', url);
+
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Failed to fetch classes for instructor conflict check:', response.status, errorText);
+        return { hasConflict: false };
+      }
+
+      const classesData = await response.json();
+      console.log('✅ Instructor conflict check - found classes:', classesData.length);
+      
+      // Get instructor names separately if needed
+      existingClasses = classesData.map(cls => ({
+        ...cls,
+        instructor_name: 'Unknown' // We'll get this separately if needed
+      }));
+    } else {
+      // SQLite implementation
+      let query = `
+        SELECT c.*, u.name as instructor_name
+        FROM classes c
+        JOIN users u ON c.instructor_id = u.id
+        WHERE c.date = ? AND c.instructor_id = ? AND c.status = 'active'
+      `;
+      
+      const params = [date, instructorId];
+      
+      if (excludeClassId) {
+        query += ' AND c.id != ?';
+        params.push(excludeClassId);
+      }
+
+      existingClasses = await db.all(query, params);
+    }
 
     for (const existingClass of existingClasses) {
       const existingStartMinutes = existingClass.time.split(':').map(Number);
@@ -572,7 +864,18 @@ async function checkInstructorConflict(date, time, duration, instructorId, exclu
 // PUT /api/classes/:id - Update class (admin or instructor)
 router.put('/:id', authenticateToken, requireInstructor, [
   body('name').optional().notEmpty().withMessage('Class name cannot be empty'),
-  body('instructorId').optional().isInt({ min: 1 }).withMessage('Valid instructor ID is required'),
+  body('instructorId').optional().custom((value) => {
+  if (value === undefined || value === null) return true; // Optional field
+  // Accept integers (SQLite) or UUID strings (Supabase)
+  if (Number.isInteger(Number(value)) && Number(value) > 0) {
+    return true; // Valid integer ID
+  }
+  // Check if it's a valid UUID (simple regex)
+  if (typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+    return true; // Valid UUID
+  }
+  throw new Error('Valid instructor ID is required');
+}).withMessage('Valid instructor ID is required'),
   body('date').optional().isISO8601().withMessage('Valid date is required'),
   body('time').optional().matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Valid time is required'),
   body('duration').optional().isInt({ min: 15, max: 180 }).withMessage('Duration must be between 15-180 minutes'),
@@ -582,7 +885,7 @@ router.put('/:id', authenticateToken, requireInstructor, [
   body('equipment').optional().isArray().withMessage('Equipment must be an array'),
   body('description').optional(),
   body('room').optional().isIn(['Reformer Room', 'Mat Room', 'Cadillac Room', 'Wall Room', '']).withMessage('Invalid room selection'),
-  body('level').optional().isIn(['Beginner', 'Intermediate', 'Advanced']).withMessage('Invalid level'),
+  body('notes').optional().isString().withMessage('Notes must be a string'),
   body('enableNotifications').optional().isBoolean().withMessage('Invalid enableNotifications format'),
   body('notificationMinutes').optional().isInt({ min: 1, max: 1440 }).withMessage('Notification minutes must be between 1-1440')
 ], async (req, res) => {

@@ -111,6 +111,14 @@ function HomeScreen() {
     navigation.navigate('SupabaseTest' as never);
   };
 
+  const handleAuthTest = () => {
+    navigation.navigate('AuthTest' as never);
+  };
+
+  const handleNetworkTest = () => {
+    navigation.navigate('NetworkDiagnostic' as never);
+  };
+
   const getWelcomeMessage = () => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good morning';
@@ -227,6 +235,26 @@ function HomeScreen() {
                 onPress={handleSupabaseTest}
               >
                 Supabase Test
+              </PaperButton>
+            </View>
+            <View style={styles.actionGrid}>
+              <PaperButton 
+                mode="outlined" 
+                style={styles.secondaryAction}
+                labelStyle={styles.secondaryActionLabel}
+                icon={() => <MaterialIcons name="lock" size={20} color={Colors.light.textSecondary} />}
+                onPress={handleAuthTest}
+              >
+                Auth Test
+              </PaperButton>
+              <PaperButton 
+                mode="outlined" 
+                style={styles.secondaryAction}
+                labelStyle={styles.secondaryActionLabel}
+                icon={() => <MaterialIcons name="network-check" size={20} color={Colors.light.textSecondary} />}
+                onPress={handleNetworkTest}
+              >
+                Network Test
               </PaperButton>
             </View>
           </PaperCard.Content>

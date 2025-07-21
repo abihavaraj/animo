@@ -26,11 +26,17 @@ class UnifiedApiService {
     }
   }
 
-  // Generic method with fallback
+  // Generic method with fallback - but skip Supabase if mode is REST
   private async withFallback<T>(
     primaryOperation: () => Promise<T>,
     fallbackOperation: () => Promise<T>
   ): Promise<T> {
+    // If current mode is REST, only use REST API
+    if (this.currentMode === 'REST') {
+      devLog(`🔄 Using REST API directly`);
+      return await fallbackOperation();
+    }
+    
     try {
       devLog(`🔄 Using ${this.currentMode} API`);
       return await primaryOperation();
@@ -40,32 +46,32 @@ class UnifiedApiService {
     }
   }
 
-  // ===== AUTHENTICATION =====
+  // ===== AUTH =====
   async signUp(email: string, password: string, userData: any) {
     return this.withFallback(
       () => supabaseApiService.signUp(email, password, userData),
-      () => apiService.post('/auth/signup', { email, password, ...userData })
+      () => apiService.post('/api/auth/signup', { email, password, ...userData })
     );
   }
 
   async signIn(email: string, password: string) {
     return this.withFallback(
       () => supabaseApiService.signIn(email, password),
-      () => apiService.post('/auth/signin', { email, password })
+      () => apiService.post('/api/auth/signin', { email, password })
     );
   }
 
   async signOut() {
     return this.withFallback(
       () => supabaseApiService.signOut(),
-      () => apiService.post('/auth/signout')
+      () => apiService.post('/api/auth/signout')
     );
   }
 
   async getCurrentUser() {
     return this.withFallback(
       () => supabaseApiService.getCurrentUser(),
-      () => apiService.get('/auth/me')
+      () => apiService.get('/api/auth/me')
     );
   }
 
@@ -73,35 +79,35 @@ class UnifiedApiService {
   async getClasses() {
     return this.withFallback(
       () => supabaseApiService.getClasses(),
-      () => apiService.get('/classes')
+      () => apiService.get('/api/classes')
     );
   }
 
   async getClassById(id: string) {
     return this.withFallback(
       () => supabaseApiService.getClassById(id),
-      () => apiService.get(`/classes/${id}`)
+      () => apiService.get(`/api/classes/${id}`)
     );
   }
 
   async createClass(classData: any) {
     return this.withFallback(
       () => supabaseApiService.createClass(classData),
-      () => apiService.post('/classes', classData)
+      () => apiService.post('/api/classes', classData)
     );
   }
 
   async updateClass(id: string, updates: any) {
     return this.withFallback(
       () => supabaseApiService.updateClass(id, updates),
-      () => apiService.put(`/classes/${id}`, updates)
+      () => apiService.put(`/api/classes/${id}`, updates)
     );
   }
 
   async deleteClass(id: string) {
     return this.withFallback(
       () => supabaseApiService.deleteClass(id),
-      () => apiService.delete(`/classes/${id}`)
+      () => apiService.delete(`/api/classes/${id}`)
     );
   }
 
@@ -109,21 +115,21 @@ class UnifiedApiService {
   async getBookings(userId?: string) {
     return this.withFallback(
       () => supabaseApiService.getBookings(userId),
-      () => apiService.get(`/bookings${userId ? `?userId=${userId}` : ''}`)
+      () => apiService.get(`/api/bookings${userId ? `?userId=${userId}` : ''}`)
     );
   }
 
   async createBooking(bookingData: any) {
     return this.withFallback(
       () => supabaseApiService.createBooking(bookingData),
-      () => apiService.post('/bookings', bookingData)
+      () => apiService.post('/api/bookings', bookingData)
     );
   }
 
   async cancelBooking(id: string) {
     return this.withFallback(
       () => supabaseApiService.cancelBooking(id),
-      () => apiService.put(`/bookings/${id}/cancel`)
+      () => apiService.put(`/api/bookings/${id}/cancel`)
     );
   }
 
@@ -131,21 +137,21 @@ class UnifiedApiService {
   async getUsers() {
     return this.withFallback(
       () => supabaseApiService.getUsers(),
-      () => apiService.get('/users')
+      () => apiService.get('/api/users')
     );
   }
 
   async getUserById(id: string) {
     return this.withFallback(
       () => supabaseApiService.getUserById(id),
-      () => apiService.get(`/users/${id}`)
+      () => apiService.get(`/api/users/${id}`)
     );
   }
 
   async updateUser(id: string, updates: any) {
     return this.withFallback(
       () => supabaseApiService.updateUser(id, updates),
-      () => apiService.put(`/users/${id}`, updates)
+      () => apiService.put(`/api/users/${id}`, updates)
     );
   }
 
@@ -153,14 +159,21 @@ class UnifiedApiService {
   async getSubscriptions(userId?: string) {
     return this.withFallback(
       () => supabaseApiService.getSubscriptions(userId),
-      () => apiService.get(`/subscriptions${userId ? `?userId=${userId}` : ''}`)
+      () => apiService.get(`/api/subscriptions${userId ? `?userId=${userId}` : ''}`)
+    );
+  }
+
+  async getSubscriptionPlans() {
+    return this.withFallback(
+      () => supabaseApiService.getSubscriptionPlans(),
+      () => apiService.get('/api/plans')
     );
   }
 
   async createSubscription(subscriptionData: any) {
     return this.withFallback(
       () => supabaseApiService.createSubscription(subscriptionData),
-      () => apiService.post('/subscriptions', subscriptionData)
+      () => apiService.post('/api/subscriptions', subscriptionData)
     );
   }
 
@@ -168,14 +181,14 @@ class UnifiedApiService {
   async getPayments(userId?: string) {
     return this.withFallback(
       () => supabaseApiService.getPayments(userId),
-      () => apiService.get(`/payments${userId ? `?userId=${userId}` : ''}`)
+      () => apiService.get(`/api/payments${userId ? `?userId=${userId}` : ''}`)
     );
   }
 
   async createPayment(paymentData: any) {
     return this.withFallback(
       () => supabaseApiService.createPayment(paymentData),
-      () => apiService.post('/payments', paymentData)
+      () => apiService.post('/api/payments', paymentData)
     );
   }
 
@@ -183,14 +196,14 @@ class UnifiedApiService {
   async getNotifications(userId?: string) {
     return this.withFallback(
       () => supabaseApiService.getNotifications(userId),
-      () => apiService.get(`/notifications${userId ? `?userId=${userId}` : ''}`)
+      () => apiService.get(`/api/notifications${userId ? `?userId=${userId}` : ''}`)
     );
   }
 
   async createNotification(notificationData: any) {
     return this.withFallback(
       () => supabaseApiService.createNotification(notificationData),
-      () => apiService.post('/notifications', notificationData)
+      () => apiService.post('/api/notifications', notificationData)
     );
   }
 

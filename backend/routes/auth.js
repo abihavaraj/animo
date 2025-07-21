@@ -10,8 +10,13 @@ const JWT_SECRET = process.env.JWT_SECRET || 'pilates_studio_super_secure_jwt_se
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 // Generate JWT token
-const generateToken = (userId) => {
-  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+const generateToken = (user) => {
+  return jwt.sign({ 
+    userId: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role
+  }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 };
 
 // POST /api/auth/register
@@ -58,7 +63,7 @@ router.post('/register', [
     );
 
     // Generate token
-    const token = generateToken(result.id);
+    const token = generateToken(result);
 
     // Get user data (without password)
     const user = await db.get(
@@ -102,11 +107,115 @@ router.post('/login', [
     const { emailOrPhone, password } = req.body;
     console.log('Login attempt:', emailOrPhone);
 
-    // Get user with password - check both email (case-insensitive) and phone
-    const user = await db.get(`
-      SELECT * FROM users 
-      WHERE LOWER(email) = LOWER(?) OR phone = ?
-    `, [emailOrPhone, emailOrPhone]);
+    // For Supabase, use direct client instead of broken database wrapper
+    if (db.useSupabase) {
+      try {
+        console.log('🔍 Using direct Supabase auth for:', emailOrPhone);
+        
+        // Try to authenticate with Supabase directly
+        const { data: authData, error: authError } = await db.supabase.auth.signInWithPassword({
+          email: emailOrPhone,
+          password: password
+        });
+        
+        if (authError) {
+          console.log('❌ Supabase auth failed:', authError.message);
+          
+          // If Supabase auth fails, try to find user in our users table
+          const { data: userData, error: userError } = await db.supabase
+            .from('users')
+            .select('*')
+            .or(`email.eq.${emailOrPhone},phone.eq.${emailOrPhone}`)
+            .eq('status', 'active')
+            .limit(1)
+            .single();
+            
+          if (userError || !userData) {
+            console.log('❌ User not found in database');
+            return res.status(401).json({
+              success: false,
+              message: 'Invalid credentials'
+            });
+          }
+          
+          // Verify password with bcrypt
+          const bcrypt = require('bcryptjs');
+          const isMatch = await bcrypt.compare(password, userData.password);
+          
+          if (!isMatch) {
+            return res.status(401).json({
+              success: false,
+              message: 'Invalid credentials'
+            });
+          }
+          
+          // Generate our own JWT token for the API
+          const token = generateToken(userData);
+          
+          res.json({
+            success: true,
+            message: 'Login successful',
+            data: {
+              user: {
+                id: userData.id,
+                email: userData.email,
+                name: userData.name,
+                role: userData.role,
+                phone: userData.phone,
+                status: userData.status
+              },
+              token
+            }
+          });
+          return;
+        }
+        
+        if (!authData.user) {
+          console.log('❌ No user data in auth response');
+          return res.status(401).json({
+            success: false,
+            message: 'Invalid credentials'
+          });
+        }
+        
+        // Get user profile from auth metadata
+        const user = {
+          id: authData.user.id,
+          email: authData.user.email,
+          name: authData.user.user_metadata?.name || authData.user.email,
+          role: authData.user.user_metadata?.role || 'client',
+          phone: authData.user.user_metadata?.phone || null,
+          status: 'active'
+        };
+        
+        console.log('✅ Supabase auth successful for user:', user);
+        
+        // Generate our own JWT token for the API
+        const token = generateToken(user);
+        
+        res.json({
+          success: true,
+          message: 'Login successful',
+          data: {
+            user,
+            token
+          }
+        });
+   
+        return;
+        
+      } catch (error) {
+        console.error('🔥 Supabase login error:', error);
+        return res.status(500).json({
+          success: false,
+          message: 'Authentication service error'
+        });
+      }
+    }
+
+    // Original SQLite logic (fallback)
+    // Use LIKE for SQLite compatibility, ILIKE would be used for PostgreSQL
+    const user = await db.get(`SELECT * FROM users WHERE LOWER(email) = LOWER(?) OR phone = ?`, [emailOrPhone, emailOrPhone]);
     console.log('User found:', user);
     if (!user) {
       return res.status(401).json({
@@ -123,6 +232,14 @@ router.post('/login', [
       });
     }
 
+    // Original bcrypt logic for SQLite users
+    if (!user.password) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
+    
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password);
     console.log('Password valid:', isValidPassword);
@@ -134,7 +251,7 @@ router.post('/login', [
     }
 
     // Generate token
-    const token = generateToken(user.id);
+    const token = generateToken(user);
 
     // Remove password from user object
     delete user.password;
