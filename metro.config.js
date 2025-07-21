@@ -6,7 +6,17 @@ const config = getDefaultConfig(__dirname, {
   isCSSEnabled: false,
 });
 
-// This is the simplest and most robust configuration for most Expo projects.
-// Customizations below were removed as they are potential sources of Hermes conflicts.
+// Add font file extensions
+config.resolver.assetExts.push(
+  // Fonts
+  'ttf',
+  'otf',
+  'woff',
+  'woff2',
+  'eot'
+);
+
+// Ensure web platform is supported
+config.resolver.platforms = ['ios', 'android', 'web'];
 
 module.exports = config; 

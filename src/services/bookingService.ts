@@ -107,28 +107,100 @@ class BookingService {
         return { success: false, error: 'User not authenticated' };
       }
       
-      const { data, error } = await supabase
+      // First, check if there's an existing booking for this user and class
+      const { data: existingBooking } = await supabase
         .from('bookings')
-        .insert({
-          user_id: user.id,
-          class_id: bookingData.classId,
-          status: 'confirmed',
-          booking_date: new Date().toISOString()
-        })
-        .select(`
-          *,
-          classes (*),
-          users!bookings_user_id_fkey (name, email)
-        `)
+        .select('id, status')
+        .eq('user_id', user.id)
+        .eq('class_id', bookingData.classId)
         .single();
       
-      if (error) {
-        return { success: false, error: error.message };
+      let result;
+      
+      if (existingBooking) {
+        // Update existing booking (reactivate if cancelled)
+        const { data, error } = await supabase
+          .from('bookings')
+          .update({
+            status: 'confirmed',
+            booking_date: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingBooking.id)
+          .select(`
+            *,
+            classes (*),
+            users!bookings_user_id_fkey (name, email)
+          `)
+          .single();
+        
+        if (error) {
+          return { success: false, error: error.message };
+        }
+        
+        result = data;
+      } else {
+        // Create new booking
+        const { data, error } = await supabase
+          .from('bookings')
+          .insert({
+            user_id: user.id,
+            class_id: bookingData.classId,
+            status: 'confirmed',
+            booking_date: new Date().toISOString()
+          })
+          .select(`
+            *,
+            classes (*),
+            users!bookings_user_id_fkey (name, email)
+          `)
+          .single();
+        
+        if (error) {
+          return { success: false, error: error.message };
+        }
+        
+        result = data;
       }
       
-      return { success: true, data };
+      // Update subscription: deduct classes from remaining_classes
+      // Only deduct if this is a new booking or reactivating a cancelled one
+      if (result && (existingBooking?.status === 'cancelled' || !existingBooking)) {
+        await this.deductClassFromSubscription(user.id);
+      }
+      
+      return { success: true, data: result };
     } catch (error) {
       return { success: false, error: 'Failed to create booking' };
+    }
+  }
+
+  private async deductClassFromSubscription(userId: string): Promise<void> {
+    try {
+      // Get the user's active subscription
+      const { data: subscription } = await supabase
+        .from('user_subscriptions')
+        .select('id, remaining_classes')
+        .eq('user_id', userId)
+        .eq('status', 'active')
+        .gt('remaining_classes', 0)
+        .single();
+
+      if (subscription && subscription.remaining_classes > 0) {
+        // Deduct one class
+        await supabase
+          .from('user_subscriptions')
+          .update({
+            remaining_classes: subscription.remaining_classes - 1,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', subscription.id);
+        
+        console.log(`✅ Deducted 1 class from subscription. Remaining: ${subscription.remaining_classes - 1}`);
+      }
+    } catch (error) {
+      console.error('❌ Failed to deduct class from subscription:', error);
+      // Don't throw error here to avoid breaking the booking process
     }
   }
 
@@ -152,9 +224,47 @@ class BookingService {
         return { success: false, error: error.message };
       }
       
+      // Restore class back to subscription when booking is cancelled
+      if (data && data.user_id) {
+        await this.restoreClassToSubscription(data.user_id);
+      }
+      
       return { success: true, data };
     } catch (error) {
       return { success: false, error: 'Failed to cancel booking' };
+    }
+  }
+
+  private async restoreClassToSubscription(userId: string): Promise<void> {
+    try {
+      // Get the user's active subscription
+      const { data: subscription } = await supabase
+        .from('user_subscriptions')
+        .select('id, remaining_classes, monthly_classes')
+        .eq('user_id', userId)
+        .eq('status', 'active')
+        .single();
+
+      if (subscription) {
+        // Restore one class (but don't exceed monthly limit)
+        const newRemainingClasses = Math.min(
+          subscription.remaining_classes + 1,
+          subscription.monthly_classes
+        );
+        
+        await supabase
+          .from('user_subscriptions')
+          .update({
+            remaining_classes: newRemainingClasses,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', subscription.id);
+        
+        console.log(`✅ Restored 1 class to subscription. Remaining: ${newRemainingClasses}`);
+      }
+    } catch (error) {
+      console.error('❌ Failed to restore class to subscription:', error);
+      // Don't throw error here to avoid breaking the cancellation process
     }
   }
 

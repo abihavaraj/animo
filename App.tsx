@@ -25,12 +25,24 @@ function AppContent() {
   useEffect(() => {
     async function prepare() {
       try {
-        // Pre-load fonts for web compatibility
-        await Font.loadAsync({
-          // Expo vector icons are automatically loaded on native but need explicit loading on web
-          'MaterialIcons': require('@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialIcons.ttf'),
-          'MaterialCommunityIcons': require('@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf'),
-        });
+        // Only load fonts on web platform to avoid issues
+        const Platform = require('react-native').Platform;
+        if (Platform.OS === 'web') {
+          // Use a timeout to prevent hanging on font loading
+          const fontLoadPromise = Font.loadAsync({
+            'MaterialIcons': require('@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialIcons.ttf'),
+            'MaterialCommunityIcons': require('@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf'),
+          });
+
+          const timeoutPromise = new Promise((resolve) => {
+            setTimeout(() => {
+              console.warn('⏰ Font loading timed out, proceeding anyway');
+              resolve(null);
+            }, 3000); // 3 second timeout
+          });
+
+          await Promise.race([fontLoadPromise, timeoutPromise]);
+        }
         
         console.log('✅ Fonts loaded successfully for web');
       } catch (e) {

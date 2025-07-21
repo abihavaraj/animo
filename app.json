@@ -57,7 +57,12 @@
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "config": {
+        "firebase": {
+          "measurementId": "G-XXXXXXXXXX"
+        }
+      }
     },
     "plugins": [
       [
