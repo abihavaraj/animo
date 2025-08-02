@@ -11,7 +11,7 @@
 // 2.1 Brand & Neutrals
 const neutralWhite = '#FFFFFF';        // Card / Surface 00
 const softBeige = '#F8F6F3';          // App background 01
-const warmTaupe = '#9B8A7D';          // Brand primary 02
+const forestGreen = '#6B8E7F';        // Brand primary 02 (Updated to match accent)
 const charcoal = '#2C2C2C';           // Primary text
 
 // 2.2 Accent & States
@@ -27,19 +27,19 @@ export const Colors = {
     surface: neutralWhite,             // Card / Surface 00
     
     // Navigation & UI
-    tint: warmTaupe,
-    icon: warmTaupe,
+    tint: forestGreen,
+    icon: forestGreen,
     tabIconDefault: '#999999',
-    tabIconSelected: warmTaupe,
+    tabIconSelected: forestGreen,
     
     // Brand Colors
-    primary: warmTaupe,                // Brand primary 02
+    primary: forestGreen,              // Brand primary 02
     secondary: neutralWhite,           // Background variant
     accent: accent,                    // Primary CTAs, Success
     
     // Action Colors
     actionPrimary: accent,             // Primary CTAs, booking buttons
-    actionSecondary: warmTaupe,        // Secondary actions
+    actionSecondary: forestGreen,      // Secondary actions
     
     // Semantic Colors
     success: accent,                   // Success states

@@ -1,6 +1,4 @@
 import { Colors } from '@/constants/Colors';
-import { spacing } from '@/constants/Spacing';
-import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -21,6 +19,8 @@ import {
     TextInput,
     Title
 } from 'react-native-paper';
+import { spacing } from '../../../constants/Spacing';
+import WebCompatibleIcon from '../../components/WebCompatibleIcon';
 import { BackendUser, userService } from '../../services/userService';
 import { UserRole } from '../../store/authSlice';
 
@@ -45,7 +45,7 @@ function UserManagement() {
   const [users, setUsers] = useState<BackendUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterRole, setFilterRole] = useState('all');
+  const [filterRole, setFilterRole] = useState<'all' | 'client' | 'instructor' | 'admin' | 'reception'>('all');
   const [modalVisible, setModalVisible] = useState(false);
   const [userDetailsModalVisible, setUserDetailsModalVisible] = useState(false);
   const [selectedUser, setSelectedUser] = useState<BackendUser | null>(null);
@@ -72,8 +72,8 @@ function UserManagement() {
     try {
       setLoading(true);
       const filters = {
-        role: filterRole === 'all' ? undefined : filterRole,
-        search: searchQuery || undefined
+        role: filterRole === 'all' ? undefined : filterRole as 'client' | 'instructor' | 'admin' | 'reception',
+        searchTerm: searchQuery || undefined
       };
       
       const response = await userService.getUsers(filters);
@@ -561,7 +561,7 @@ function UserManagement() {
 
               <View style={styles.userMeta}>
                 <Paragraph style={styles.joinDate}>
-                  Joined: {new Date(user.join_date).toLocaleDateString()}
+                  Joined: {user.join_date ? new Date(user.join_date).toLocaleDateString() : 'N/A'}
                 </Paragraph>
                 
                 {/* Client-specific information */}
@@ -579,7 +579,7 @@ function UserManagement() {
                     )}
                     {(user.credit_balance !== undefined && user.credit_balance !== null) && (
                       <View style={[styles.creditBalanceInfo, user.credit_balance === 0 && styles.zeroCreditBalance]}>
-                        <MaterialIcons 
+                        <WebCompatibleIcon 
                           name="account-balance-wallet" 
                           size={16} 
                           color={user.credit_balance > 0 ? "#4caf50" : "#f44336"} 
@@ -599,7 +599,7 @@ function UserManagement() {
                     mode="contained"
                     onPress={() => handleViewClientProfile(user)}
                     style={styles.actionButton}
-                    icon="account-details"
+                    icon="person"
                     compact
                   >
                     View Profile
@@ -700,7 +700,7 @@ function UserManagement() {
         {filteredUsers.length === 0 && (
           <Card style={styles.emptyCard}>
             <Card.Content style={styles.emptyContent}>
-              <MaterialIcons name="people-outline" size={48} color="#ccc" />
+              <WebCompatibleIcon name="people-outline" size={48} color="#ccc" />
               <Title style={styles.emptyTitle}>No users found</Title>
               <Paragraph style={styles.emptyText}>
                 Create your first user or adjust your search filters.
@@ -886,7 +886,7 @@ function UserManagement() {
                 <Paragraph style={styles.detailLabel}>Account Information</Paragraph>
                 <Paragraph style={styles.detailValue}>Status: {selectedUser.status}</Paragraph>
                 <Paragraph style={styles.detailValue}>
-                  Join Date: {new Date(selectedUser.join_date).toLocaleDateString()}
+                  Join Date: {selectedUser.join_date ? new Date(selectedUser.join_date).toLocaleDateString() : 'N/A'}
                 </Paragraph>
                 {selectedUser.referral_source && (
                   <Paragraph style={styles.detailValue}>

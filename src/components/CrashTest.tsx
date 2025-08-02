@@ -145,14 +145,34 @@ export const CrashTest = () => {
 
       <Card style={styles.card}>
         <Card.Content>
-          <Title>✅ System Status</Title>
+          <Title>✅ Enhanced System Status</Title>
           <Paragraph>
             • Global error handlers: ACTIVE{'\n'}
+            • Enhanced native exception handling: ACTIVE{'\n'}
             • ErrorBoundary components: ACTIVE{'\n'}
             • Network error handling: ACTIVE{'\n'}
             • Promise rejection safety: ACTIVE{'\n'}
+            • iOS Beta detection: ACTIVE{'\n'}
+            • Crash reporting service: ACTIVE{'\n'}
+            • Navigation crash protection: ACTIVE{'\n'}
             • Development debugging: ACTIVE
           </Paragraph>
+          
+          <View style={styles.buttonContainer}>
+            <Button 
+              mode="outlined" 
+              onPress={() => {
+                // Test crash reporting
+                const crashReporting = require('../utils/crashReporting').default;
+                const stats = crashReporting.getCrashStats();
+                alert(`Crash Stats:\nTotal: ${stats.totalCrashes}\nFatal: ${stats.fatalCrashes}\nNon-Fatal: ${stats.nonFatalCrashes}`);
+              }}
+              style={styles.button}
+              icon="chart-line"
+            >
+              View Crash Statistics
+            </Button>
+          </View>
         </Card.Content>
       </Card>
     </View>

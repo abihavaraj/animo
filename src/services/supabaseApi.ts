@@ -54,12 +54,41 @@ class SupabaseApiService {
     return this.handleResponse(data, error);
   }
 
-  async signIn(email: string, password: string) {
+  async signIn(emailOrPhone: string, password: string) {
     try {
-      devLog('🔐 Attempting Supabase sign in for:', email);
+      devLog('🔐 Attempting Supabase sign in for:', emailOrPhone);
       
+      let actualEmail = emailOrPhone;
+      
+      // Check if input is a phone number or email
+      const isPhoneNumber = this.isPhoneNumber(emailOrPhone);
+      
+      if (isPhoneNumber) {
+        devLog('📱 Input detected as phone number, looking up email...');
+        
+        // Look up user by phone to get their email
+        const { data: userData, error: lookupError } = await this.supabase
+          .from('users')
+          .select('email, phone')
+          .eq('phone', emailOrPhone)
+          .single();
+        
+        if (lookupError || !userData) {
+          devLog('❌ Phone number not found in database:', lookupError);
+          return this.handleResponse(null, { 
+            message: 'No account found with this phone number. Please check your phone number or contact reception.' 
+          });
+        }
+        
+        actualEmail = userData.email;
+        devLog('✅ Found email for phone number:', actualEmail);
+      } else {
+        devLog('📧 Input detected as email address');
+      }
+      
+      // Now authenticate with Supabase using the email
       const { data, error } = await this.supabase.auth.signInWithPassword({
-        email,
+        email: actualEmail,
         password,
       });
       
@@ -69,7 +98,67 @@ class SupabaseApiService {
       } else if (data) {
         devLog('✅ Supabase sign in successful for user:', data.user?.email);
         
-        // Format the response to match what the auth service expects
+        // After successful auth, fetch complete user profile from users table
+        try {
+          devLog('🔍 Fetching user profile from database...');
+          const { data: userProfile, error: profileError } = await this.supabase
+            .from('users')
+            .select('*')
+            .eq('email', actualEmail)
+            .single();
+          
+          if (profileError) {
+            devLog('⚠️ Could not fetch user profile from database:', profileError);
+            // Fall back to auth data
+            const formattedData = {
+              user: data.user,
+              token: data.session?.access_token
+            };
+            return this.handleResponse(formattedData, null);
+          }
+          
+          if (userProfile) {
+            devLog('✅ User profile fetched from database, role:', userProfile.role);
+            
+            // Merge auth user with database profile
+            const enrichedUser = {
+              ...data.user,
+              // Override with database fields
+              name: userProfile.name,
+              role: userProfile.role,
+              phone: userProfile.phone,
+              emergency_contact: userProfile.emergency_contact,
+              medical_conditions: userProfile.medical_conditions,
+              referral_source: userProfile.referral_source,
+              join_date: userProfile.join_date,
+              status: userProfile.status,
+              created_at: userProfile.created_at,
+              updated_at: userProfile.updated_at,
+              // Also set in user_metadata for compatibility
+              user_metadata: {
+                ...data.user.user_metadata,
+                name: userProfile.name,
+                role: userProfile.role,
+                phone: userProfile.phone,
+                emergency_contact: userProfile.emergency_contact,
+                medical_conditions: userProfile.medical_conditions,
+                referral_source: userProfile.referral_source
+              }
+            };
+            
+            const formattedData = {
+              user: enrichedUser,
+              token: data.session?.access_token
+            };
+            
+            return this.handleResponse(formattedData, null);
+          }
+        } catch (dbError) {
+          devLog('❌ Database lookup error:', dbError);
+          // Fall back to auth data
+        }
+        
+        // Fallback: Format the response to match what the auth service expects
         const formattedData = {
           user: data.user,
           token: data.session?.access_token
@@ -88,14 +177,97 @@ class SupabaseApiService {
     }
   }
 
+  // Helper method to detect if input is a phone number
+  private isPhoneNumber(input: string): boolean {
+    // Remove all non-digit characters except + for international numbers
+    const cleaned = input.replace(/[^\d+]/g, '');
+    
+    // Check for common phone number patterns
+    // This handles: +1234567890, 1234567890, +355691234567, etc.
+    const phonePatterns = [
+      /^\+?[1-9]\d{6,14}$/, // International format
+      /^\d{10}$/,           // US 10-digit
+      /^\+\d{10,15}$/       // International with +
+    ];
+    
+    return phonePatterns.some(pattern => pattern.test(cleaned)) && 
+           !input.includes('@'); // Make sure it's not an email
+  }
+
   async signOut() {
     const { error } = await this.supabase.auth.signOut();
     return this.handleResponse(null, error);
   }
 
   async getCurrentUser() {
-    const { data: { user }, error } = await this.supabase.auth.getUser();
-    return this.handleResponse(user, error);
+    try {
+      const { data: { user }, error } = await this.supabase.auth.getUser();
+      
+      if (error) {
+        return this.handleResponse(null, error);
+      }
+      
+      if (!user) {
+        return this.handleResponse(null, { message: 'No authenticated user' });
+      }
+
+      // Fetch complete user profile from database to get the correct role
+      try {
+        devLog('🔍 getCurrentUser: Fetching complete user profile from database...');
+        const { data: userProfile, error: profileError } = await this.supabase
+          .from('users')
+          .select('*')
+          .eq('email', user.email)
+          .single();
+        
+        if (profileError) {
+          devLog('⚠️ getCurrentUser: Could not fetch user profile from database:', profileError);
+          // Fall back to auth user data
+          return this.handleResponse(user, null);
+        }
+        
+        if (userProfile) {
+          devLog('✅ getCurrentUser: User profile fetched from database, role:', userProfile.role);
+          
+          // Merge auth user with database profile
+          const enrichedUser = {
+            ...user,
+            // Override with database fields
+            name: userProfile.name,
+            role: userProfile.role,
+            phone: userProfile.phone,
+            emergency_contact: userProfile.emergency_contact,
+            medical_conditions: userProfile.medical_conditions,
+            referral_source: userProfile.referral_source,
+            join_date: userProfile.join_date,
+            status: userProfile.status,
+            created_at: userProfile.created_at,
+            updated_at: userProfile.updated_at,
+            // Also set in user_metadata for compatibility
+            user_metadata: {
+              ...user.user_metadata,
+              name: userProfile.name,
+              role: userProfile.role,
+              phone: userProfile.phone,
+              emergency_contact: userProfile.emergency_contact,
+              medical_conditions: userProfile.medical_conditions,
+              referral_source: userProfile.referral_source
+            }
+          };
+          
+          return this.handleResponse(enrichedUser, null);
+        }
+      } catch (dbError) {
+        devLog('❌ getCurrentUser: Database lookup error:', dbError);
+        // Fall back to auth user data
+      }
+      
+      // Fallback: return auth user data
+      return this.handleResponse(user, null);
+    } catch (error) {
+      devLog('❌ getCurrentUser: Error getting current user:', error);
+      return this.handleResponse(null, error);
+    }
   }
 
   // ===== CLASSES =====
@@ -222,7 +394,7 @@ class SupabaseApiService {
 
   async getSubscriptionPlans() {
     const { data, error } = await this.supabase
-      .from(API_CONFIG.ENDPOINTS.SUBSCRIPTION_PLANS)
+      .from(API_CONFIG.ENDPOINTS.PLANS)
       .select('*')
       .eq('is_active', true)
       .order('monthly_price', { ascending: true });

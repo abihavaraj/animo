@@ -1,34 +1,33 @@
 import { Body, Caption, H2, H3 } from '@/components/ui/Typography';
 import { Colors } from '@/constants/Colors';
 import { layout, spacing } from '@/constants/Spacing';
-import { MaterialIcons } from '@expo/vector-icons';
+import WebCompatibleIcon from '@/src/components/WebCompatibleIcon';
+import { bookingService } from '@/src/services/bookingService';
+import { BackendClass, classService, CreateClassRequest, UpdateClassRequest } from '@/src/services/classService';
+import { BackendUser, userService } from '@/src/services/userService';
+import { RootState } from '@/src/store';
+import { shadows } from '@/src/utils/shadows';
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Dimensions, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Dimensions, Platform, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import {
-    ActivityIndicator,
-    Button,
-    Chip,
-    DataTable,
-    Divider,
-    Icon,
-    IconButton,
-    Menu,
-    Modal,
-    Portal,
-    Searchbar,
-    SegmentedButtons,
-    Surface,
-    Switch,
-    TextInput
+  ActivityIndicator,
+  Button,
+  Chip,
+  DataTable,
+  Divider,
+  Icon,
+  IconButton,
+  Menu,
+  Modal,
+  Portal,
+  Searchbar,
+  SegmentedButtons,
+  Surface,
+  Switch,
+  TextInput
 } from 'react-native-paper';
 import { useSelector } from 'react-redux';
-import { apiService } from '../../services/api';
-import { bookingService } from '../../services/bookingService';
-import { BackendClass, classService, CreateClassRequest, UpdateClassRequest } from '../../services/classService';
-import { BackendUser, userService } from '../../services/userService';
-import { RootState } from '../../store';
-import { shadows } from '../../utils/shadows';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isLargeScreen = screenWidth > 1024;
@@ -77,6 +76,7 @@ function PCClassManagement() {
   const [overrideRestrictions, setOverrideRestrictions] = useState(false);
   const [assigningClient, setAssigningClient] = useState(false);
   const [clientSearchQuery, setClientSearchQuery] = useState('');
+  const [clientMenuVisible, setClientMenuVisible] = useState(false);
   
   // Cancel booking modal states
   const [cancelBookingModalVisible, setCancelBookingModalVisible] = useState(false);
@@ -84,6 +84,13 @@ function PCClassManagement() {
   const [selectedBookingForCancellation, setSelectedBookingForCancellation] = useState<any>(null);
   const [cancelNotes, setCancelNotes] = useState('');
   const [cancellingBooking, setCancellingBooking] = useState(false);
+  const [cancelBookingMenuVisible, setCancelBookingMenuVisible] = useState(false);
+  
+  // Error modal states
+  const [errorModalVisible, setErrorModalVisible] = useState(false);
+  const [errorTitle, setErrorTitle] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [errorActions, setErrorActions] = useState<Array<{text: string, onPress: () => void, style?: 'default' | 'cancel' | 'destructive'}>>([]);
   
   // Form data
   const [formData, setFormData] = useState({
@@ -105,6 +112,10 @@ function PCClassManagement() {
   // Room availability state
   const [roomAvailability, setRoomAvailability] = useState<{[key: string]: {available: boolean, conflictClass: any}}>({});
   const [checkingAvailability, setCheckingAvailability] = useState(false);
+  
+  // Instructor availability state
+  const [instructorAvailability, setInstructorAvailability] = useState<{[key: string]: {available: boolean, conflictClass: any}}>({});
+  const [checkingInstructorAvailability, setCheckingInstructorAvailability] = useState(false);
 
   useEffect(() => {
     loadInitialData();
@@ -113,7 +124,7 @@ function PCClassManagement() {
 
   useEffect(() => {
     generateMarkedDates();
-  }, [classes, selectedDate]);
+  }, [classes, selectedDate, bookings]);
 
   // Check room availability when date, time, or room changes
   useEffect(() => {
@@ -121,6 +132,13 @@ function PCClassManagement() {
       checkRoomAvailability();
     }
   }, [formData.date, formData.time, formData.room, formData.duration]);
+
+  // Check instructor availability when date, time, or instructor changes
+  useEffect(() => {
+    if (formData.date && formData.time && formData.instructorId) {
+      checkInstructorAvailability();
+    }
+  }, [formData.date, formData.time, formData.instructorId, formData.duration]);
 
   const checkRoomAvailability = async () => {
     if (!formData.date || !formData.time || !formData.room) return;
@@ -140,6 +158,34 @@ function PCClassManagement() {
       console.error('Error checking room availability:', error);
     } finally {
       setCheckingAvailability(false);
+    }
+  };
+
+  const checkInstructorAvailability = async () => {
+    if (!formData.date || !formData.time || !formData.instructorId) return;
+    
+    try {
+      setCheckingInstructorAvailability(true);
+      const response = await classService.checkInstructorConflict(
+        formData.instructorId,
+        formData.date,
+        formData.time,
+        formData.duration,
+        editingClass?.id
+      );
+      
+      if (response.success && response.data) {
+        setInstructorAvailability({
+          [formData.instructorId]: {
+            available: !response.data.hasConflict,
+            conflictClass: response.data.conflictClass || null
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error checking instructor availability:', error);
+    } finally {
+      setCheckingInstructorAvailability(false);
     }
   };
 
@@ -175,7 +221,7 @@ function PCClassManagement() {
       console.log('🎓 Instructors response:', response);
       if (response.success && response.data) {
         setInstructors(response.data);
-        console.log('🎓 Loaded instructors:', response.data.length, 'instructors:', response.data.map(i => `${i.name} (ID: ${i.id})`));
+        console.log('🎓 Loaded instructors:', response.data.length, 'instructors:', response.data.map((i: any) => `${i.name} (ID: ${i.id})`));
       } else {
         console.error('❌ Failed to load instructors:', response.error);
         setInstructors([]);
@@ -188,7 +234,7 @@ function PCClassManagement() {
 
   const loadBookings = async () => {
     try {
-      const response = await apiService.get('/api/bookings');
+      const response = await bookingService.getAllBookings();
       if (response.success && response.data) {
         setBookings(Array.isArray(response.data) ? response.data : []);
       } else {
@@ -210,7 +256,8 @@ function PCClassManagement() {
       }
       
       // Add color coding based on status and enrollment
-      const enrollmentPercentage = ((classItem.enrolled || 0) / (classItem.capacity || 1)) * 100;
+      const enrollmentCount = getEnrollmentCount(classItem.id);
+      const enrollmentPercentage = (enrollmentCount / (classItem.capacity || 1)) * 100;
       let color = Colors.light.primary;
       
       if (classItem.status === 'cancelled') {
@@ -238,7 +285,7 @@ function PCClassManagement() {
     }
 
     setMarkedDates(marked);
-  }, [classes, selectedDate]);
+  }, [classes, selectedDate, bookings]);
 
   const getClassesForDate = (date: string) => {
     return classes
@@ -301,6 +348,15 @@ function PCClassManagement() {
     setModalVisible(true);
   };
 
+  const calculateEndTime = (startTime: string, duration: number): string => {
+    const [hours, minutes] = startTime.split(':').map(Number);
+    const startMinutes = hours * 60 + minutes;
+    const endMinutes = startMinutes + duration;
+    const endHours = Math.floor(endMinutes / 60);
+    const remainingMinutes = endMinutes % 60;
+    return `${endHours.toString().padStart(2, '0')}:${remainingMinutes.toString().padStart(2, '0')}`;
+  };
+
   const handleSaveClass = async () => {
     console.log('🎯 Form validation starting...');
     console.log('🎯 Available instructors:', instructors.length);
@@ -342,6 +398,29 @@ function PCClassManagement() {
 
     try {
       setSaving(true);
+
+      // Check for instructor conflicts using the backend service
+      const conflictResponse = await classService.checkInstructorConflict(
+        formData.instructorId, // Keep as string for Supabase UUID
+        formData.date,
+        formData.time,
+        formData.duration,
+        editingClass?.id
+      );
+
+      if (conflictResponse.success && conflictResponse.data?.hasConflict) {
+        const conflictClass = conflictResponse.data.conflictClass;
+        const conflictEndTime = conflictClass ? 
+          calculateEndTime(conflictClass.time, conflictClass.duration) : '';
+        const newEndTime = calculateEndTime(formData.time, formData.duration);
+        
+        Alert.alert(
+          'Scheduling Conflict', 
+          `${formData.instructorName} already has a class "${conflictClass?.name}" scheduled from ${conflictClass?.time} to ${conflictEndTime} on ${new Date(formData.date).toLocaleDateString()}.\n\nThis overlaps with your requested time ${formData.time} to ${newEndTime}.\n\nPlease choose a different time or instructor.`
+        );
+        return;
+      }
+
       const equipmentArray = formData.equipment.split(',').map(item => item.trim()).filter(item => item);
       
       if (editingClass) {
@@ -532,11 +611,11 @@ function PCClassManagement() {
         <View style={styles.calendarClassesSection}>
           <View style={[styles.calendarDayHeader, {marginBottom: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: Colors.light.border}]}>
             <Body style={{...styles.calendarDayTitle, fontWeight: '600', fontSize: 16}}>
-              {`${new Date(selectedDate).toLocaleDateString('en-US', { 
+              {new Date(selectedDate).toLocaleDateString('en-US', { 
                 weekday: 'long', 
                 month: 'short', 
                 day: 'numeric' 
-              })} (${dayClasses.length} ${dayClasses.length === 1 ? 'class' : 'classes'})`}
+              }) + ' (' + dayClasses.length + ' ' + (dayClasses.length === 1 ? 'class' : 'classes') + ')'}
             </Body>
             <Button
               mode="contained"
@@ -552,7 +631,7 @@ function PCClassManagement() {
           
           {dayClasses.length === 0 ? (
             <View style={[styles.calendarEmptyState, {paddingVertical: spacing.lg, gap: spacing.sm}]}>
-              <MaterialIcons name="event-note" size={32} color={Colors.light.textMuted} />
+              <WebCompatibleIcon name="event" size={32} color={Colors.light.textMuted} />
               <Body style={styles.calendarEmptyText}>No classes scheduled for this date</Body>
             </View>
           ) : (
@@ -568,7 +647,7 @@ function PCClassManagement() {
                     <View style={styles.calendarClassHeader}>
                       <View style={styles.calendarClassTime}>
                         <H3 style={styles.calendarTimeText}>{classItem.time}</H3>
-                        <Caption style={styles.calendarDurationText}>{`${classItem.duration}min`}</Caption>
+                        <Caption style={styles.calendarDurationText}>{classItem.duration + 'min'}</Caption>
                       </View>
                       
                       <View style={styles.calendarClassInfo}>
@@ -588,7 +667,7 @@ function PCClassManagement() {
                             textStyle={styles.chipText}
                             compact
                           >
-                            {`${classItem.enrolled || 0}/${classItem.capacity || 0}`}
+                            {getEnrollmentCount(classItem.id) + '/' + (classItem.capacity || 0)}
                           </Chip>
                         </View>
                         {classItem.notes && (
@@ -657,7 +736,7 @@ function PCClassManagement() {
           <View style={styles.dayClassesList}>
             {dayClasses.length === 0 ? (
               <View style={styles.emptyState}>
-                <MaterialIcons name="event-note" size={48} color={Colors.light.textMuted} />
+                <WebCompatibleIcon name="event" size={48} color={Colors.light.textMuted} />
                 <Body style={styles.emptyStateText}>No classes scheduled for this date</Body>
               </View>
             ) : (
@@ -667,7 +746,7 @@ function PCClassManagement() {
                     <View style={styles.classHeader}>
                       <View style={styles.classTime}>
                         <H3 style={styles.timeText}>{classItem.time}</H3>
-                        <Caption style={styles.durationText}>{`${classItem.duration}min`}</Caption>
+                        <Caption style={styles.durationText}>{classItem.duration + 'min'}</Caption>
                       </View>
                       
                       <View style={styles.classInfo}>
@@ -687,7 +766,7 @@ function PCClassManagement() {
                             textStyle={styles.chipText}
                             compact
                           >
-                            {`${classItem.enrolled || 0}/${classItem.capacity || 0}`}
+                            {getEnrollmentCount(classItem.id) + '/' + (classItem.capacity || 0)}
                           </Chip>
                         </View>
                         {classItem.notes && (
@@ -699,25 +778,46 @@ function PCClassManagement() {
                       </View>
                       
                       <View style={styles.classActions}>
-                        <IconButton
-                          icon="account-plus"
-                          size={20}
-                          iconColor={Colors.light.primary}
+                        <TouchableOpacity
+                          style={styles.actionButton}
                           onPress={() => handleAssignClient(classItem)}
-                        />
-                        <IconButton
-                          icon="account-remove"
-                          size={20}
-                          iconColor={Colors.light.warning}
+                        >
+                          <WebCompatibleIcon name="account-plus" size={20} color={Colors.light.primary} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.actionButton}
                           onPress={() => {
                             const classBookings = getBookingsForClass(classItem.id);
+                            console.log('🔍 Found class bookings:', classBookings);
                             if (classBookings.length > 0) {
-                              handleCancelBooking(classItem, classBookings[0]);
+                              const confirmedBookings = classBookings.filter(b => b.status === 'confirmed');
+                              console.log('🔍 Confirmed bookings:', confirmedBookings);
+                              
+                              if (confirmedBookings.length > 0) {
+                                if (confirmedBookings.length === 1) {
+                                  handleCancelBooking(classItem, confirmedBookings[0]);
+                                } else {
+                                  // Multiple bookings - show names and let user confirm
+                                  const bookingNames = confirmedBookings.map(b => b.users?.name || 'Unknown').join(', ');
+                                  Alert.alert(
+                                    'Multiple Bookings Found', 
+                                    `This class has ${confirmedBookings.length} bookings: ${bookingNames}. This will cancel the first booking.`,
+                                    [
+                                      { text: 'Cancel', style: 'cancel' },
+                                      { text: 'Continue', onPress: () => handleCancelBooking(classItem, confirmedBookings[0]) }
+                                    ]
+                                  );
+                                }
+                              } else {
+                                Alert.alert('No Active Bookings', 'This class has no confirmed bookings to cancel.');
+                              }
                             } else {
-                              Alert.alert('No Bookings', 'This class has no confirmed bookings to cancel.');
+                              Alert.alert('No Bookings', 'This class has no bookings to cancel.');
                             }
                           }}
-                        />
+                        >
+                          <WebCompatibleIcon name="account-remove" size={20} color={Colors.light.warning} />
+                        </TouchableOpacity>
                         <IconButton
                           icon="pencil"
                           size={20}
@@ -813,7 +913,7 @@ function PCClassManagement() {
                   </Chip>
                 </DataTable.Cell>
                 <DataTable.Cell>
-                  <Body>{`${classItem.enrolled || 0}/${classItem.capacity || 0}`}</Body>
+                  <Body>{getEnrollmentCount(classItem.id) + '/' + (classItem.capacity || 0)}</Body>
                 </DataTable.Cell>
                 <DataTable.Cell>
                   <Chip
@@ -876,14 +976,22 @@ function PCClassManagement() {
   };
 
   const getBookingsForClass = (classId: string | number) => {
-    console.log('🔍 getBookingsForClass called with classId:', classId, 'type:', typeof classId);
-    console.log('📋 Available bookings:', bookings);
     const filteredBookings = bookings.filter(booking => {
-      console.log('🔍 Comparing booking.class_id:', booking.class_id, 'type:', typeof booking.class_id, 'with classId:', classId);
       return booking.class_id == classId; // Use == to handle both string and number
     });
-    console.log('✅ Filtered bookings for class:', filteredBookings);
     return filteredBookings;
+  };
+
+  const getEnrollmentCount = (classId: string | number) => {
+    const classBookings = getBookingsForClass(classId);
+    return classBookings.filter(booking => booking.status === 'confirmed').length;
+  };
+
+  const getClassesWithEnrollment = () => {
+    return classes.map(classItem => ({
+      ...classItem,
+      enrolled: getEnrollmentCount(classItem.id)
+    }));
   };
 
   const getStatusColor = (status: string) => {
@@ -919,9 +1027,7 @@ function PCClassManagement() {
   const handleUpdateBookingStatus = async (bookingId: number, newStatus: string) => {
     try {
       setUpdatingBooking(bookingId);
-              const response = await apiService.put(`/api/bookings/${bookingId}`, {
-        status: newStatus
-      });
+      const response = await bookingService.updateBookingStatus(bookingId, newStatus);
       
       if (response.success) {
         // Refresh bookings to show updated status
@@ -1007,12 +1113,21 @@ function PCClassManagement() {
     }
   };
 
+  // Helper function to show error modal (works reliably in React Native Web)
+  const showErrorModal = (title: string, message: string, actions?: Array<{text: string, onPress: () => void, style?: 'default' | 'cancel' | 'destructive'}>) => {
+    setErrorTitle(title);
+    setErrorMessage(message);
+    setErrorActions(actions || [{ text: 'OK', onPress: () => setErrorModalVisible(false) }]);
+    setErrorModalVisible(true);
+  };
+
   const handleAssignClient = (classItem: BackendClass) => {
     setSelectedClassForAssignment(classItem);
     setSelectedClient(null);
     setAssignNotes('');
     setOverrideRestrictions(false);
     setClientSearchQuery('');
+    setClientMenuVisible(false); // Reset client menu state
     loadClients();
     setAssignClientModalVisible(true);
   };
@@ -1030,31 +1145,99 @@ function PCClassManagement() {
   };
 
   const handleAssignClientToClass = async () => {
+    console.log('🎯 handleAssignClientToClass called');
+    console.log('🎯 selectedClient:', selectedClient);
+    console.log('🎯 selectedClassForAssignment:', selectedClassForAssignment);
+    
     if (!selectedClient || !selectedClassForAssignment) {
-      Alert.alert('Error', 'Please select a client and class');
+      console.log('❌ Missing selectedClient or selectedClassForAssignment');
+      showErrorModal('Error', 'Please select a client and class');
       return;
     }
 
     try {
+      console.log('🚀 Starting assignment...');
       setAssigningClient(true);
       const response = await bookingService.assignClientToClass(
         selectedClient.id,
         selectedClassForAssignment.id,
-        assignNotes,
+        '', // Notes not supported in bookings table
         overrideRestrictions
       );
 
+      console.log('📝 Assignment response:', response);
+
       if (response.success) {
-        Alert.alert('Success', response.message || 'Client assigned successfully');
+        console.log('✅ Assignment successful');
+        const successMessage = overrideRestrictions 
+          ? 'Client assigned successfully (restrictions overridden)' 
+          : 'Client assigned successfully and 1 class deducted from subscription';
+        showErrorModal('Success', successMessage);
         setAssignClientModalVisible(false);
+        setSelectedClient(null);
+        setSelectedClassForAssignment(null);
+        setOverrideRestrictions(false);
+        setClientSearchQuery('');
+        setClientMenuVisible(false); // Reset client menu state
         await loadClasses(); // Refresh classes to show updated enrollment
         await loadBookings(); // Refresh bookings
       } else {
-        Alert.alert('Error', response.message || 'Failed to assign client');
+        console.log('❌ Assignment failed:', response.error);
+        console.log('🔍 Error message analysis:', {
+          includesSubscription: response.error?.includes('subscription'),
+          includesActiveSubscription: response.error?.includes('active subscription'),
+          overrideRestrictions,
+          fullError: response.error
+        });
+        
+        // Check if it's a capacity error and offer override option
+        if (response.error?.includes('Class is full') && !overrideRestrictions) {
+          showErrorModal(
+            'Class Full',
+            `${response.error}\n\nWould you like to enable override to force this assignment?`,
+            [
+              { text: 'Cancel', onPress: () => setErrorModalVisible(false), style: 'cancel' },
+              { 
+                text: 'Enable Override', 
+                onPress: () => {
+                  setOverrideRestrictions(true);
+                  setErrorModalVisible(false);
+                }
+              }
+            ]
+          );
+        } else if ((response.error?.includes('subscription') || response.error?.includes('active subscription')) && !overrideRestrictions) {
+          // Subscription-related error - offer to enable override
+          console.log('🎯 About to show subscription error popup');
+          showErrorModal(
+            'Subscription Issue',
+            `${response.error}\n\nWould you like to enable override to bypass subscription restrictions?`,
+            [
+              { text: 'Cancel', onPress: () => setErrorModalVisible(false), style: 'cancel' },
+              { 
+                text: 'Enable Override', 
+                onPress: () => {
+                  setOverrideRestrictions(true);
+                  setErrorModalVisible(false);
+                }
+              }
+            ]
+          );
+          console.log('🎯 Subscription error popup should have appeared');
+        } else if (response.error?.includes('database permissions')) {
+          // Database permission error - suggest override
+          showErrorModal(
+            'Database Permission Issue',
+            `${response.error}\n\nTip: You can use the override toggle to bypass these restrictions.`
+          );
+        } else {
+          // Fallback - show any error as a popup
+          showErrorModal('Assignment Error', response.error || 'Failed to assign client');
+        }
       }
     } catch (error) {
-      console.error('Error assigning client:', error);
-      Alert.alert('Error', 'Failed to assign client to class');
+      console.error('❌ Error assigning client:', error);
+      showErrorModal('Error', 'Failed to assign client to class');
     } finally {
       setAssigningClient(false);
     }
@@ -1069,33 +1252,47 @@ function PCClassManagement() {
     setSelectedClassForCancellation(classItem);
     setSelectedBookingForCancellation(booking);
     setCancelNotes('');
+    setCancelBookingMenuVisible(false); // Reset menu state
     setCancelBookingModalVisible(true);
   };
 
   const handleCancelClientBooking = async () => {
+    console.log('🚫 handleCancelClientBooking called');
+    console.log('🚫 selectedBookingForCancellation:', selectedBookingForCancellation);
+    console.log('🚫 selectedClassForCancellation:', selectedClassForCancellation);
+    
     if (!selectedBookingForCancellation || !selectedClassForCancellation) {
+      console.log('❌ Missing selectedBookingForCancellation or selectedClassForCancellation');
       Alert.alert('Error', 'Please select a booking to cancel');
       return;
     }
 
     try {
+      console.log('🚀 Starting cancellation...');
       setCancellingBooking(true);
       const response = await bookingService.cancelClientBooking(
         selectedBookingForCancellation.user_id,
-        selectedClassForCancellation.id,
-        cancelNotes
+        selectedClassForCancellation.id
+        // Notes not supported in bookings table
       );
 
+      console.log('📝 Cancellation response:', response);
+
       if (response.success) {
-        Alert.alert('Success', response.message || 'Booking cancelled successfully');
+        console.log('✅ Cancellation successful');
+        Alert.alert('Success', 'Booking cancelled successfully');
         setCancelBookingModalVisible(false);
+        setCancelBookingMenuVisible(false); // Reset menu state
+        setSelectedClassForCancellation(null);
+        setSelectedBookingForCancellation(null);
         await loadClasses(); // Refresh classes to show updated enrollment
         await loadBookings(); // Refresh bookings
       } else {
-        Alert.alert('Error', response.message || 'Failed to cancel booking');
+        console.log('❌ Cancellation failed:', response.error);
+        Alert.alert('Error', response.error || 'Failed to cancel booking');
       }
     } catch (error) {
-      console.error('Error cancelling booking:', error);
+      console.error('❌ Error cancelling booking:', error);
       Alert.alert('Error', 'Failed to cancel booking');
     } finally {
       setCancellingBooking(false);
@@ -1220,7 +1417,7 @@ function PCClassManagement() {
           {selectedClasses.length > 0 && (
             <View style={styles.batchActions}>
               <Body style={styles.selectedCount}>
-                {`${selectedClasses.length} selected`}
+                {selectedClasses.length + ' selected'}
               </Body>
               <Button
                 mode="contained"
@@ -1326,33 +1523,67 @@ function PCClassManagement() {
                           }}>
                             {instructors.length === 0 ? 
                               'No instructors available' : 
-                              (formData.instructorName || `Select from ${instructors.length} instructor(s)`)}
+                              (formData.instructorName || 'Select from ' + instructors.length + ' instructor(s)')}
                           </Body>
                           <Icon source="chevron-down" size={20} color={Colors.light.textSecondary} />
                         </View>
                       </Pressable>
                     }
                   >
-                    {instructors.map((instructor) => (
-                      <Menu.Item
-                        key={instructor.id}
-                        onPress={() => {
-                          console.log('🎓 Instructor selected:', instructor.name, 'ID:', instructor.id);
-                          setFormData({
-                            ...formData, 
-                            instructorId: instructor.id.toString(),
-                            instructorName: instructor.name
-                          });
-                          setInstructorMenuVisible(false);
-                          console.log('🎓 Form data updated - instructorId:', instructor.id.toString(), 'instructorName:', instructor.name);
-                        }}
-                        title={instructor.name}
-                        leadingIcon="account"
-                      />
-                    ))}
+                    {instructors.map((instructor) => {
+                      const instructorId = instructor.id.toString();
+                      const isAvailable = instructorAvailability[instructorId]?.available !== false;
+                      const isChecking = checkingInstructorAvailability && formData.instructorId === instructorId;
+                      const conflictClass = instructorAvailability[instructorId]?.conflictClass;
+                      
+                      return (
+                        <Menu.Item
+                          key={instructor.id}
+                          onPress={() => {
+                            console.log('🎓 Instructor selected:', instructor.name, 'ID:', instructor.id);
+                            setFormData({
+                              ...formData, 
+                              instructorId: instructorId,
+                              instructorName: instructor.name
+                            });
+                            setInstructorMenuVisible(false);
+                            console.log('🎓 Form data updated - instructorId:', instructorId, 'instructorName:', instructor.name);
+                          }}
+                          title={instructor.name + (isChecking ? ' (Checking...)' : !isAvailable ? ' (Busy ' + (conflictClass?.time || '') + ')' : ' (Available)')}
+                          leadingIcon="person"
+                        />
+                      );
+                    })}
                   </Menu>
                 </Surface>
               </View>
+
+              {/* Instructor Availability Indicator */}
+              {formData.instructorId && formData.date && formData.time ? (
+                <View style={{
+                  marginTop: 8,
+                  padding: 8,
+                  backgroundColor: '#f5f5f5',
+                  borderRadius: 4,
+                  borderWidth: 1,
+                  borderColor: '#e0e0e0',
+                }}>
+                  <Caption style={{ color: '#666', marginBottom: 4, fontSize: 12 }}>
+                    {'Instructor Availability: ' + (formData.instructorName || 'N/A') + ' on ' + (formData.date || 'N/A') + ' at ' + (formData.time || 'N/A')}
+                  </Caption>
+                  {checkingInstructorAvailability ? (
+                    <ActivityIndicator size="small" />
+                  ) : (
+                    <Caption style={{
+                      fontWeight: '600',
+                      fontSize: 13,
+                      color: instructorAvailability[formData.instructorId]?.available !== false ? '#4CAF50' : '#f44336'
+                    }}>
+                      {instructorAvailability[formData.instructorId]?.available !== false ? 'Available' : 'Instructor is busy'}
+                    </Caption>
+                  )}
+                </View>
+              ) : null}
 
               <View style={styles.dateTimeRow}>
                 <View style={styles.dateTimeColumn}>
@@ -1375,8 +1606,35 @@ function PCClassManagement() {
                     mode="outlined"
                     placeholder="14:30"
                     style={styles.dateTimeInput}
-                    left={<TextInput.Icon icon="clock" />}
+                    left={<TextInput.Icon icon="access-time" />}
                   />
+                  <Caption style={styles.timePickerLabel}>Quick time selection:</Caption>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.timePickerScroll}>
+                    <View style={styles.timePickerContainer}>
+                      {[
+                        '06:00', '07:00', '08:00', '09:00', '10:00', '11:00',
+                        '12:00', '13:00', '14:00', '15:00', '16:00', '17:00',
+                        '18:00', '19:00', '20:00', '21:00'
+                      ].map((time) => (
+                        <Pressable
+                          key={time}
+                          style={[
+                            styles.timeButton,
+                            formData.time === time && styles.timeButtonSelected
+                          ]}
+                          onPress={() => setFormData({...formData, time: time})}
+                        >
+                          <Caption style={
+                            formData.time === time 
+                              ? {...styles.timeButtonText, ...styles.timeButtonTextSelected}
+                              : styles.timeButtonText
+                          }>
+                            {time}
+                          </Caption>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </ScrollView>
                 </View>
               </View>
 
@@ -1404,11 +1662,10 @@ function PCClassManagement() {
                     left={<TextInput.Icon icon="account-group" />}
                   />
                   <Caption style={styles.capacityHelper}>
-                    {formData.category === 'personal' ? 
+                    {(formData.category === 'personal' ? 
                       'Personal: 1 (private), 2 (couple), 3 (trio)' : 
                       'Group: typically 8-15 people'
-                    }
-                    {' • Current: '}{formData.capacity}
+                    ) + ' • Current: ' + formData.capacity}
                   </Caption>
                 </View>
               </View>
@@ -1471,7 +1728,7 @@ function PCClassManagement() {
                 {formData.room && formData.date && formData.time ? (
                   <View style={styles.roomAvailabilityContainer}>
                     <Caption style={styles.roomAvailabilityLabel}>
-                      {`Room Availability: ${formData.room || 'N/A'} on ${formData.date || 'N/A'} at ${formData.time || 'N/A'}`}
+                      {'Room Availability: ' + (formData.room || 'N/A') + ' on ' + (formData.date || 'N/A') + ' at ' + (formData.time || 'N/A')}
                     </Caption>
                     {checkingAvailability ? (
                       <ActivityIndicator size="small" />
@@ -1486,16 +1743,6 @@ function PCClassManagement() {
                   </View>
                 ) : null}
               </View>
-
-              <TextInput
-                label="Equipment Required"
-                value={formData.equipment}
-                onChangeText={(text) => setFormData({...formData, equipment: text})}
-                mode="outlined"
-                placeholder="Mat, Resistance Bands, Weights (comma separated)"
-                style={styles.input}
-                left={<TextInput.Icon icon="dumbbell" />}
-              />
 
               <TextInput
                 label="Class Description"
@@ -1561,7 +1808,7 @@ function PCClassManagement() {
         >
           <Surface style={styles.modalSurface}>
             <H2 style={styles.modalTitle}>
-              {selectedClassForBookings ? `${selectedClassForBookings.name} - Bookings` : 'Class Bookings'}
+              {selectedClassForBookings ? selectedClassForBookings.name + ' - Bookings' : 'Class Bookings'}
             </H2>
             
             {selectedClassForBookings && (
@@ -1573,7 +1820,7 @@ function PCClassManagement() {
                   Instructor: {selectedClassForBookings.instructor_name}
                 </Body>
                 <Body style={styles.classInfoText}>
-                  Level: {selectedClassForBookings.level} • {selectedClassForBookings.enrolled || 0}/{selectedClassForBookings.capacity || 0} enrolled
+                  Level: {selectedClassForBookings.level} • {getEnrollmentCount(selectedClassForBookings.id)}/{selectedClassForBookings.capacity || 0} enrolled
                 </Body>
                 {selectedClassForBookings.notes && (
                   <View style={styles.classNotesModal}>
@@ -1594,8 +1841,12 @@ function PCClassManagement() {
                         <Surface key={booking.id || index} style={styles.bookingCard}>
                           <View style={styles.bookingHeader}>
                             <View style={styles.bookingInfo}>
-                              <H3 style={styles.clientName}>{booking.client_name || booking.user_name || 'Unknown Client'}</H3>
-                              <Body style={styles.clientEmail}>{booking.client_email || booking.user_email || 'No email'}</Body>
+                              <H3 style={styles.clientName}>
+                                {booking.users?.name || booking.client_name || booking.user_name || 'Unknown Client'}
+                              </H3>
+                              <Body style={styles.clientEmail}>
+                                {booking.users?.email || booking.client_email || booking.user_email || 'No email'}
+                              </Body>
                             </View>
                             <View style={styles.bookingStatusContainer}>
                               <Menu
@@ -1624,12 +1875,12 @@ function PCClassManagement() {
                                 <Menu.Item
                                   onPress={() => handleUpdateBookingStatus(booking.id, 'pending')}
                                   title="Pending"
-                                  leadingIcon="clock"
+                                  leadingIcon="access-time"
                                 />
                                 <Menu.Item
                                   onPress={() => handleUpdateBookingStatus(booking.id, 'waitlist')}
                                   title="Waitlist"
-                                  leadingIcon="account-clock"
+                                  leadingIcon="schedule"
                                 />
                                 <Menu.Item
                                   onPress={() => handleUpdateBookingStatus(booking.id, 'cancelled')}
@@ -1654,14 +1905,14 @@ function PCClassManagement() {
                     </View>
                   ) : (
                     <View style={styles.emptyBookings}>
-                      <MaterialIcons name="event-busy" size={48} color={Colors.light.textMuted} />
+                      <WebCompatibleIcon name="event-busy" size={48} color={Colors.light.textMuted} />
                       <Body style={styles.emptyBookingsText}>No bookings for this class</Body>
                     </View>
                   );
                 })()
               ) : (
                 <View style={styles.emptyBookings}>
-                  <MaterialIcons name="error" size={48} color={Colors.light.textMuted} />
+                  <WebCompatibleIcon name="warning" size={48} color={Colors.light.textMuted} />
                   <Body style={styles.emptyBookingsText}>No class selected</Body>
                 </View>
               )}
@@ -1757,7 +2008,7 @@ function PCClassManagement() {
                   </View>
                 ) : (
                   <View style={styles.emptyTemplates}>
-                    <MaterialIcons name="save" size={48} color={Colors.light.textMuted} />
+                    <WebCompatibleIcon name="save" size={48} color={Colors.light.textMuted} />
                     <Body style={styles.emptyTemplatesText}>No templates saved yet</Body>
                     <Caption style={styles.emptyTemplatesSubtext}>
                       Save your first template to get started
@@ -1784,7 +2035,10 @@ function PCClassManagement() {
       <Portal>
         <Modal 
           visible={assignClientModalVisible} 
-          onDismiss={() => setAssignClientModalVisible(false)}
+          onDismiss={() => {
+            setAssignClientModalVisible(false);
+            setClientMenuVisible(false);
+          }}
           contentContainerStyle={styles.modalContainer}
         >
           <Surface style={styles.modalSurface}>
@@ -1808,11 +2062,11 @@ function PCClassManagement() {
                 )}
                 <Surface style={styles.dropdownSurface}>
                   <Menu
-                    visible={instructorMenuVisible} // Using instructorMenuVisible for client selection
-                    onDismiss={() => setInstructorMenuVisible(false)}
+                    visible={clientMenuVisible}
+                    onDismiss={() => setClientMenuVisible(false)}
                     anchor={
                       <Pressable 
-                        onPress={() => setInstructorMenuVisible(true)}
+                        onPress={() => setClientMenuVisible(true)}
                         style={styles.dropdownButton}
                       >
                         <View style={styles.dropdownContent}>
@@ -1840,10 +2094,10 @@ function PCClassManagement() {
                           key={client.id}
                           onPress={() => {
                             setSelectedClient(client);
-                            setInstructorMenuVisible(false);
+                            setClientMenuVisible(false);
                           }}
-                          title={`${client.name} (${client.email})`}
-                          leadingIcon="account"
+                          title={client.name + ' (' + client.email + ')'}
+                          leadingIcon="person"
                         />
                       ))
                     )}
@@ -1853,35 +2107,33 @@ function PCClassManagement() {
 
               <View style={styles.dateTimeRow}>
                 <View style={styles.dateTimeColumn}>
-                  <TextInput
-                    label="Notes (optional)"
-                    value={assignNotes}
-                    onChangeText={(text) => setAssignNotes(text)}
-                    mode="outlined"
-                    multiline
-                    numberOfLines={3}
-                    style={styles.input}
-                    placeholder="Additional notes for the assignment..."
-                  />
+                  <View style={styles.switchContainer}>
+                    <Switch
+                      value={overrideRestrictions}
+                      onValueChange={setOverrideRestrictions}
+                      thumbColor={overrideRestrictions ? Colors.light.primary : Colors.light.surface}
+                      trackColor={{ false: Colors.light.border, true: Colors.light.secondary }}
+                    />
+                    <View style={{flex: 1}}>
+                      <Body style={styles.switchLabel}>Override client&apos;s booking restrictions</Body>
+                      <Caption style={{color: Colors.light.textSecondary, marginTop: 4}}>
+                        {overrideRestrictions 
+                          ? 'ON: Assign without checking subscription or class limits' 
+                          : 'OFF: Check subscription and deduct 1 class when assigned'}
+                      </Caption>
+                    </View>
+                  </View>
                 </View>
               </View>
-
-                             <View style={styles.switchRow}>
-                 <View style={styles.switchContainer}>
-                   <Switch
-                     value={overrideRestrictions}
-                     onValueChange={(value) => setOverrideRestrictions(value)}
-                     color={Colors.light.primary}
-                   />
-                   <Body style={styles.switchLabel}>Override client&apos;s booking restrictions</Body>
-                 </View>
-               </View>
             </ScrollView>
 
             <View style={styles.modalActions}>
               <Button
                 mode="outlined"
-                onPress={() => setAssignClientModalVisible(false)}
+                onPress={() => {
+                  setAssignClientModalVisible(false);
+                  setClientMenuVisible(false);
+                }}
                 style={styles.modalActionButton}
               >
                 Cancel
@@ -1905,7 +2157,10 @@ function PCClassManagement() {
       <Portal>
         <Modal 
           visible={cancelBookingModalVisible} 
-          onDismiss={() => setCancelBookingModalVisible(false)}
+          onDismiss={() => {
+            setCancelBookingModalVisible(false);
+            setCancelBookingMenuVisible(false);
+          }}
           contentContainerStyle={styles.modalContainer}
         >
           <Surface style={styles.modalSurface}>
@@ -1916,11 +2171,11 @@ function PCClassManagement() {
                 <Caption style={styles.pickerLabel}>Select Booking *</Caption>
                 <Surface style={styles.dropdownSurface}>
                   <Menu
-                    visible={instructorMenuVisible} // Using instructorMenuVisible for client selection
-                    onDismiss={() => setInstructorMenuVisible(false)}
+                    visible={cancelBookingMenuVisible}
+                    onDismiss={() => setCancelBookingMenuVisible(false)}
                     anchor={
                       <Pressable 
-                        onPress={() => setInstructorMenuVisible(true)}
+                        onPress={() => setCancelBookingMenuVisible(true)}
                         style={styles.dropdownButton}
                       >
                         <View style={styles.dropdownContent}>
@@ -1929,7 +2184,7 @@ function PCClassManagement() {
                             ...styles.dropdownText,
                             color: !selectedBookingForCancellation ? Colors.light.textSecondary : Colors.light.text
                           }}>
-                            {selectedBookingForCancellation ? `${selectedBookingForCancellation.client_name || selectedBookingForCancellation.user_name} - ${selectedBookingForCancellation.status}` : 'Select booking'}
+                            {selectedBookingForCancellation ? (selectedBookingForCancellation.users?.name || selectedBookingForCancellation.client_name || selectedBookingForCancellation.user_name || 'Unknown Client') + ' - ' + selectedBookingForCancellation.status : 'Select booking'}
                           </Body>
                           <Icon source="chevron-down" size={20} color={Colors.light.textSecondary} />
                         </View>
@@ -1941,9 +2196,9 @@ function PCClassManagement() {
                         key={booking.id}
                         onPress={() => {
                           setSelectedBookingForCancellation(booking);
-                          setInstructorMenuVisible(false);
+                          setCancelBookingMenuVisible(false);
                         }}
-                        title={`${booking.client_name || booking.user_name} - ${booking.status}`}
+                                                    title={(booking.users?.name || booking.client_name || booking.user_name || 'Unknown Client') + ' - ' + booking.status}
                         leadingIcon="close"
                       />
                     ))}
@@ -1952,6 +2207,7 @@ function PCClassManagement() {
               </View>
 
               <View style={styles.dateTimeRow}>
+                {/* Notes input removed - bookings table doesn't have notes column
                 <View style={styles.dateTimeColumn}>
                   <TextInput
                     label="Cancellation Notes (optional)"
@@ -1964,13 +2220,17 @@ function PCClassManagement() {
                     placeholder="Reason for cancellation..."
                   />
                 </View>
+                */}
               </View>
             </ScrollView>
 
             <View style={styles.modalActions}>
               <Button
                 mode="outlined"
-                onPress={() => setCancelBookingModalVisible(false)}
+                onPress={() => {
+                  setCancelBookingModalVisible(false);
+                  setCancelBookingMenuVisible(false);
+                }}
                 style={styles.modalActionButton}
               >
                 Cancel
@@ -1985,6 +2245,43 @@ function PCClassManagement() {
               >
                 Confirm Cancellation
               </Button>
+            </View>
+          </Surface>
+        </Modal>
+      </Portal>
+
+      {/* Error Modal */}
+      <Portal>
+        <Modal 
+          visible={errorModalVisible} 
+          onDismiss={() => setErrorModalVisible(false)}
+          contentContainerStyle={styles.modalContainer}
+        >
+          <Surface style={styles.modalSurface}>
+            <H2 style={styles.modalTitle}>
+              {errorTitle}
+            </H2>
+            
+            <Body style={styles.modalContent}>
+              {errorMessage}
+            </Body>
+            
+            <View style={styles.modalActions}>
+              {errorActions.map((action, index) => (
+                <Button
+                  key={index}
+                  mode={action.style === 'destructive' ? 'contained' : 'outlined'}
+                  onPress={action.onPress}
+                  style={[
+                    styles.modalActionButton,
+                    action.style === 'destructive' && { backgroundColor: Colors.light.error }
+                  ]}
+                  buttonColor={action.style === 'destructive' ? Colors.light.error : undefined}
+                  textColor={action.style === 'destructive' ? Colors.light.surface : undefined}
+                >
+                  {action.text}
+                </Button>
+              ))}
             </View>
           </Surface>
         </Modal>
@@ -2649,6 +2946,69 @@ const styles = StyleSheet.create({
   switchLabel: {
     flex: 1,
     marginLeft: spacing.sm,
+  },
+  instructorAvailabilityContainer: {
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+    backgroundColor: Colors.light.surface,
+    borderRadius: layout.borderRadius,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+  },
+  instructorAvailabilityLabel: {
+    color: Colors.light.textSecondary,
+    marginBottom: spacing.xs,
+    fontSize: 12,
+  },
+  instructorAvailabilityStatus: {
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  // Time picker styles
+  timePickerLabel: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+    color: Colors.light.textSecondary,
+    fontSize: 12,
+  },
+  timePickerScroll: {
+    marginBottom: spacing.sm,
+  },
+  timePickerContainer: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.xs,
+  },
+  timeButton: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: 6,
+    backgroundColor: Colors.light.surface,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    minWidth: 50,
+    alignItems: 'center',
+  },
+  timeButtonSelected: {
+    backgroundColor: Colors.light.primary,
+    borderColor: Colors.light.primary,
+  },
+  timeButtonText: {
+    fontSize: 12,
+    color: Colors.light.text,
+    fontWeight: '500',
+  },
+  timeButtonTextSelected: {
+    color: Colors.light.surface,
+    fontWeight: '600',
+  },
+  actionButton: {
+    padding: spacing.xs,
+    borderRadius: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 32,
+    minHeight: 32,
   },
 });
 

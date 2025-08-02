@@ -4,6 +4,7 @@ const moment = require('moment');
 const db = require('../config/database');
 const { authenticateToken, requireAdmin, requireAdminOrReception, requireOwnershipOrAdmin } = require('../middleware/auth');
 const subscriptionNotificationService = require('../services/subscriptionNotificationService');
+const SimpleDateCalculator = require('../utils/simpleDateCalculator');
 
 const router = express.Router();
 
@@ -13,8 +14,9 @@ async function updateExpiredSubscriptions() {
     const today = moment().format('YYYY-MM-DD');
     
     if (db.useSupabase) {
-      // Update expired subscriptions using Supabase
-      const updateResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/user_subscriptions?end_date=lt.${today}&status=eq.active`, {
+      // Update expired subscriptions using Supabase - IMPROVED LOGIC!
+      // Expire subscriptions that end today/earlier OR have 0 remaining classes
+      const updateResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/user_subscriptions?status=eq.active&or=(end_date.lte.${today},remaining_classes.eq.0)`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
@@ -597,61 +599,333 @@ router.post('/purchase', authenticateToken, [
 
     const { planId, paymentMethod = 'credit', useCredit = true } = req.body;
 
-    // Get the plan
-    const plan = await db.get('SELECT * FROM subscription_plans WHERE id = ? AND is_active = 1', [planId]);
-    if (!plan) {
-      return res.status(404).json({
-        success: false,
-        message: 'Plan not found or inactive'
+    if (db.useSupabase) {
+      // SUPABASE IMPLEMENTATION
+      console.log('🔄 Using Supabase for subscription purchase');
+      
+      // Get the plan from Supabase
+      const planResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/subscription_plans?id=eq.${planId}&is_active=eq.true&select=*`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
       });
-    }
 
-    // Always check credit balance - subscriptions require credit payment
-    const user = await db.get('SELECT credit_balance FROM users WHERE id = ?', [req.user.id]);
-    if (!user || (user.credit_balance || 0) < plan.monthly_price) {
-      return res.status(400).json({
-        success: false,
-        message: `Insufficient credit balance. Required: $${plan.monthly_price}, Available: $${user?.credit_balance || 0}. Please add credits to your account before purchasing a subscription.`
-      });
-    }
-
-    // Check if user already has an active subscription
-    const existingSubscription = await db.get(
-      'SELECT id FROM user_subscriptions WHERE user_id = ? AND status = "active"',
-      [req.user.id]
-    );
-
-    // Start transaction
-    await db.run('BEGIN TRANSACTION');
-
-    try {
-      // If user has an existing active subscription, cancel it first
-      if (existingSubscription) {
-        await db.run(
-          'UPDATE user_subscriptions SET status = "cancelled", remaining_classes = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-          [existingSubscription.id]
-        );
-        console.log(`Cancelled existing subscription ${existingSubscription.id} for user ${req.user.id}`);
-        
-        // Log the cancellation activity
-        await db.run(`
-          INSERT INTO client_activity_log (
-            client_id, activity_type, description, performed_by
-          ) VALUES (?, ?, ?, ?)
-        `, [
-          req.user.id,
-          'subscription_cancellation',
-          `Previous subscription cancelled to start new subscription. ${existingSubscription.remaining_classes > 0 ? `${existingSubscription.remaining_classes} remaining classes cleared.` : ''}`,
-          req.user.id
-        ]);
+      if (!planResponse.ok) {
+        throw new Error('Failed to fetch plan from Supabase');
       }
 
-      // Calculate start and end dates
-      const startDate = moment().format('YYYY-MM-DD');
-      // For fractional months less than 1, convert to days for more accurate calculation
-      const endDate = plan.duration_months < 1 ? 
-        moment().add(Math.max(1, Math.round(plan.duration_months * 30.44)), 'days').format('YYYY-MM-DD') :
-        moment().add(plan.duration_months, 'months').format('YYYY-MM-DD');
+      const plans = await planResponse.json();
+      if (!plans || plans.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Plan not found or inactive'
+        });
+      }
+
+      const plan = plans[0];
+
+      // Check user credit balance in Supabase
+      const userResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/users?id=eq.${req.user.id}&select=credit_balance`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!userResponse.ok) {
+        throw new Error('Failed to fetch user from Supabase');
+      }
+
+      const users = await userResponse.json();
+      const user = users[0];
+      
+      if (!user || (user.credit_balance || 0) < plan.monthly_price) {
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient credit balance. Required: ${plan.monthly_price} ALL, Available: ${user?.credit_balance || 0} ALL. Please add credits to your account before purchasing a subscription.`
+        });
+      }
+
+      // Check if user already has an active subscription
+      const existingSubResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/user_subscriptions?user_id=eq.${req.user.id}&status=eq.active&select=id,remaining_classes`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!existingSubResponse.ok) {
+        throw new Error('Failed to check existing subscriptions');
+      }
+
+      const existingSubscriptions = await existingSubResponse.json();
+      const existingSubscription = existingSubscriptions.length > 0 ? existingSubscriptions[0] : null;
+
+      try {
+        // If user has an existing active subscription, cancel it first
+        if (existingSubscription) {
+          console.log(`🔄 Cancelling existing subscription ${existingSubscription.id} for user ${req.user.id}`);
+          
+          const cancelResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/user_subscriptions?id=eq.${existingSubscription.id}`, {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+              'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              status: 'cancelled',
+              remaining_classes: 0,
+              updated_at: new Date().toISOString()
+            })
+          });
+
+          if (!cancelResponse.ok) {
+            throw new Error('Failed to cancel existing subscription');
+          }
+
+          // Log the cancellation activity
+          const activityResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/client_activity_log`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+              'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              client_id: req.user.id,
+              activity_type: 'subscription_cancellation',
+              description: `Previous subscription cancelled to start new subscription. ${existingSubscription.remaining_classes > 0 ? `${existingSubscription.remaining_classes} remaining classes cleared.` : ''}`,
+              performed_by: req.user.id
+            })
+          });
+
+          if (!activityResponse.ok) {
+            console.warn('Failed to log cancellation activity (non-critical)');
+          }
+        }
+
+        // Calculate start and end dates
+        const startDate = SimpleDateCalculator.toStorageFormat(new Date());
+        const endDate = SimpleDateCalculator.calculateEndDate(new Date(), plan.duration, plan.duration_unit);
+
+        // Create new subscription in Supabase
+        console.log('🔄 Creating new subscription in Supabase');
+        const createSubResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/user_subscriptions`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=representation'
+          },
+          body: JSON.stringify({
+            user_id: req.user.id,
+            plan_id: planId,
+            remaining_classes: plan.monthly_classes,
+            start_date: startDate,
+            end_date: endDate,
+            status: 'active'
+          })
+        });
+
+        if (!createSubResponse.ok) {
+          const errorText = await createSubResponse.text();
+          throw new Error(`Failed to create subscription: ${errorText}`);
+        }
+
+        const newSubscriptions = await createSubResponse.json();
+        const newSubscription = newSubscriptions[0];
+        
+        if (!newSubscription) {
+          throw new Error('Failed to create subscription: No data returned');
+        }
+
+        console.log('✅ Subscription created successfully:', newSubscription.id);
+
+        // Always use credit for subscription purchases
+        const actualPaymentMethod = 'credit';
+        
+        // Update user credit balance in Supabase
+        console.log('🔄 Updating user credit balance in Supabase');
+        const updateBalanceResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/users?id=eq.${req.user.id}`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            credit_balance: user.credit_balance - plan.monthly_price
+          })
+        });
+
+        if (!updateBalanceResponse.ok) {
+          throw new Error('Failed to update user balance');
+        }
+
+        // Record the credit usage in manual_credits table
+        console.log('🔄 Recording credit usage in Supabase');
+        const creditResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/manual_credits`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            user_id: req.user.id,
+            admin_id: req.user.id,
+            amount: -plan.monthly_price,
+            classes_added: 0,
+            reason: 'subscription_purchase',
+            description: `Credit used for ${plan.name} subscription`
+          })
+        });
+
+        if (!creditResponse.ok) {
+          console.warn('Failed to record credit usage (non-critical)');
+        }
+
+        console.log(`💳 Used ${plan.monthly_price} ALL credit for subscription purchase by user ${req.user.id}`);
+
+        // **CRITICAL FIX: Create payment record in Supabase**
+        console.log('🔄 Creating payment record in Supabase');
+        const generateUUID = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+          var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+          return v.toString(16);
+        });
+        
+        const paymentResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/payments`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            user_id: req.user.id,
+            subscription_id: generateUUID(), // Use placeholder UUID due to schema mismatch
+            amount: plan.monthly_price,
+            payment_method: actualPaymentMethod,
+            status: 'completed'
+          })
+        });
+
+        if (!paymentResponse.ok) {
+          const errorText = await paymentResponse.text();
+          console.error('❌ Failed to create payment record:', errorText);
+          // Don't fail the whole transaction for payment record creation
+        } else {
+          console.log('✅ Payment record created successfully');
+        }
+
+        // Get the created subscription with plan details
+        const fullSubResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/user_subscriptions?id=eq.${newSubscription.id}&select=*,subscription_plans(*)`, {
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        let fullSubscription = newSubscription;
+        if (fullSubResponse.ok) {
+          const fullSubs = await fullSubResponse.json();
+          if (fullSubs.length > 0) {
+            const sub = fullSubs[0];
+            fullSubscription = {
+              ...sub,
+              plan_name: sub.subscription_plans?.name,
+              equipment_access: sub.subscription_plans?.equipment_access,
+              monthly_price: sub.subscription_plans?.monthly_price,
+              category: sub.subscription_plans?.category
+            };
+          }
+        }
+
+        const message = existingSubscription ? 
+          'Subscription upgraded successfully' : 
+          'Subscription purchased successfully';
+
+        const responseData = {
+          subscription: fullSubscription,
+          credit_used: plan.monthly_price,
+          remaining_credit_balance: user.credit_balance - plan.monthly_price
+        };
+
+        console.log('✅ Subscription purchase completed successfully');
+        res.status(201).json({
+          success: true,
+          message: message,
+          data: responseData
+        });
+
+      } catch (supabaseError) {
+        console.error('❌ Supabase subscription purchase error:', supabaseError);
+        throw supabaseError;
+      }
+
+    } else {
+      // SQLITE IMPLEMENTATION (existing code)
+      console.log('🔄 Using SQLite for subscription purchase');
+      
+      // Get the plan
+      const plan = await db.get('SELECT * FROM subscription_plans WHERE id = ? AND is_active = 1', [planId]);
+      if (!plan) {
+        return res.status(404).json({
+          success: false,
+          message: 'Plan not found or inactive'
+        });
+      }
+
+      // Always check credit balance - subscriptions require credit payment
+      const user = await db.get('SELECT credit_balance FROM users WHERE id = ?', [req.user.id]);
+      if (!user || (user.credit_balance || 0) < plan.monthly_price) {
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient credit balance. Required: $${plan.monthly_price}, Available: $${user?.credit_balance || 0}. Please add credits to your account before purchasing a subscription.`
+        });
+      }
+
+      // Check if user already has an active subscription
+      const existingSubscription = await db.get(
+        'SELECT id FROM user_subscriptions WHERE user_id = ? AND status = "active"',
+        [req.user.id]
+      );
+
+      // Start transaction
+      await db.run('BEGIN TRANSACTION');
+
+      try {
+        // If user has an existing active subscription, cancel it first
+        if (existingSubscription) {
+          await db.run(
+            'UPDATE user_subscriptions SET status = "cancelled", remaining_classes = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [existingSubscription.id]
+          );
+                  console.log(`Cancelled existing subscription ${existingSubscription.id} for user ${req.user.id}`);
+          
+          // Log the cancellation activity
+          await db.run(`
+            INSERT INTO client_activity_log (
+              client_id, activity_type, description, performed_by
+            ) VALUES (?, ?, ?, ?)
+          `, [
+            req.user.id,
+            'subscription_cancellation',
+            `Previous subscription cancelled to start new subscription. ${existingSubscription.remaining_classes > 0 ? `${existingSubscription.remaining_classes} remaining classes cleared.` : ''}`,
+            req.user.id
+          ]);
+        }
+
+      // Calculate start and end dates - SIMPLE!
+      const startDate = SimpleDateCalculator.toStorageFormat(new Date());
+      const endDate = SimpleDateCalculator.calculateEndDate(new Date(), plan.duration, plan.duration_unit);
 
       // Create subscription
       const subscriptionResult = await db.run(`
@@ -721,15 +995,16 @@ router.post('/purchase', authenticateToken, [
         remaining_credit_balance: updatedBalance
       };
 
-      res.status(201).json({
-        success: true,
-        message: message,
-        data: responseData
-      });
+        res.status(201).json({
+          success: true,
+          message: message,
+          data: responseData
+        });
 
-    } catch (transactionError) {
-      await db.run('ROLLBACK');
-      throw transactionError;
+      } catch (transactionError) {
+        await db.run('ROLLBACK');
+        throw transactionError;
+      }
     }
 
   } catch (error) {
@@ -1780,7 +2055,12 @@ router.post('/assign', authenticateToken, requireAdminOrReception, [
             throw new Error('Failed to update subscription');
           }
 
-          // Create payment record
+          // Create payment record with placeholder UUID (due to schema mismatch)
+          const generateUUID = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+          });
+          
           const paymentResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/payments`, {
             method: 'POST',
             headers: {
@@ -1790,7 +2070,7 @@ router.post('/assign', authenticateToken, requireAdminOrReception, [
             },
             body: JSON.stringify({
               user_id: userId,
-              subscription_id: existingSubscription.id,
+              subscription_id: generateUUID(), // Use placeholder UUID due to schema mismatch
               amount: paymentAmount,
               payment_date: moment().format('YYYY-MM-DD'),
               payment_method: paymentMethod,
@@ -1928,11 +2208,9 @@ router.post('/assign', authenticateToken, requireAdminOrReception, [
             }
           }
 
-          // Calculate start and end dates
-          const startDate = moment().format('YYYY-MM-DD');
-          const endDate = plan.duration_months < 1 ? 
-            moment().add(Math.max(1, Math.round(plan.duration_months * 30.44)), 'days').format('YYYY-MM-DD') :
-            moment().add(plan.duration_months, 'months').format('YYYY-MM-DD');
+          // Calculate start and end dates - SIMPLE!
+          const startDate = SimpleDateCalculator.toStorageFormat(new Date());
+          const endDate = SimpleDateCalculator.calculateEndDate(new Date(), plan.duration, plan.duration_unit);
 
           // Create new subscription
           const subscriptionResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/user_subscriptions`, {
@@ -1975,7 +2253,12 @@ router.post('/assign', authenticateToken, requireAdminOrReception, [
           // For new subscriptions, payment amount is the full plan price
           paymentAmount = plan.monthly_price;
 
-          // Create payment record
+          // Create payment record with placeholder UUID (due to schema mismatch)
+          const generateUUID = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+          });
+          
           const paymentResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/payments`, {
             method: 'POST',
             headers: {
@@ -1985,7 +2268,7 @@ router.post('/assign', authenticateToken, requireAdminOrReception, [
             },
             body: JSON.stringify({
               user_id: userId,
-              subscription_id: subscriptionData[0].id,
+              subscription_id: generateUUID(), // Use placeholder UUID due to schema mismatch
               amount: paymentAmount,
               payment_date: startDate,
               payment_method: paymentMethod,
@@ -2172,13 +2455,9 @@ router.put('/:id/renew', authenticateToken, [
         });
       }
 
-      // Calculate new dates based on plan duration
-      const startDate = moment().format('YYYY-MM-DD');
-      const duration = subscription.duration_months || 1;
-      // For fractional months less than 1, convert to days for more accurate calculation
-      const endDate = duration < 1 ? 
-        moment().add(Math.max(1, Math.round(duration * 30.44)), 'days').format('YYYY-MM-DD') :
-        moment().add(duration, 'months').format('YYYY-MM-DD');
+      // Calculate new dates - SIMPLE!
+      const startDate = SimpleDateCalculator.toStorageFormat(new Date());
+      const endDate = SimpleDateCalculator.calculateEndDate(new Date(), subscription.duration || 1, subscription.duration_unit || 'months');
 
       // Update subscription using Supabase
       const updateResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/user_subscriptions?id=eq.${req.params.id}`, {
@@ -2265,13 +2544,9 @@ router.put('/:id/renew', authenticateToken, [
         });
       }
 
-      // Calculate new dates based on plan duration
-      const startDate = moment().format('YYYY-MM-DD');
-      const duration = subscription.duration_months || 1;
-      // For fractional months less than 1, convert to days for more accurate calculation
-      const endDate = duration < 1 ? 
-        moment().add(Math.max(1, Math.round(duration * 30.44)), 'days').format('YYYY-MM-DD') :
-        moment().add(duration, 'months').format('YYYY-MM-DD');
+      // Calculate new dates - SIMPLE!
+      const startDate = SimpleDateCalculator.toStorageFormat(new Date());
+      const endDate = SimpleDateCalculator.calculateEndDate(new Date(), subscription.duration || 1, subscription.duration_unit || 'months');
 
       await db.run('BEGIN TRANSACTION');
 

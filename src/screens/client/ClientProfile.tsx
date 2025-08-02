@@ -3,14 +3,15 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Dimensions, Linking, RefreshControl, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { Avatar, Button, Card, Chip, Modal, Portal, ProgressBar, Surface } from 'react-native-paper';
-import { useDispatch, useSelector } from 'react-redux';
+import { useSelector } from 'react-redux';
 import { Body, Caption, H1, H2 } from '../../../components/ui/Typography';
 import { Colors as AppColors } from '../../../constants/Colors';
 import { useThemeColor } from '../../../hooks/useThemeColor';
 import { notificationService } from '../../services/notificationService';
-import { AppDispatch, RootState } from '../../store';
-import { logout, resetAppState } from '../../store/authSlice';
+import { RootState, useAppDispatch } from '../../store';
+import { logoutUser } from '../../store/authSlice';
 import { fetchCurrentSubscription } from '../../store/subscriptionSlice';
+import { SimpleDateCalculator } from '../../utils/simpleDateCalculator';
 
 const { width } = Dimensions.get('window');
 
@@ -24,7 +25,7 @@ interface NotificationSettings {
 function ClientProfile({ navigation }: any) {
   const { user } = useSelector((state: RootState) => state.auth);
   const { currentSubscription, isLoading } = useSelector((state: RootState) => state.subscriptions);
-  const dispatch = useDispatch<AppDispatch>();
+  const dispatch = useAppDispatch();
   
   // Theme colors
   const backgroundColor = useThemeColor({}, 'background');
@@ -49,14 +50,19 @@ function ClientProfile({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    dispatch(fetchCurrentSubscription());
+    // Only fetch on initial load if we don't have data
+    if (!currentSubscription) {
+      dispatch(fetchCurrentSubscription());
+    }
     loadNotificationSettings();
-  }, [dispatch]);
+  }, [dispatch]); // Removed currentSubscription dependency to prevent loops
 
-  // Add focus listener to refresh data when screen is focused
+  // Add focus listener to refresh data when screen is focused (always refresh to catch reception changes)
   useFocusEffect(
     useCallback(() => {
       console.log('🔄 ClientProfile focused - refreshing subscription data');
+      
+      // Always fetch the latest subscription data to catch any changes made by reception
       dispatch(fetchCurrentSubscription());
     }, [dispatch])
   );
@@ -78,35 +84,36 @@ function ClientProfile({ navigation }: any) {
   };
 
   // Enhanced subscription data processing with expiration check
-  const subscriptionData = currentSubscription ? {
-    planName: currentSubscription.plan_name || 'Unknown Plan',
-    remainingClasses: Math.max(0, currentSubscription.remaining_classes || 0),
-    monthlyClasses: Math.max(1, currentSubscription.monthly_classes || 1),
-    monthlyPrice: currentSubscription.monthly_price || 0,
-    equipmentAccess: currentSubscription.equipment_access || 'mat',
-    status: currentSubscription.status || 'unknown',
-    startDate: currentSubscription.start_date,
-    endDate: currentSubscription.end_date,
-    durationMonths: currentSubscription.duration_months || 1,
-    isUnlimited: (currentSubscription.monthly_classes || 0) >= 999,
-    isDayPass: (currentSubscription.duration_months || 1) < 1, // Detect day passes
-    daysSinceStart: currentSubscription.start_date ? 
-      Math.floor((new Date().getTime() - new Date(currentSubscription.start_date).getTime()) / (1000 * 60 * 60 * 24)) : 0,
-    daysUntilEnd: currentSubscription.end_date ? 
-      Math.max(0, Math.ceil((new Date(currentSubscription.end_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))) : 0,
-    // Add expiration check
-    isExpired: currentSubscription.end_date ? new Date(currentSubscription.end_date) < new Date() : false,
-  } : null;
-
-  // If subscription is expired but still showing, trigger immediate refresh
-  useEffect(() => {
-    if (subscriptionData && subscriptionData.isExpired && subscriptionData.status === 'active') {
-      console.log('⚠️ Detected expired subscription still showing as active - forcing refresh');
-      setTimeout(() => {
-        dispatch(fetchCurrentSubscription());
-      }, 1000);
+  const subscriptionData = currentSubscription && currentSubscription.end_date ? (() => {
+    const daysUntilEnd = SimpleDateCalculator.daysUntilExpiration(currentSubscription.end_date);
+    
+    // If subscription is expired (negative days until end), don't show it
+    // Day 0 means expires today and should still be valid
+    if (daysUntilEnd < 0) {
+      console.log('🚫 Subscription expired, hiding from profile');
+      return null;
     }
-  }, [subscriptionData, dispatch]);
+    
+    return {
+      planName: currentSubscription.plan_name || 'Unknown Plan',
+      remainingClasses: Math.max(0, currentSubscription.remaining_classes || 0),
+      monthlyClasses: Math.max(1, currentSubscription.monthly_classes || 1),
+      monthlyPrice: currentSubscription.monthly_price || 0,
+      equipmentAccess: currentSubscription.equipment_access || 'mat',
+      status: currentSubscription.status || 'unknown',
+      startDate: currentSubscription.start_date,
+      endDate: currentSubscription.end_date,
+      duration: currentSubscription.duration || 1,
+      durationUnit: currentSubscription.duration_unit || 'months',
+      isUnlimited: (currentSubscription.monthly_classes || 0) >= 999,
+      isDayPass: currentSubscription.duration_unit === 'days', // Detect day/week passes
+      daysSinceStart: currentSubscription.start_date ? 
+        Math.floor((new Date().getTime() - new Date(currentSubscription.start_date).getTime()) / (1000 * 60 * 60 * 24)) : 0,
+      daysUntilEnd: daysUntilEnd,
+    };
+  })() : null;
+
+  // Remove the problematic infinite loop - subscriptions should expire automatically based on end_date
 
   const getProgressValue = () => {
     if (!subscriptionData) return 0;
@@ -121,20 +128,19 @@ function ClientProfile({ navigation }: any) {
     return Math.max(0, used); // Ensure we never show negative used classes
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     Alert.alert(
       'Logout',
       'Are you sure you want to logout?',
       [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Logout', 
+        {
+          text: 'Logout',
           style: 'destructive',
           onPress: async () => {
-            await dispatch(logout());
-            await dispatch(resetAppState());
-          }
-        }
+            await dispatch(logoutUser());
+          },
+        },
       ]
     );
   };
@@ -278,7 +284,7 @@ function ClientProfile({ navigation }: any) {
             <Chip 
               style={[styles.roleChip, { backgroundColor: 'transparent', borderColor: accentColor }]}
               textStyle={{...styles.roleChipText, color: accentColor }}
-              icon="account"
+              icon="person"
             >
               {user?.role || 'client'}
             </Chip>
@@ -321,7 +327,7 @@ function ClientProfile({ navigation }: any) {
               )}
               <Caption style={{ ...styles.progressSubtitle, color: textSecondaryColor }}>
                 {subscriptionData.isDayPass ? 
-                  `Valid for ${subscriptionData.monthlyClasses} class${subscriptionData.monthlyClasses === 1 ? '' : 'es'}` :
+                  `Valid for ${subscriptionData.remainingClasses} class${subscriptionData.remainingClasses === 1 ? '' : 'es'}` :
                  subscriptionData.isUnlimited ? 'Enjoy unlimited classes this month!' : 
                  subscriptionData.remainingClasses > subscriptionData.monthlyClasses ? 
                    `${subscriptionData.remainingClasses} classes available (bonus credits added)` :
@@ -340,12 +346,12 @@ function ClientProfile({ navigation }: any) {
                           ? 'Day pass expired'
                           : subscriptionData.daysUntilEnd === 1 
                             ? 'Expires today'
-                            : `Expires in ${subscriptionData.daysUntilEnd} days`
+                            : `Expires in ${subscriptionData.daysUntilEnd} ${subscriptionData.daysUntilEnd === 1 ? 'day' : 'days'}`
                         ) :
                         (subscriptionData.daysUntilEnd <= 0 
                           ? 'Subscription expired'
                           : subscriptionData.daysUntilEnd > 0 
-                            ? `${subscriptionData.daysUntilEnd} days until renewal`
+                            ? `${subscriptionData.daysUntilEnd} ${subscriptionData.daysUntilEnd === 1 ? 'day' : 'days'} until renewal`
                             : 'Renews today'
                         )
                       }
@@ -375,7 +381,7 @@ function ClientProfile({ navigation }: any) {
                 <Caption style={{ ...styles.detailCardLabel, color: textSecondaryColor }}>Classes</Caption>
                 <Body style={{ ...styles.detailCardValue, color: textColor }}>
                   {subscriptionData.isDayPass ? 
-                    `${subscriptionData.monthlyClasses} Class${subscriptionData.monthlyClasses === 1 ? '' : 'es'}` :
+                    `${subscriptionData.remainingClasses} Class${subscriptionData.remainingClasses === 1 ? '' : 'es'}` :
                    subscriptionData.isUnlimited ? 'Unlimited' : 
                    `${subscriptionData.monthlyClasses}/month`}
                 </Body>
@@ -385,7 +391,7 @@ function ClientProfile({ navigation }: any) {
                 <MaterialIcons name="timeline" size={24} color={warningColor} />
                 <Caption style={{ ...styles.detailCardLabel, color: textSecondaryColor }}>Member for</Caption>
                 <Body style={{ ...styles.detailCardValue, color: textColor }}>
-                  {subscriptionData.daysSinceStart} days
+                  {subscriptionData.daysSinceStart} {subscriptionData.daysSinceStart === 1 ? 'day' : 'days'}
                 </Body>
               </View>
               
@@ -402,8 +408,8 @@ function ClientProfile({ navigation }: any) {
                   {subscriptionData.isDayPass ? 
                     (subscriptionData.daysUntilEnd <= 0 ? 'Expired' : 
                      subscriptionData.daysUntilEnd === 1 ? 'Today' : 
-                     `${subscriptionData.daysUntilEnd} days`) :
-                   (subscriptionData.daysUntilEnd <= 0 ? 'Expired' : `${subscriptionData.daysUntilEnd} days`)}
+                     `${subscriptionData.daysUntilEnd} ${subscriptionData.daysUntilEnd === 1 ? 'day' : 'days'}`) :
+                   (subscriptionData.daysUntilEnd <= 0 ? 'Expired' : `${subscriptionData.daysUntilEnd} ${subscriptionData.daysUntilEnd === 1 ? 'day' : 'days'}`)}
                 </Body>
               </View>
             </View>
@@ -536,7 +542,7 @@ function ClientProfile({ navigation }: any) {
               mode="outlined" 
               style={{ ...styles.editButton, borderColor: accentColor }} 
               textColor={accentColor} 
-              icon="account-edit"
+              icon="person"
               onPress={() => navigation.navigate('EditProfile')}
             >
               Edit Profile
@@ -609,7 +615,7 @@ function ClientProfile({ navigation }: any) {
                   mode="outlined"
                   onPress={() => setReminderModalVisible(true)}
                   style={{ ...styles.reminderButton, borderColor: accentColor }}
-                  icon="clock"
+                  icon="access-time"
                 >
                   {notificationSettings.defaultReminderMinutes} min
                 </Button>

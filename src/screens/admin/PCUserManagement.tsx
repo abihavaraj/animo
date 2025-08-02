@@ -1,16 +1,7 @@
-import { MaterialIcons } from '@expo/vector-icons';
-import { useEffect, useMemo, useState } from 'react';
-import {
-    Alert,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
-} from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SubscriptionConflictDialog } from '../../components/SubscriptionConflictDialog';
+import WebCompatibleIcon from '../../components/WebCompatibleIcon';
 import { SubscriptionPlan, subscriptionService } from '../../services/subscriptionService';
 import { BackendUser, userService } from '../../services/userService';
 import { UserRole } from '../../store/authSlice';
@@ -33,10 +24,11 @@ const REFERRAL_SOURCES = [
 
 interface PCUserManagementProps {
   navigation?: any;
+  onViewProfile?: (userId: string, userName: string) => void;
 }
 
 // PC-Optimized User Management Component
-function PCUserManagement({ navigation }: PCUserManagementProps) {
+function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) {
   const [users, setUsers] = useState<BackendUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -44,7 +36,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [filterRole, setFilterRole] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [selectedUsers, setSelectedUsers] = useState<Set<number>>(new Set());
+  const [selectedUsers, setSelectedUsers] = useState<Set<string | number>>(new Set());
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [editingUser, setEditingUser] = useState<BackendUser | null>(null);
@@ -155,7 +147,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
     }
   };
 
-  const handleSelectUser = (userId: number) => {
+  const handleSelectUser = (userId: number | string) => {
     const newSelected = new Set(selectedUsers);
     if (newSelected.has(userId)) {
       newSelected.delete(userId);
@@ -243,9 +235,23 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
           referralSource: finalReferralSource || undefined
         };
 
-        const response = await userService.updateUser(editingUser.id, updateData);
+        const response = await userService.updateUser(String(editingUser.id), updateData);
+        
         if (response.success) {
-          Alert.alert('Success', 'User updated successfully');
+          // Update password if provided
+          if (formData.password) {
+            const passwordResponse = await userService.updatePassword(String(editingUser.id), {
+              newPassword: formData.password
+            });
+            
+            if (!passwordResponse.success) {
+              Alert.alert('Warning', `User updated but password update failed: ${passwordResponse.error || 'Unknown error'}`);
+            } else {
+              Alert.alert('Success', `User ${formData.name} has been updated with new password`);
+            }
+          } else {
+            Alert.alert('Success', 'User updated successfully');
+          }
           await loadUsers();
         } else {
           Alert.alert('Error', response.error || 'Failed to update user');
@@ -288,29 +294,34 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
     console.log('🔍 handleViewProfile called for user:', user.id, user.name, user.role);
     console.log('🔍 Navigation object exists:', !!navigation);
     
-    if (user.role === 'client') {
-      if (!navigation) {
-        console.error('❌ Navigation object is undefined!');
-        Alert.alert('Error', 'Navigation not available. Please try again.');
-        return;
-      }
-      
-      const navigationParams = {
-        userId: user.id,
-        userName: user.name
-      };
-      
-      console.log('🔍 Navigating to ClientProfile with params:', navigationParams);
-      
+    if (onViewProfile) {
+      console.log('🔍 Using onViewProfile callback');
+      onViewProfile(String(user.id), user.name);
+    } else if (navigation && navigation.navigate) {
+      console.log('🔍 Using navigation.navigate');
       try {
-        navigation.navigate('ClientProfile', navigationParams);
+        const params = {
+          userId: String(user.id),
+          userName: user.name,
+        };
+        
+        console.log('🔍 Navigating to ClientProfile with params:', params);
+        navigation.navigate('ClientProfile', params);
         console.log('✅ Navigation call completed');
       } catch (error) {
-        console.error('❌ Navigation error:', error);
-        Alert.alert('Error', 'Failed to navigate to client profile');
+        console.error('❌ Navigation failed:', error);
+        Alert.alert('Navigation Error', 'Failed to navigate to user profile');
       }
     } else {
-      Alert.alert('Info', 'Profile view is only available for client users');
+      console.log('⚠️ No navigation method available, showing profile summary');
+      Alert.alert(
+        `${user.name} - Profile Summary`, 
+        `📧 Email: ${user.email}\n👤 Role: ${user.role}\n📊 Status: ${user.status}${user.credit_balance !== undefined ? `\n💳 Credits: ${user.credit_balance}` : ''}${user.phone ? `\n📞 Phone: ${user.phone}` : ''}${user.referral_source ? `\n🔗 Referral: ${user.referral_source}` : ''}`,
+        [
+          { text: 'Close', style: 'cancel' },
+          { text: 'Edit User', onPress: () => handleEditUser(user) }
+        ]
+      );
     }
   };
 
@@ -351,8 +362,24 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
         setShowConflictDialog(true);
         setShowSubscriptionModal(false);
       } else {
-        // No conflict, proceed with assignment
-        await proceedWithAssignment('direct', subscriptionNotes);
+        // No conflict, proceed with direct assignment
+        console.log('🔍 USER MGMT: No existing subscription, proceeding with assignment...');
+        const response = await subscriptionService.assignSubscription(
+          assigningSubscriptionUser.id,
+          selectedPlanId,
+          subscriptionNotes || 'Assigned via reception user management'
+        );
+        
+        if (response && response.success) {
+          Alert.alert('Success', 'Subscription plan assigned successfully!');
+          setShowSubscriptionModal(false);
+          setAssigningSubscriptionUser(null);
+          setSelectedPlanId(null);
+          setSubscriptionNotes('');
+          await loadUsers(); // Refresh the user list
+        } else {
+          Alert.alert('Error', response?.error || 'Failed to assign subscription plan');
+        }
       }
     } catch (error) {
       console.error('Error checking subscription conflicts:', error);
@@ -363,60 +390,32 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
   };
 
   const proceedWithAssignment = async (option: string, notes?: string) => {
-    if (!assigningSubscriptionUser || !selectedPlanId) return;
+    // Ensure we have the necessary data from the conflict dialog
+    if (!conflictData || !conflictData.user || !conflictData.newPlan) {
+      Alert.alert('Error', 'Cannot proceed without required conflict data.');
+      return;
+    }
+  
+    const userId = conflictData.user.id;
+    const planId = conflictData.newPlan.id;
+    const assignmentNotes = notes || subscriptionNotes || 'Assigned via reception user management';
+
+    console.log(`[proceedWithAssignment] Action: ${option}, UserID: ${userId}, PlanID: ${planId}`);
+
+    if (!userId || !planId) {
+      Alert.alert('Error', 'User ID or Plan ID is missing in conflict data.');
+      return;
+    }
 
     try {
       setConflictLoading(true);
       
-      // Handle different conflict resolution options
-      let response;
-      
-      switch (option) {
-        case 'direct':
-          // Direct assignment (new subscription)
-          response = await subscriptionService.assignSubscription(
-            assigningSubscriptionUser.id,
-            selectedPlanId,
-            notes || subscriptionNotes,
-            'new'
-          );
-          break;
-          
-        case 'replace':
-          // Replace existing subscription
-          response = await subscriptionService.assignSubscription(
-            assigningSubscriptionUser.id,
-            selectedPlanId,
-            notes || subscriptionNotes,
-            'new'
-          );
-          break;
-          
-        case 'extend':
-          // Extend existing subscription with classes from selected plan
-          response = await subscriptionService.assignSubscription(
-            assigningSubscriptionUser.id,
-            selectedPlanId,
-            notes || subscriptionNotes,
-            'extend'
-          );
-          break;
-          
-        case 'queue':
-          // Implement basic queue functionality
-          response = await subscriptionService.assignSubscription(
-            assigningSubscriptionUser.id,
-            selectedPlanId,
-            notes || subscriptionNotes,
-            'queue'
-          );
-          break;
-          
-        default:
-          Alert.alert('Error', 'Invalid option selected');
-          setShowConflictDialog(false);
-          return;
-      }
+      const response = await subscriptionService.assignSubscription(
+        userId,
+        planId,
+        assignmentNotes,
+        option as 'new' | 'replace' | 'extend' | 'queue' // Cast the option string
+      );
 
       if (response && response.success) {
         const responseData = response.data;
@@ -426,9 +425,17 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
         
         let successMessage = '';
         if (operationType === 'extended') {
-          successMessage = `Successfully extended ${assigningSubscriptionUser.name}'s subscription with ${classesAdded} classes. Payment: $${paymentAmount}`;
+          successMessage = `Successfully extended subscription with ${classesAdded} classes.`;
+        } else if (operationType === 'replaced') {
+          successMessage = `Successfully replaced subscription.`;
+        } else if (operationType === 'queued') {
+          successMessage = `New subscription has been queued.`;
         } else {
-          successMessage = `Successfully assigned subscription to ${assigningSubscriptionUser.name}. Payment: $${paymentAmount}`;
+          successMessage = `Successfully assigned subscription.`;
+        }
+
+        if (paymentAmount > 0) {
+          successMessage += ` Payment recorded: ${paymentAmount.toLocaleString()} ALL.`;
         }
         
         Alert.alert('Success', successMessage);
@@ -440,7 +447,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
       }
     } catch (error) {
       console.error('Error assigning subscription:', error);
-      Alert.alert('Error', 'Failed to assign subscription');
+      Alert.alert('Error', `Failed to assign subscription: ${(error as Error).message}`);
     } finally {
       setConflictLoading(false);
     }
@@ -484,7 +491,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
   const deleteUserAction = async (user: BackendUser) => {
     try {
       console.log('🗑️ PC - Deleting user:', user.name, user.id);
-      const response = await userService.deleteUser(user.id);
+      const response = await userService.deleteUser(String(user.id));
       console.log('🗑️ PC - Delete response:', response);
       
       if (response.success) {
@@ -528,7 +535,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
           onPress: async () => {
             try {
               for (const userId of selectedUsers) {
-                await userService.deleteUser(userId);
+                await userService.deleteUser(String(userId));
               }
               Alert.alert('Success', 'Users deleted successfully');
               setSelectedUsers(new Set());
@@ -556,7 +563,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
       }
       
       console.log('🔄 PC - Calling userService.updateUser...');
-      const response = await userService.updateUser(user.id, { status: newStatus });
+      const response = await userService.updateUser(String(user.id), { status: newStatus });
       console.log('🔄 PC - Raw response received:', response);
       
       if (response && response.success) {
@@ -728,7 +735,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
     >
       <Text style={styles.tableHeaderText}>{title}</Text>
       {sortField === field && (
-        <MaterialIcons 
+        <WebCompatibleIcon 
           name={sortDirection === 'asc' ? 'keyboard-arrow-up' : 'keyboard-arrow-down'} 
           size={16} 
           color="#666666" 
@@ -740,7 +747,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <MaterialIcons name="hourglass-empty" size={48} color="#6B8E7F" />
+        <WebCompatibleIcon name="hourglass-empty" size={48} color="#6B8E7F" />
         <Text style={styles.loadingText}>Loading users...</Text>
       </View>
     );
@@ -761,7 +768,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
             style={webStyles.createButton} 
             onClick={handleCreateUser}
           >
-            <MaterialIcons name="person-add" size={20} color="#FFFFFF" />
+            <WebCompatibleIcon name="person-add" size={20} color="#FFFFFF" />
             <span style={webStyles.createButtonText}>Create User</span>
           </button>
         </div>
@@ -770,7 +777,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
       {/* Filters and Search */}
       <div style={webStyles.filtersContainer}>
         <div style={webStyles.searchContainer}>
-                     <MaterialIcons name="search" size={20} color="#666666" />
+                     <WebCompatibleIcon name="search" size={20} color="#666666" />
           <input
             style={webStyles.searchInput}
             placeholder="Search users by name, email, or phone..."
@@ -838,7 +845,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
             style={webStyles.bulkActionButton}
             onClick={handleDeleteSelected}
           >
-            <MaterialIcons name="delete" size={18} color="#C47D7D" />
+            <WebCompatibleIcon name="delete" size={18} color="#C47D7D" />
             <span style={webStyles.bulkActionButtonText}>Delete Selected</span>
           </button>
         </div>
@@ -851,7 +858,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
           <div style={webStyles.tableHeaderRow}>
             <div style={webStyles.checkboxHeader}>
               <button onClick={handleSelectAll}>
-                <MaterialIcons 
+                <WebCompatibleIcon 
                   name={selectedUsers.size === processedUsers.length && processedUsers.length > 0 
                     ? "check-box" : "check-box-outline-blank"} 
                   size={20} 
@@ -885,7 +892,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
               <div key={user.id} style={webStyles.tableRow}>
                 <div style={webStyles.checkbox}>
                   <button onClick={() => handleSelectUser(user.id)}>
-                    <MaterialIcons 
+                    <WebCompatibleIcon 
                       name={selectedUsers.has(user.id) ? "check-box" : "check-box-outline-blank"} 
                       size={20} 
                       color="#666666" 
@@ -922,23 +929,23 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                 
                 <div style={webStyles.tableCell}>
                   <div style={webStyles.joinDate}>
-                    {new Date(user.created_at).toLocaleDateString()}
+                    {user.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}
                   </div>
                 </div>
                 
                 <div style={webStyles.actionsCell}>
                   {/* Action buttons */}
                   <button style={webStyles.actionButton} onClick={() => handleViewProfile(user)}>
-                    <MaterialIcons name="visibility" size={18} color="#6B8E7F" />
+                    <WebCompatibleIcon name="visibility" size={18} color="#6B8E7F" />
                   </button>
                   <button style={webStyles.actionButton} onClick={() => handleEditUser(user)}>
-                    <MaterialIcons name="edit" size={18} color="#D4A574" />
+                    <WebCompatibleIcon name="edit" size={18} color="#D4A574" />
                   </button>
                   
                   {/* Client-specific actions */}
                   {user.role === 'client' && (
                     <button style={webStyles.actionButton} onClick={() => handleAssignSubscription(user)}>
-                      <MaterialIcons name="card-membership" size={18} color="#6B8E7F" />
+                      <WebCompatibleIcon name="card-membership" size={18} color="#6B8E7F" />
                     </button>
                   )}
                   
@@ -946,28 +953,28 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                   {user.status === 'active' && (
                     <>
                       <button style={webStyles.actionButton} onClick={() => handleSuspendUser(user)}>
-                        <MaterialIcons name="pause" size={18} color="#D4A574" />
+                        <WebCompatibleIcon name="pause" size={18} color="#D4A574" />
                       </button>
                       <button style={webStyles.actionButton} onClick={() => handleDeactivateUser(user)}>
-                        <MaterialIcons name="block" size={18} color="#C47D7D" />
+                        <WebCompatibleIcon name="block" size={18} color="#C47D7D" />
                       </button>
                     </>
                   )}
                   
                   {user.status === 'suspended' && (
                     <button style={webStyles.actionButton} onClick={() => handleActivateUser(user)}>
-                      <MaterialIcons name="play-arrow" size={18} color="#7DCEA0" />
+                      <WebCompatibleIcon name="play-arrow" size={18} color="#7DCEA0" />
                     </button>
                   )}
                   
                   {user.status === 'inactive' && (
                     <button style={webStyles.actionButton} onClick={() => handleActivateUser(user)}>
-                      <MaterialIcons name="play-arrow" size={18} color="#7DCEA0" />
+                      <WebCompatibleIcon name="play-arrow" size={18} color="#7DCEA0" />
                     </button>
                   )}
                   
                   <button style={webStyles.actionButton} onClick={() => handleDeleteUser(user)}>
-                    <MaterialIcons name="delete" size={18} color="#C47D7D" />
+                    <WebCompatibleIcon name="delete" size={18} color="#C47D7D" />
                   </button>
                 </div>
               </div>
@@ -986,7 +993,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
           onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
           disabled={currentPage === 1}
         >
-          <MaterialIcons name="chevron-left" size={20} color="#666666" />
+          <WebCompatibleIcon name="chevron-left" size={20} color="#666666" />
         </button>
         
         <span style={webStyles.paginationText}>
@@ -1001,7 +1008,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
           onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
           disabled={currentPage === totalPages}
         >
-          <MaterialIcons name="chevron-right" size={20} color="#666666" />
+          <WebCompatibleIcon name="chevron-right" size={20} color="#666666" />
         </button>
       </div>
 
@@ -1018,7 +1025,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                 style={styles.closeButton}
                 onPress={() => setShowCreateModal(false)}
               >
-                <MaterialIcons name="close" size={24} color="#666666" />
+                <WebCompatibleIcon name="close" size={24} color="#666666" />
               </TouchableOpacity>
             </View>
 
@@ -1064,9 +1071,14 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                   style={styles.input}
                   value={formData.password}
                   onChangeText={(text) => setFormData({...formData, password: text})}
-                  placeholder={editingUser ? "Leave blank to keep current password" : "Enter password"}
+                  placeholder={editingUser ? "Enter new password to change it" : "Enter password"}
                   secureTextEntry
                 />
+                {editingUser && (
+                  <Text style={styles.inputHelp}>
+                    💡 Leave blank to keep current password, or enter new password to change it
+                  </Text>
+                )}
               </View>
 
               <View style={styles.inputGroup}>
@@ -1129,7 +1141,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                             REFERRAL_SOURCES.find(s => s.value === formData.referralSource)?.label || 'Not specified'
                           }
                         </Text>
-                        <MaterialIcons name="arrow-drop-down" size={24} color="#666666" />
+                        <WebCompatibleIcon name="arrow-drop-down" size={24} color="#666666" />
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -1185,7 +1197,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                 style={styles.closeButton}
                 onPress={() => setShowSubscriptionModal(false)}
               >
-                <MaterialIcons name="close" size={24} color="#666666" />
+                <WebCompatibleIcon name="close" size={24} color="#666666" />
               </TouchableOpacity>
             </View>
 
@@ -1194,14 +1206,14 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                 <Text style={styles.inputLabel}>Select Subscription Plan *</Text>
                 <ScrollView style={styles.plansList} nestedScrollEnabled={true}>
                   {subscriptionPlans.map((plan) => (
-                    <TouchableOpacity
-                      key={plan.id}
-                      style={[
-                        styles.planOption,
-                        selectedPlanId === plan.id && styles.planOptionActive
-                      ]}
-                      onPress={() => setSelectedPlanId(plan.id)}
-                    >
+                      <TouchableOpacity
+                        key={plan.id}
+                        style={[
+                          styles.planOption,
+                          selectedPlanId === plan.id && styles.planOptionActive
+                        ]}
+                        onPress={() => setSelectedPlanId(plan.id)}
+                      >
                       <View style={styles.planOptionRow}>
                         <View style={styles.planOptionContent}>
                           <View style={styles.planOptionHeader}>
@@ -1246,7 +1258,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                           </View>
                         </View>
                         {selectedPlanId === plan.id && (
-                          <MaterialIcons name="check-circle" size={24} color="#7DCEA0" />
+                          <WebCompatibleIcon name="check-circle" size={24} color="#7DCEA0" />
                         )}
                       </View>
                     </TouchableOpacity>
@@ -1307,7 +1319,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                 style={styles.closeButton}
                 onPress={() => setShowReferralModal(false)}
               >
-                <MaterialIcons name="close" size={24} color="#666666" />
+                <WebCompatibleIcon name="close" size={24} color="#666666" />
               </TouchableOpacity>
             </View>
 
@@ -1334,7 +1346,7 @@ function PCUserManagement({ navigation }: PCUserManagementProps) {
                     {source.label}
                   </Text>
                   {formData.referralSource === source.value && (
-                    <MaterialIcons name="check" size={20} color="#666666" />
+                    <WebCompatibleIcon name="check" size={20} color="#666666" />
                   )}
                 </TouchableOpacity>
               ))}
@@ -1719,6 +1731,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#2C2C2C',
+  },
+  inputHelp: {
+    fontSize: 12,
+    color: '#666666',
+    marginTop: 4,
+    fontStyle: 'italic',
   },
   input: {
     borderWidth: 1,

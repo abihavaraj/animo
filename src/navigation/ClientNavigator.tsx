@@ -251,8 +251,6 @@ function ClientTabNavigator() {
             iconName = 'dashboard';
           }
 
-          console.log(`🎨 Rendering Pilates Icon: ${iconName} for ${route.name}, color: ${color}, size: ${size}`);
-
           return (
             <PilatesIcon 
               name={iconName} 

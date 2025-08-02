@@ -1,5 +1,11 @@
 import { supabase } from '../config/supabase.config';
-import { ApiResponse } from './api';
+
+// Define ApiResponse interface locally
+interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+}
 
 export interface BackendClass {
   id: number;
@@ -86,8 +92,12 @@ class ClassService {
         .select(`
           *,
           users!classes_instructor_id_fkey (name, email)
-        `)
-        .eq('status', 'active');
+        `);
+        
+      // Only filter by status if it's explicitly requested, otherwise show all classes
+      if (filters?.status) {
+        query = query.eq('status', filters.status);
+      }
       
       if (filters?.date) {
         query = query.eq('date', filters.date);
@@ -96,7 +106,7 @@ class ClassService {
       if (filters?.instructor) {
         query = query.eq('instructor_id', filters.instructor);
       }
-      
+   
       if (filters?.level) {
         query = query.eq('level', filters.level);
       }
@@ -107,17 +117,49 @@ class ClassService {
       
       if (filters?.upcoming) {
         const now = new Date();
-        query = query.gte('date', now.toISOString().split('T')[0]);
+        const todayStr = now.toISOString().split('T')[0];
+        query = query.gte('date', todayStr);
       }
       
-      const { data, error } = await query;
+      query = query.order('date').order('time');
       
+      const { data, error } = await query;
+   
       if (error) {
+        console.error('❌ ClassService: Supabase error:', error);
         return { success: false, error: error.message };
       }
       
-      return { success: true, data: data || [] };
+      // Get enrollment counts for all classes in a separate query
+      const classIds = (data || []).map(class_ => class_.id);
+      let enrollmentCounts: { [key: string]: number } = {};
+      
+      if (classIds.length > 0) {
+        const { data: bookingsData, error: bookingsError } = await supabase
+          .from('bookings')
+          .select('class_id, status')
+          .in('class_id', classIds)
+          .eq('status', 'confirmed');
+          
+        if (!bookingsError && bookingsData) {
+          // Count bookings per class
+          bookingsData.forEach(booking => {
+            const classId = booking.class_id;
+            enrollmentCounts[classId] = (enrollmentCounts[classId] || 0) + 1;
+          });
+        }
+      }
+      
+      // Transform the data to include instructor_name and enrolled count
+      const transformedData = (data || []).map(class_ => ({
+        ...class_,
+        instructor_name: class_.users?.name || 'Unknown Instructor',
+        enrolled: enrollmentCounts[class_.id] || 0
+      }));
+      
+      return { success: true, data: transformedData };
     } catch (error) {
+      console.error('❌ ClassService: Exception in getClasses:', error);
       return { success: false, error: 'Failed to get classes' };
     }
   }
@@ -137,7 +179,23 @@ class ClassService {
         return { success: false, error: error.message };
       }
       
-      return { success: true, data };
+      // Get enrollment count for this specific class
+      const { data: bookingsData, error: bookingsError } = await supabase
+        .from('bookings')
+        .select('id')
+        .eq('class_id', id)
+        .eq('status', 'confirmed');
+      
+      const enrolled = !bookingsError && bookingsData ? bookingsData.length : 0;
+      
+      // Transform the data to include instructor_name and enrolled count
+      const transformedData = {
+        ...data,
+        instructor_name: data?.users?.name || 'Unknown Instructor',
+        enrolled
+      };
+      
+      return { success: true, data: transformedData };
     } catch (error) {
       return { success: false, error: 'Failed to get class' };
     }
@@ -171,7 +229,13 @@ class ClassService {
         return { success: false, error: error.message };
       }
       
-      return { success: true, data };
+      // Transform the data to include instructor_name from the joined users table
+      const transformedData = {
+        ...data,
+        instructor_name: data?.users?.name || 'Unknown Instructor'
+      };
+      
+      return { success: true, data: transformedData };
     } catch (error) {
       return { success: false, error: 'Failed to create class' };
     }
@@ -196,7 +260,13 @@ class ClassService {
         return { success: false, error: error.message };
       }
       
-      return { success: true, data };
+      // Transform the data to include instructor_name from the joined users table
+      const transformedData = {
+        ...data,
+        instructor_name: data?.users?.name || 'Unknown Instructor'
+      };
+      
+      return { success: true, data: transformedData };
     } catch (error) {
       return { success: false, error: 'Failed to update class' };
     }
@@ -204,12 +274,10 @@ class ClassService {
 
   async deleteClass(id: number): Promise<ApiResponse<void>> {
     try {
+      // Actually delete the class record from the database
       const { error } = await supabase
         .from('classes')
-        .update({ 
-          status: 'cancelled',
-          updated_at: new Date().toISOString()
-        })
+        .delete()
         .eq('id', id);
       
       if (error) {
@@ -241,7 +309,13 @@ class ClassService {
         return { success: false, error: error.message };
       }
       
-      return { success: true, data };
+      // Transform the data to include instructor_name from the joined users table
+      const transformedData = {
+        ...data,
+        instructor_name: data?.users?.name || 'Unknown Instructor'
+      };
+      
+      return { success: true, data: transformedData };
     } catch (error) {
       return { success: false, error: 'Failed to cancel class' };
     }
@@ -250,12 +324,15 @@ class ClassService {
   // Check room availability for a specific date and time
   async checkRoomAvailability(date: string, time: string, duration: number): Promise<ApiResponse<RoomAvailability>> {
     try {
+      // Calculate time range for overlap detection
+      const startTime = this.timeToMinutes(time);
+      const endTime = startTime + duration;
+
+      // Get all classes for the specific date
       const { data, error } = await supabase
         .from('classes')
         .select('*')
         .eq('date', date)
-        .eq('time', time)
-        .eq('duration', duration)
         .eq('status', 'active');
 
       if (error) {
@@ -263,13 +340,31 @@ class ClassService {
       }
 
       const classes = data || [];
+      const allRooms = ['Reformer Room', 'Mat Room', 'Cadillac Room', 'Wall Room'];
       const roomAvailability: RoomAvailability = {};
 
-      for (const class_ of classes) {
-        roomAvailability[class_.room || ''] = {
-          available: false,
-          conflictClass: class_
+      // Initialize all rooms as available
+      for (const room of allRooms) {
+        roomAvailability[room] = {
+          available: true,
+          conflictClass: null
         };
+      }
+
+      // Check for conflicts with existing classes
+      for (const class_ of classes) {
+        if (class_.room) {
+          const classStartTime = this.timeToMinutes(class_.time);
+          const classEndTime = classStartTime + class_.duration;
+
+          // Check for time overlap
+          if (startTime < classEndTime && endTime > classStartTime) {
+            roomAvailability[class_.room] = {
+              available: false,
+              conflictClass: class_
+            };
+          }
+        }
       }
 
       return { success: true, data: roomAvailability };
@@ -280,7 +375,7 @@ class ClassService {
 
   // Check for instructor scheduling conflicts
   async checkInstructorConflict(
-    instructorId: number, 
+    instructorId: number | string, 
     date: string, 
     time: string, 
     duration: number,

@@ -1,10 +1,10 @@
 import { Body, Caption, H1 } from '@/components/ui/Typography';
 import { Colors } from '@/constants/Colors';
-import { layout, spacing } from '@/constants/Spacing';
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet } from 'react-native';
 import { Menu, Button as PaperButton, Card as PaperCard, TextInput } from 'react-native-paper';
 import { useDispatch } from 'react-redux';
+import { layout, spacing } from '../../constants/Spacing';
 import type { AppDispatch } from '../store';
 import { registerUser } from '../store/authSlice';
 import { shadows } from '../utils/shadows';

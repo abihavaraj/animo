@@ -1,161 +1,137 @@
-import { getApiUrl } from '../config/api.config';
-import { createTimeoutSignal, devLog } from '../utils/devUtils';
-import { handleNetworkError } from '../utils/errorHandler';
 
-// API Configuration and Base Service
-const API_BASE_URL = getApiUrl();
-
-devLog('API Service initialized with:', API_BASE_URL);
-
-interface ApiResponse<T = any> {
+export interface ApiResponse<T = any> {
   success: boolean;
   data?: T;
-  message?: string;
   error?: string;
+  message?: string;
 }
 
 class ApiService {
-  private baseURL: string;
+  private supabaseUrl: string;
+  private supabaseKey: string;
   private token: string | null = null;
+  private readonly timeout: number = 15000;
 
-  constructor(baseURL: string) {
-    this.baseURL = baseURL;
+  constructor() {
+    this.supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://byhqueksdwlbiwodpbbd.supabase.co';
+    this.supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5aHF1ZWtzZHdsYml3b2RwYmJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI4NjA0NzgsImV4cCI6MjA2ODQzNjQ3OH0.UpbbA73l8to48B42AWiGaL8sXkOmJIqeisbaDg-u-Io';
+    console.log('🔧 ApiService initialized for direct Supabase access (no backend)');
   }
 
   setToken(token: string | null) {
     this.token = token;
+    console.log('🔧 ApiService token updated:', token ? 'Token set' : 'Token cleared');
   }
 
-  private async request<T>(
-    endpoint: string,
-    options: RequestInit = {}
-  ): Promise<ApiResponse<T>> {
-    const url = `${this.baseURL}${endpoint}`;
-    
-    if (Math.random() < 0.1) {
-      devLog(`📡 ${options.method || 'GET'} ${endpoint}`);
-    }
-    
-    const config: RequestInit = {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(this.token && { Authorization: `Bearer ${this.token}` }),
-        ...options.headers,
-      },
-      // Add timeout and better error handling for iOS
-      signal: createTimeoutSignal(30000), // 30 second timeout
+  private getHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      'apikey': this.supabaseKey,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
     };
 
+    // Use user token if available, otherwise use anon key
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    } else {
+      headers['Authorization'] = `Bearer ${this.supabaseKey}`;
+    }
+
+    return headers;
+  }
+
+  // Direct Supabase REST API calls
+  async get<T>(endpoint: string): Promise<ApiResponse<T>> {
     try {
-      const response = await fetch(url, config);
-      
-      // Safely check if response is JSON
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const errorMessage = `Server returned non-JSON response: ${response.status} ${response.statusText}`;
-        console.error(`❌ Non-JSON response from ${endpoint}:`, response.status, response.statusText);
-        handleNetworkError(new Error(errorMessage), endpoint);
-        return {
-          success: false,
-          error: errorMessage,
-        };
-      }
-      
-      // Safely parse JSON response
-      let data;
-      try {
-        const responseText = await response.text();
-        data = responseText ? JSON.parse(responseText) : {};
-      } catch (parseError) {
-        const errorMessage = 'Failed to parse server response as JSON';
-        console.error(`❌ JSON parse error for ${endpoint}:`, parseError);
-        handleNetworkError(parseError as Error, endpoint);
-        return {
-          success: false,
-          error: errorMessage,
-        };
-      }
-      
+      const url = `${this.supabaseUrl}/rest/v1${endpoint}`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.getHeaders(),
+      });
+
+      const data = await response.json();
+
       if (!response.ok) {
-        const errorMessage = data.message || data.error || response.statusText;
-        console.error(`❌ API Error (${response.status}) for ${endpoint}:`, errorMessage);
-        
-        // Handle specific error cases
-        if (response.status === 401) {
-          console.warn('🔑 Authentication failed - token may be expired');
-          // Could trigger logout here if needed
-        } else if (response.status >= 500) {
-          console.error('🔥 Server error detected');
-        }
-        
-        // Use network error handler for non-success responses
-        handleNetworkError(new Error(`HTTP ${response.status}: ${errorMessage}`), endpoint);
-        
-        return {
-          success: false,
-          error: errorMessage,
-        };
+        return { success: false, error: data.message || 'Request failed' };
       }
-      
-      // Handle backend response format: {success: true, data: [...]}
-      if (data.success !== undefined && 'data' in data) {
-        return data as ApiResponse<T>;
-      }
-      
-      // Handle direct data response
-      return {
-        success: true,
-        data: data as T,
-      };
-      
-    } catch (error: any) {
-      console.error(`❌ Network error for ${endpoint}:`, error);
-      
-      // Enhanced error handling for different error types
-      let errorMessage = 'Network request failed';
-      
-      if (error.name === 'AbortError') {
-        errorMessage = 'Request timeout - please check your connection';
-      } else if (error.message?.includes('Network request failed')) {
-        errorMessage = 'No internet connection - please check your network';
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      
-      // Use network error handler
-      handleNetworkError(error, endpoint);
-      
-      return {
-        success: false,
-        error: errorMessage,
-      };
+
+      return { success: true, data };
+    } catch (error) {
+      console.error('API GET error:', error);
+      return { success: false, error: 'Network error' };
     }
   }
 
-  async get<T>(endpoint: string): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, { method: 'GET' });
+  async post<T>(endpoint: string, body: any): Promise<ApiResponse<T>> {
+    try {
+      const url = `${this.supabaseUrl}/rest/v1${endpoint}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...this.getHeaders(),
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify(body),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return { success: false, error: data.message || 'Request failed' };
+      }
+
+      return { success: true, data };
+    } catch (error) {
+      console.error('API POST error:', error);
+      return { success: false, error: 'Network error' };
+    }
   }
 
-  async post<T>(endpoint: string, data?: any): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, {
-      method: 'POST',
-      body: data ? JSON.stringify(data) : undefined,
-    });
-  }
+  async put<T>(endpoint: string, body: any): Promise<ApiResponse<T>> {
+    try {
+      const url = `${this.supabaseUrl}/rest/v1${endpoint}`;
+      const response = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          ...this.getHeaders(),
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify(body),
+      });
 
-  async put<T>(endpoint: string, data?: any): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, {
-      method: 'PUT',
-      body: data ? JSON.stringify(data) : undefined,
-    });
+      const data = await response.json();
+
+      if (!response.ok) {
+        return { success: false, error: data.message || 'Request failed' };
+      }
+
+      return { success: true, data };
+    } catch (error) {
+      console.error('API PUT error:', error);
+      return { success: false, error: 'Network error' };
+    }
   }
 
   async delete<T>(endpoint: string): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, { method: 'DELETE' });
+    try {
+      const url = `${this.supabaseUrl}/rest/v1${endpoint}`;
+      const response = await fetch(url, {
+        method: 'DELETE',
+        headers: this.getHeaders(),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        return { success: false, error: data.message || 'Request failed' };
+      }
+
+      return { success: true, data: null as T };
+    } catch (error) {
+      console.error('API DELETE error:', error);
+      return { success: false, error: 'Network error' };
+    }
   }
 }
 
-export const apiService = new ApiService(API_BASE_URL);
-export type { ApiResponse };
+export const apiService = new ApiService();
 

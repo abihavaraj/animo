@@ -1,6 +1,5 @@
 import { Body, Caption, H1, H2 } from '@/components/ui/Typography';
 import { Colors } from '@/constants/Colors';
-import { layout, spacing } from '@/constants/Spacing';
 import { useThemeColor } from '@/hooks/useThemeColor';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -8,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { Dimensions, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Button as PaperButton, Card as PaperCard } from 'react-native-paper';
 import { useDispatch } from 'react-redux';
+import { layout, spacing } from '../../../constants/Spacing';
 import { AppDispatch } from '../../store';
 
 const { width: screenWidth } = Dimensions.get('window');

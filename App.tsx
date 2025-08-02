@@ -1,105 +1,169 @@
 import { NavigationContainer } from '@react-navigation/native';
-import * as Font from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useState } from 'react';
-import { Provider as PaperProvider } from 'react-native-paper';
+import React, { useEffect, useState } from 'react';
+import { AppState, AppStateStatus, Platform } from 'react-native';
+import { DefaultTheme, Provider as PaperProvider, configureFonts } from 'react-native-paper';
+import 'react-native-reanimated';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Provider, useSelector } from 'react-redux';
-import { ErrorBoundary } from './src/components/ErrorBoundary';
-import AuthNavigator from './src/navigation/AuthNavigator';
-import MainNavigator from './src/navigation/MainNavigator';
-import { RootState, store } from './src/store';
-import { setupGlobalErrorHandlers } from './src/utils/errorHandler';
 
-console.log('🔥 App.tsx: File loaded!');
+import WebCompatibleIcon from '@/src/components/WebCompatibleIcon';
+import ErrorBoundary from './src/components/ErrorBoundary';
+import MainNavigator from './src/navigation/MainNavigator';
+import LoginScreen from './src/screens/LoginScreen';
+import { pushNotificationService } from './src/services/pushNotificationService';
+import { RootState, store } from './src/store';
+import { authReady, loadUserProfile, restoreSession } from './src/store/authSlice';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
 
-// Inner App component that has access to Redux state
+// Configure React Native Paper theme
+const paperTheme = {
+  ...DefaultTheme,
+  fonts: configureFonts({ config: {} }),
+};
+
+// Custom icon provider for React Native Paper
+const webCompatibleIconProvider = (props: any) => {
+  return <WebCompatibleIcon {...props} />;
+};
+
 function AppContent() {
-  const { user, isLoggedIn } = useSelector((state: RootState) => state.auth);
-  const [appIsReady, setAppIsReady] = useState(false);
-  
-  console.log('🎯 App.tsx: AppContent rendering, authenticated:', isLoggedIn, 'user:', user?.role);
+  const { isLoggedIn, isLoading, user } = useSelector((state: RootState) => state.auth);
 
   useEffect(() => {
-    async function prepare() {
-      try {
-        // Only load fonts on web platform to avoid issues
-        const Platform = require('react-native').Platform;
-        if (Platform.OS === 'web') {
-          // Use a timeout to prevent hanging on font loading
-          const fontLoadPromise = Font.loadAsync({
-            'MaterialIcons': require('@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialIcons.ttf'),
-            'MaterialCommunityIcons': require('@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf'),
-          });
+    if (isLoggedIn && user?.id) {
+      // Only initialize push notifications on mobile platforms
+      if (Platform.OS !== 'web') {
+        console.log('📱 [App] User is logged in, initializing push notifications...');
+        pushNotificationService.initialize().catch(error => {
+          console.error('❌ [App] Failed to initialize push notifications:', error);
+        });
 
-          const timeoutPromise = new Promise((resolve) => {
-            setTimeout(() => {
-              console.warn('⏰ Font loading timed out, proceeding anyway');
-              resolve(null);
-            }, 3000); // 3 second timeout
-          });
-
-          await Promise.race([fontLoadPromise, timeoutPromise]);
-        }
-        
-        console.log('✅ Fonts loaded successfully for web');
-      } catch (e) {
-        console.warn('⚠️ Font loading error (non-critical):', e);
-        // Don't fail the app if fonts can't load
-      } finally {
-        // Tell the application to render
-        setAppIsReady(true);
+        // Schedule class reminders for user's upcoming bookings
+        console.log('🗓️ [App] Scheduling class reminders for user...');
+        pushNotificationService.scheduleClassReminders(user.id).catch(error => {
+          console.error('❌ [App] Failed to schedule class reminders:', error);
+        });
+      } else {
+        console.log('🌐 [App] Web platform detected, skipping push notifications');
       }
     }
+  }, [isLoggedIn, user?.id]);
 
-    prepare();
-  }, []);
-
-  useEffect(() => {
-    if (appIsReady) {
-      // Hide the splash screen once everything is ready
-      SplashScreen.hideAsync();
-    }
-  }, [appIsReady]);
-
-  if (!appIsReady) {
-    // Keep splash screen visible while loading
+  // Show splash screen while checking session
+  if (isLoading) {
     return null;
   }
   
   return (
-    <PaperProvider>
-      <NavigationContainer>
-        <ErrorBoundary>
-          {isLoggedIn ? (
+    <PaperProvider theme={paperTheme} settings={{ icon: webCompatibleIconProvider }}>
+      <ErrorBoundary>
+        {isLoggedIn ? (
+          <NavigationContainer>
             <MainNavigator />
-          ) : (
-            <AuthNavigator />
-          )}
-        </ErrorBoundary>
-      </NavigationContainer>
+          </NavigationContainer>
+        ) : (
+          <LoginScreen />
+        )}
+      </ErrorBoundary>
     </PaperProvider>
   );
 }
 
-// Main App component with Redux Provider
 export default function App() {
-  console.log('🚀 App.tsx: Main App component rendering...');
-  
-  // Setup global error handlers to prevent crashes
-  useEffect(() => {
-    console.log('🛡️ Setting up global error handlers...');
-    setupGlobalErrorHandlers();
-    console.log('✅ Global error handlers initialized');
-  }, []);
-  
-  return (
-    <Provider store={store}>
-      <AppContent />
-    </Provider>
-  );
-}
+  const [appIsReady, setAppIsReady] = useState(false);
 
-console.log('✅ App.tsx: Exporting App component'); 
+  useEffect(() => {
+    async function initializeApp() {
+      try {
+        console.log('🚀 [App] Initializing app...');
+        
+        // Create a fallback timeout to prevent app from getting stuck
+        const initTimeout = setTimeout(() => {
+          console.warn('⚠️ [App] Initialization timeout - forcing app to show');
+          store.dispatch(authReady());
+          setAppIsReady(true);
+          SplashScreen.hideAsync().catch(console.error);
+        }, 20000); // 20 second max wait time
+        
+        try {
+          // Attempt to restore session automatically (like Instagram/WhatsApp)
+          console.log('🔄 [App] Checking for existing session...');
+          
+          // Add timeout protection for the session restoration
+          const sessionPromise = store.dispatch(restoreSession());
+          const sessionTimeout = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Session restore timeout')), 15000)
+          );
+          
+          await Promise.race([sessionPromise, sessionTimeout]);
+          console.log('✅ [App] Session restoration completed');
+          
+        } catch (sessionError) {
+          console.warn('⚠️ [App] Session restoration failed/timeout:', sessionError);
+          // Continue anyway - user will see login screen
+        }
+        
+        // Clear the fallback timeout since we completed normally
+        clearTimeout(initTimeout);
+        console.log('✅ [App] App initialization complete');
+        
+      } catch (error) {
+        console.error('❌ [App] Error during app initialization:', error);
+        // Even if there's an error, we should still show the app
+      } finally {
+        // Always mark auth as ready and hide splash screen
+        store.dispatch(authReady());
+        setAppIsReady(true);
+        
+        try {
+          await SplashScreen.hideAsync();
+          console.log('🎯 [App] Splash screen hidden, app ready');
+        } catch (splashError) {
+          console.error('⚠️ [App] Error hiding splash screen:', splashError);
+        }
+      }
+    }
+
+    initializeApp();
+  }, []);
+
+  // Handle app state changes (foreground/background)
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      console.log('📱 [App] App state changed to:', nextAppState);
+      
+      // When app comes to foreground, validate session if user is logged in
+      if (nextAppState === 'active') {
+        const currentState = store.getState();
+        if (currentState.auth.isLoggedIn) {
+          console.log('🔄 [App] App became active - Supabase handles session refresh automatically');
+          
+          // Optionally refresh user profile (non-blocking)
+          console.log('🔄 [App] Refreshing user profile on app activation');
+          store.dispatch(loadUserProfile()).catch((error: any) => {
+            console.warn('⚠️ [App] Profile refresh failed (non-critical):', error);
+          });
+        }
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription?.remove();
+  }, []);
+
+  // Don't render anything until app is ready
+  if (!appIsReady) {
+    return null;
+  }
+
+  return (
+    <SafeAreaProvider>
+      <Provider store={store}>
+        <AppContent />
+      </Provider>
+    </SafeAreaProvider>
+  );
+} 

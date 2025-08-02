@@ -87,8 +87,8 @@ export const SupabaseTest: React.FC = () => {
       <View style={styles.configContainer}>
         <Text style={styles.configTitle}>Current Configuration:</Text>
         <Text style={styles.configText}>API Mode: {API_MODE_CONFIG.currentMode}</Text>
-        <Text style={styles.configText}>Fallback: {API_MODE_CONFIG.fallbackMode}</Text>
-        <Text style={styles.configText}>Real-time: {API_MODE_CONFIG.enableRealTime ? 'Enabled' : 'Disabled'}</Text>
+        <Text style={styles.configText}>Fallback Mode: {API_MODE_CONFIG.fallbackMode}</Text>
+        <Text style={styles.configText}>Fallback Enabled: {API_MODE_CONFIG.enableFallback ? 'Yes' : 'No'}</Text>
       </View>
     </View>
   );

@@ -1,13 +1,12 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import {
-    CreatePlanRequest,
-    PurchaseSubscriptionRequest,
-    SubscriptionPlan,
-    subscriptionService,
-    UpdatePlanRequest,
-    UserSubscription
+  CreatePlanRequest,
+  PurchaseSubscriptionRequest,
+  SubscriptionPlan,
+  subscriptionService,
+  UpdatePlanRequest,
+  UserSubscription
 } from '../services/subscriptionService';
-import { resetAppState } from './authSlice';
 
 interface SubscriptionState {
   plans: SubscriptionPlan[];
@@ -135,11 +134,6 @@ const subscriptionSlice = createSlice({
     },
   },
   extraReducers: (builder) => {
-    // Reset subscription state when user logs out
-    builder.addCase(resetAppState, () => {
-      return initialState;
-    });
-
     // Fetch Plans
     builder
       .addCase(fetchPlans.pending, (state) => {
@@ -299,6 +293,14 @@ const subscriptionSlice = createSlice({
         state.isLoading = false;
         state.error = action.payload as string;
       });
+
+    // Handle logout by resetting state - MUST be after all addCase calls
+    builder.addMatcher(
+      (action) => action.type === 'auth/logout',
+      () => {
+        return initialState;
+      }
+    );
   },
 });
 

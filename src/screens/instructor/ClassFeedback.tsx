@@ -1,37 +1,22 @@
-import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Card, Chip, Divider, FAB, IconButton, Modal, Paragraph, Portal, Searchbar, Surface, TextInput, Title } from 'react-native-paper';
 import { useSelector } from 'react-redux';
+import WebCompatibleIcon from '../../components/WebCompatibleIcon';
 import { bookingService } from '../../services/bookingService';
 import { BackendClass, classService } from '../../services/classService';
+import { ClassFeedback as ClassFeedbackType, feedbackService } from '../../services/feedbackService';
 import { RootState } from '../../store';
 
 interface ClassWithFeedback extends BackendClass {
-  feedback?: ClassFeedback;
+  feedback?: ClassFeedbackType;
   attendees?: any[];
 }
 
-interface ClassFeedback {
-  id: number;
-  classId: number;
-  instructorId: number;
-  overallRating: number;
-  energyLevel: 'low' | 'medium' | 'high';
-  difficultyFeedback: 'too_easy' | 'just_right' | 'too_hard';
-  classSummary: string;
-  achievements: string;
-  challenges: string;
-  improvements: string;
-  studentHighlights: StudentHighlight[];
-  privateNotes: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 interface StudentHighlight {
-  studentId: number;
-  studentName: string;
+  id?: number;
+  student_id: number;
+  student_name: string;
   type: 'improvement' | 'achievement' | 'concern' | 'milestone';
   note: string;
 }
@@ -49,21 +34,21 @@ function ClassFeedback() {
   const [filter, setFilter] = useState<'all' | 'completed' | 'no_feedback'>('completed');
 
   // Feedback form state
-  const [feedbackForm, setFeedbackForm] = useState<Partial<ClassFeedback>>({
-    overallRating: 5,
-    energyLevel: 'medium',
-    difficultyFeedback: 'just_right',
-    classSummary: '',
+  const [feedbackForm, setFeedbackForm] = useState<Partial<ClassFeedbackType>>({
+    overall_rating: 5,
+    energy_level: 'medium',
+    difficulty_feedback: 'just_right',
+    class_summary: '',
     achievements: '',
     challenges: '',
     improvements: '',
-    studentHighlights: [],
-    privateNotes: '',
+    student_highlights: [],
+    private_notes: '',
   });
 
   const [newStudentHighlight, setNewStudentHighlight] = useState({
-    studentId: 0,
-    studentName: '',
+    student_id: 0,
+    student_name: '',
     type: 'improvement' as StudentHighlight['type'],
     note: '',
   });
@@ -79,18 +64,33 @@ function ClassFeedback() {
   const loadClassData = async () => {
     try {
       setLoading(true);
-      const response = await classService.getInstructorClasses(user?.id || 5);
+      if (!user?.id) return;
+
+      const response = await classService.getInstructorClasses(Number(user.id));
       
       if (response.success && response.data) {
-        // Filter to past classes only and add mock feedback data
-        const pastClasses = response.data
-          .filter(cls => new Date(`${cls.date} ${cls.time}`) < new Date())
-          .map(cls => ({
-            ...cls,
-            feedback: Math.random() > 0.6 ? createMockFeedback(cls.id) : undefined,
-          }));
+        // Filter to past classes only and load their feedback
+        const pastClasses = response.data.filter(cls => 
+          new Date(`${cls.date} ${cls.time}`) < new Date()
+        );
         
-        setClasses(pastClasses);
+        // Load feedback for each class
+        const classesWithFeedback = await Promise.all(
+          pastClasses.map(async (cls) => {
+            try {
+              const feedbackResponse = await feedbackService.getClassFeedback(cls.id);
+              return {
+                ...cls,
+                feedback: feedbackResponse.success ? feedbackResponse.data : undefined,
+              };
+            } catch (error) {
+              console.error(`Failed to load feedback for class ${cls.id}:`, error);
+              return { ...cls, feedback: undefined };
+            }
+          })
+        );
+        
+        setClasses(classesWithFeedback);
       }
     } catch (error) {
       console.error('Failed to load class data:', error);
@@ -99,30 +99,6 @@ function ClassFeedback() {
       setLoading(false);
     }
   };
-
-  const createMockFeedback = (classId: number): ClassFeedback => ({
-    id: Math.random(),
-    classId,
-    instructorId: user?.id || 5,
-    overallRating: Math.floor(Math.random() * 2) + 4, // 4-5 stars
-    energyLevel: ['medium', 'high'][Math.floor(Math.random() * 2)] as 'medium' | 'high',
-    difficultyFeedback: ['just_right', 'too_hard'][Math.floor(Math.random() * 2)] as 'just_right' | 'too_hard',
-    classSummary: 'Great energy from the group today. Everyone seemed engaged and focused.',
-    achievements: 'Several students nailed their first full roll-up sequence!',
-    challenges: 'Some difficulty with the teaser variations - need more core prep.',
-    improvements: 'Add more breathing cues during challenging sequences.',
-    studentHighlights: [
-      {
-        studentId: 1,
-        studentName: 'Sarah Wilson',
-        type: 'achievement',
-        note: 'Completed her first unassisted roll-up!'
-      }
-    ],
-    privateNotes: 'Check with Michael about lower back - seemed uncomfortable during bridging.',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  });
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -160,17 +136,33 @@ function ClassFeedback() {
       }
       
       setSelectedClass(classObj);
-      setFeedbackForm({
-        overallRating: 5,
-        energyLevel: 'medium',
-        difficultyFeedback: 'just_right',
-        classSummary: '',
-        achievements: '',
-        challenges: '',
-        improvements: '',
-        studentHighlights: [],
-        privateNotes: '',
-      });
+      
+      // Load existing feedback if available, otherwise reset form
+      if (classObj.feedback) {
+        setFeedbackForm({
+          overall_rating: classObj.feedback.overall_rating,
+          energy_level: classObj.feedback.energy_level,
+          difficulty_feedback: classObj.feedback.difficulty_feedback,
+          class_summary: classObj.feedback.class_summary,
+          achievements: classObj.feedback.achievements || '',
+          challenges: classObj.feedback.challenges || '',
+          improvements: classObj.feedback.improvements || '',
+          student_highlights: classObj.feedback.student_highlights || [],
+          private_notes: classObj.feedback.private_notes || '',
+        });
+      } else {
+        setFeedbackForm({
+          overall_rating: 5,
+          energy_level: 'medium',
+          difficulty_feedback: 'just_right',
+          class_summary: '',
+          achievements: '',
+          challenges: '',
+          improvements: '',
+          student_highlights: [],
+          private_notes: '',
+        });
+      }
       setFeedbackModalVisible(true);
     } catch (error) {
       console.error('Failed to load class attendees:', error);
@@ -185,26 +177,26 @@ function ClassFeedback() {
   };
 
   const addStudentHighlight = () => {
-    if (!newStudentHighlight.studentName || !newStudentHighlight.note) {
+    if (!newStudentHighlight.student_name || !newStudentHighlight.note) {
       Alert.alert('Error', 'Please fill in student name and note');
       return;
     }
 
     const highlight: StudentHighlight = {
-      studentId: newStudentHighlight.studentId || Date.now(),
-      studentName: newStudentHighlight.studentName,
+      student_id: newStudentHighlight.student_id || Date.now(),
+      student_name: newStudentHighlight.student_name,
       type: newStudentHighlight.type,
       note: newStudentHighlight.note,
     };
 
     setFeedbackForm(prev => ({
       ...prev,
-      studentHighlights: [...(prev.studentHighlights || []), highlight],
+      student_highlights: [...(prev.student_highlights || []), highlight],
     }));
 
     setNewStudentHighlight({
-      studentId: 0,
-      studentName: '',
+      student_id: 0,
+      student_name: '',
       type: 'improvement',
       note: '',
     });
@@ -213,43 +205,52 @@ function ClassFeedback() {
   const removeStudentHighlight = (index: number) => {
     setFeedbackForm(prev => ({
       ...prev,
-      studentHighlights: prev.studentHighlights?.filter((_, i) => i !== index) || [],
+      student_highlights: prev.student_highlights?.filter((_, i) => i !== index) || [],
     }));
   };
 
   const saveFeedback = async () => {
-    if (!selectedClass || !feedbackForm.classSummary?.trim()) {
+    if (!selectedClass || !feedbackForm.class_summary?.trim() || !user?.id) {
       Alert.alert('Error', 'Please add at least a class summary');
       return;
     }
 
     try {
-      // This would call a backend API to save the feedback
-      const newFeedback: ClassFeedback = {
-        id: Date.now(),
+      const feedbackData = {
         classId: selectedClass.id,
-        instructorId: user?.id || 5,
-        overallRating: feedbackForm.overallRating || 5,
-        energyLevel: feedbackForm.energyLevel || 'medium',
-        difficultyFeedback: feedbackForm.difficultyFeedback || 'just_right',
-        classSummary: feedbackForm.classSummary?.trim() || '',
-        achievements: feedbackForm.achievements?.trim() || '',
-        challenges: feedbackForm.challenges?.trim() || '',
-        improvements: feedbackForm.improvements?.trim() || '',
-        studentHighlights: feedbackForm.studentHighlights || [],
-        privateNotes: feedbackForm.privateNotes?.trim() || '',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        instructorId: Number(user.id),
+        overallRating: feedbackForm.overall_rating || 5,
+        energyLevel: feedbackForm.energy_level || 'medium',
+        difficultyFeedback: feedbackForm.difficulty_feedback || 'just_right',
+        classSummary: feedbackForm.class_summary.trim(),
+        achievements: feedbackForm.achievements?.trim(),
+        challenges: feedbackForm.challenges?.trim(),
+        improvements: feedbackForm.improvements?.trim(),
+        studentHighlights: feedbackForm.student_highlights || [],
+        privateNotes: feedbackForm.private_notes?.trim(),
       };
 
-      // Update local state
-      const updatedClasses = classes.map(cls => 
-        cls.id === selectedClass.id ? { ...cls, feedback: newFeedback } : cls
-      );
-      setClasses(updatedClasses);
-      
-      setFeedbackModalVisible(false);
-      Alert.alert('Success', 'Class feedback saved successfully');
+      let response;
+      if (selectedClass.feedback) {
+        // Update existing feedback
+        response = await feedbackService.updateFeedback(selectedClass.feedback.id, feedbackData);
+      } else {
+        // Create new feedback
+        response = await feedbackService.createFeedback(feedbackData);
+      }
+
+      if (response.success) {
+        // Update local state
+        const updatedClasses = classes.map(cls => 
+          cls.id === selectedClass.id ? { ...cls, feedback: response.data } : cls
+        );
+        setClasses(updatedClasses);
+        
+        setFeedbackModalVisible(false);
+        Alert.alert('Success', 'Class feedback saved successfully');
+      } else {
+        Alert.alert('Error', response.error || 'Failed to save feedback');
+      }
     } catch (error) {
       console.error('Failed to save feedback:', error);
       Alert.alert('Error', 'Failed to save feedback');
@@ -343,13 +344,13 @@ function ClassFeedback() {
                   <Title style={styles.className}>{classObj.name}</Title>
                   <View style={styles.classDetails}>
                     <View style={styles.detailRow}>
-                      <MaterialIcons name="access-time" size={16} color="#666" />
+                      <WebCompatibleIcon name="access-time" size={16} color="#666" />
                       <Paragraph style={styles.detailText}>
                         {formatDate(classObj.date)} at {formatTime(classObj.time)}
                       </Paragraph>
                     </View>
                     <View style={styles.detailRow}>
-                      <MaterialIcons name="group" size={16} color="#666" />
+                      <WebCompatibleIcon name="group" size={16} color="#666" />
                       <Paragraph style={styles.detailText}>
                         {`${classObj.enrolled || 0}/${classObj.capacity} students`}
                       </Paragraph>
@@ -385,9 +386,9 @@ function ClassFeedback() {
                     <Paragraph style={styles.ratingLabel}>Overall:</Paragraph>
                     <View style={styles.starsContainer}>
                       {[1, 2, 3, 4, 5].map((star) => (
-                        <MaterialIcons
+                        <WebCompatibleIcon
                           key={star}
-                          name={star <= classObj.feedback!.overallRating ? "star" : "star-border"}
+                          name={star <= classObj.feedback!.overall_rating ? "star" : "star-border"}
                           size={16}
                           color="#ffa726"
                         />
@@ -397,18 +398,18 @@ function ClassFeedback() {
                       style={styles.energyChip}
                       textStyle={{ fontSize: 11 }}
                     >
-                      {classObj.feedback.energyLevel} energy
+                      {classObj.feedback.energy_level} energy
                     </Chip>
                   </View>
                   
                   <Paragraph style={styles.summaryPreview} numberOfLines={2}>
-                    {classObj.feedback.classSummary}
+                    {classObj.feedback.class_summary}
                   </Paragraph>
 
-                  {classObj.feedback.studentHighlights.length > 0 && (
+                  {classObj.feedback.student_highlights && classObj.feedback.student_highlights.length > 0 && (
                     <View style={styles.highlightsPreview}>
                       <Paragraph style={styles.highlightsLabel}>
-                        {`${classObj.feedback.studentHighlights.length} Student Highlight(s)`}
+                        {`${classObj.feedback.student_highlights.length} Student Highlight(s)`}
                       </Paragraph>
                     </View>
                   )}
@@ -443,7 +444,7 @@ function ClassFeedback() {
                     mode="contained"
                     onPress={() => openAddFeedback(classObj)}
                     style={[styles.actionButton, { flex: 1 }]}
-                    icon="note-plus"
+                    icon="note-add"
                   >
                     Add Feedback
                   </Button>
@@ -455,7 +456,7 @@ function ClassFeedback() {
 
         {filteredClasses.length === 0 && !loading && (
           <View style={styles.emptyContainer}>
-            <MaterialIcons name="rate-review" size={64} color="#ccc" />
+            <WebCompatibleIcon name="rate-review" size={64} color="#ccc" />
             <Title style={styles.emptyTitle}>No Classes Found</Title>
             <Paragraph style={styles.emptyText}>
               {filter === 'no_feedback' 
@@ -498,8 +499,8 @@ function ClassFeedback() {
                     {[1, 2, 3, 4, 5].map((rating) => (
                       <IconButton
                         key={rating}
-                        icon={rating <= (feedbackForm.overallRating || 0) ? "star" : "star-border"}
-                        onPress={() => setFeedbackForm(prev => ({ ...prev, overallRating: rating }))}
+                                            icon={rating <= (feedbackForm.overall_rating || 0) ? "star" : "star-border"}
+                    onPress={() => setFeedbackForm(prev => ({ ...prev, overall_rating: rating }))}
                         iconColor="#ffa726"
                         size={32}
                       />
@@ -518,8 +519,8 @@ function ClassFeedback() {
                     {(['low', 'medium', 'high'] as const).map((level) => (
                       <Chip
                         key={level}
-                        selected={feedbackForm.energyLevel === level}
-                        onPress={() => setFeedbackForm(prev => ({ ...prev, energyLevel: level }))}
+                        selected={feedbackForm.energy_level === level}
+                        onPress={() => setFeedbackForm(prev => ({ ...prev, energy_level: level }))}
                         style={styles.selectionChip}
                       >
                         {level.charAt(0).toUpperCase() + level.slice(1)}
@@ -536,8 +537,8 @@ function ClassFeedback() {
                     ] as const).map((difficulty) => (
                       <Chip
                         key={difficulty.key}
-                        selected={feedbackForm.difficultyFeedback === difficulty.key}
-                        onPress={() => setFeedbackForm(prev => ({ ...prev, difficultyFeedback: difficulty.key }))}
+                        selected={feedbackForm.difficulty_feedback === difficulty.key}
+                        onPress={() => setFeedbackForm(prev => ({ ...prev, difficulty_feedback: difficulty.key }))}
                         style={styles.selectionChip}
                       >
                         {difficulty.label}
@@ -552,8 +553,8 @@ function ClassFeedback() {
                 <Card.Content>
                   <TextInput
                     label="Class Summary *"
-                    value={feedbackForm.classSummary}
-                    onChangeText={(text) => setFeedbackForm(prev => ({ ...prev, classSummary: text }))}
+                    value={feedbackForm.class_summary}
+                    onChangeText={(text) => setFeedbackForm(prev => ({ ...prev, class_summary: text }))}
                     multiline
                     numberOfLines={3}
                     style={styles.textInput}
@@ -602,8 +603,8 @@ function ClassFeedback() {
                   <View style={styles.addHighlightContainer}>
                     <TextInput
                       label="Student Name"
-                      value={newStudentHighlight.studentName}
-                      onChangeText={(text) => setNewStudentHighlight(prev => ({ ...prev, studentName: text }))}
+                      value={newStudentHighlight.student_name}
+                      onChangeText={(text) => setNewStudentHighlight(prev => ({ ...prev, student_name: text }))}
                       style={styles.highlightInput}
                     />
                     
@@ -647,23 +648,23 @@ function ClassFeedback() {
                   </View>
 
                   {/* Existing Highlights */}
-                  {feedbackForm.studentHighlights && feedbackForm.studentHighlights.length > 0 && (
+                  {feedbackForm.student_highlights && feedbackForm.student_highlights.length > 0 && (
                     <View style={styles.existingHighlights}>
                       <Divider style={styles.divider} />
                       <Paragraph style={styles.existingHighlightsLabel}>
-                        {`Added Highlights (${feedbackForm.studentHighlights.length})`}
+                        {`Added Highlights (${feedbackForm.student_highlights.length})`}
                       </Paragraph>
                       
-                      {feedbackForm.studentHighlights.map((highlight, index) => (
+                      {feedbackForm.student_highlights.map((highlight, index) => (
                         <View key={index} style={styles.highlightItem}>
                           <View style={styles.highlightContent}>
                             <View style={styles.highlightHeader}>
-                              <MaterialIcons 
+                              <WebCompatibleIcon 
                                 name={getHighlightIcon(highlight.type)} 
                                 size={20} 
                                 color={getHighlightColor(highlight.type)} 
                               />
-                              <Paragraph style={styles.highlightStudent}>{highlight.studentName}</Paragraph>
+                              <Paragraph style={styles.highlightStudent}>{highlight.student_name}</Paragraph>
                               <Chip 
                                 style={[styles.highlightTypeChip, { backgroundColor: getHighlightColor(highlight.type) + '20' }]}
                                 textStyle={{ fontSize: 11 }}
@@ -691,8 +692,8 @@ function ClassFeedback() {
                 <Card.Content>
                   <TextInput
                     label="Private Notes (Instructor Only)"
-                    value={feedbackForm.privateNotes}
-                    onChangeText={(text) => setFeedbackForm(prev => ({ ...prev, privateNotes: text }))}
+                    value={feedbackForm.private_notes}
+                    onChangeText={(text) => setFeedbackForm(prev => ({ ...prev, private_notes: text }))}
                     multiline
                     numberOfLines={3}
                     style={styles.textInput}
@@ -714,7 +715,7 @@ function ClassFeedback() {
                   mode="contained"
                   onPress={saveFeedback}
                   style={styles.modalActionButton}
-                  disabled={!feedbackForm.classSummary?.trim()}
+                  disabled={!feedbackForm.class_summary?.trim()}
                 >
                   Save Feedback
                 </Button>
@@ -752,7 +753,7 @@ function ClassFeedback() {
                   <View style={styles.feedbackRating}>
                     <View style={styles.starsContainer}>
                       {[1, 2, 3, 4, 5].map((star) => (
-                        <MaterialIcons
+                        <WebCompatibleIcon
                           key={star}
                           name={star <= selectedClass.feedback!.overallRating ? "star" : "star-border"}
                           size={24}
@@ -800,7 +801,7 @@ function ClassFeedback() {
                       {selectedClass.feedback.studentHighlights.map((highlight, index) => (
                         <View key={index} style={styles.viewHighlightItem}>
                           <View style={styles.highlightHeader}>
-                            <MaterialIcons 
+                            <WebCompatibleIcon 
                               name={getHighlightIcon(highlight.type)} 
                               size={18} 
                               color={getHighlightColor(highlight.type)} 
@@ -822,7 +823,7 @@ function ClassFeedback() {
                   {selectedClass.feedback.privateNotes && (
                     <>
                       <Title style={styles.feedbackSectionTitle}>
-                        <MaterialIcons name="lock" size={18} color="#666" /> Private Notes
+                        <WebCompatibleIcon name="lock" size={18} color="#666" /> Private Notes
                       </Title>
                       <Paragraph style={[styles.feedbackText, styles.privateText]}>
                         {selectedClass.feedback.privateNotes}

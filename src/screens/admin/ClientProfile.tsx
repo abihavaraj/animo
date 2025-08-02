@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { RouteProp, useRoute } from '@react-navigation/native';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Platform, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
     ActivityIndicator,
@@ -19,15 +19,22 @@ import {
 } from 'react-native-paper';
 import { useSelector } from 'react-redux';
 import { apiService } from '../../services/api';
-import { paymentService } from '../../services/paymentService';
+import { bookingService } from '../../services/bookingService';
 import { SubscriptionPlan, subscriptionService } from '../../services/subscriptionService';
 import { BackendUser, userService } from '../../services/userService';
 import { RootState } from '../../store';
 
 type ClientProfileRoute = {
   ClientProfile: {
-    userId: number;
+    userId: number | string;
     userName?: string;
+  };
+};
+
+type RouteParams = {
+  ClientProfile: {
+    userId: number | string;
+    userName: string;
   };
 };
 
@@ -96,13 +103,55 @@ interface SubscriptionHistory {
   } | null;
 }
 
-function ClientProfile() {
-  const route = useRoute<RouteProp<ClientProfileRoute, 'ClientProfile'>>();
-  const { userId, userName } = route.params;
-  const { token } = useSelector((state: RootState) => state.auth);
+// Main ClientProfile component with fallback for reception dashboard
+function ClientProfile({ userId: propUserId, userName: propUserName }: { userId?: number | string; userName?: string } = {}) {
+  const { token, isLoggedIn, user } = useSelector((state: RootState) => state.auth);
+  
+  // Try to get route params, but handle case where useRoute fails (reception dashboard)
+  let routeUserId: number | string | undefined;
+  let routeUserName: string | undefined;
+  
+  try {
+    const route = useRoute<RouteProp<RouteParams, 'ClientProfile'>>();
+    routeUserId = route.params?.userId;
+    routeUserName = route.params?.userName;
+    console.log('🔍 ClientProfile got route params:', { routeUserId, routeUserName });
+    } catch (error) {
+    console.log('🔍 ClientProfile: useRoute failed (probably reception dashboard), using props instead');
+    routeUserId = undefined;
+    routeUserName = undefined;
+  }
+  
+  // Use props if route params are not available (reception dashboard scenario)
+  const userId = propUserId || routeUserId;
+  const userName = propUserName || routeUserName;
+  
+  console.log('🔍 ClientProfile final params:', { 
+    userId, 
+    userName,
+    propUserId,
+    propUserName,
+    routeUserId,
+    routeUserName,
+    tokenExists: !!token, 
+    isLoggedIn, 
+    userExists: !!user,
+    userRole: user?.role 
+  });
 
-  console.log('🔍 ClientProfile component loaded with params:', { userId, userName });
-  console.log('🔍 Auth token exists:', !!token);
+  // Validate that we have a userId
+  if (!userId) {
+    console.error('❌ ClientProfile: No userId provided');
+    return (
+      <View style={styles.errorContainer}>
+        <MaterialIcons name="error" size={64} color="#f44336" />
+        <Title style={styles.errorTitle}>Invalid User ID</Title>
+        <Paragraph style={styles.errorText}>
+          No user ID was provided. Please try again.
+        </Paragraph>
+      </View>
+    );
+  }
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -117,6 +166,10 @@ function ClientProfile() {
   const [clientLifecycle, setClientLifecycle] = useState<any>(null);
   const [clientActivity, setClientActivity] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'overview' | 'bookings' | 'payments' | 'subscriptions' | 'notes' | 'documents' | 'lifecycle' | 'activity'>('overview');
+
+  // Use ref to persist activeTab across re-renders
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
 
   // Modal state for web-compatible dialogs
   const [cancelDialogVisible, setCancelDialogVisible] = useState(false);
@@ -179,9 +232,28 @@ function ClientProfile() {
     if (token) {
       apiService.setToken(token);
     }
-    loadClientData();
-    loadAvailablePlans();
+    
+    // Wrap in try-catch to prevent any errors from crashing the app
+    try {
+      loadClientData();
+      loadAvailablePlans();
+    } catch (error) {
+      console.error('❌ Error in ClientProfile useEffect:', error);
+      setLoading(false);
+    }
   }, [userId, token]);
+
+  // Monitor activeTab changes
+  useEffect(() => {
+    console.log('🔍 activeTab changed to:', activeTab);
+  }, [activeTab]);
+
+  const handleTabChange = (newTab: typeof activeTab) => {
+    console.log('🔍 handleTabChange called with:', newTab);
+    console.log('🔍 Current activeTab before change:', activeTab);
+    setActiveTab(newTab);
+    console.log('🔍 activeTab set to:', newTab);
+  };
 
   const loadClientData = async () => {
     // Check if userId is valid before making API calls
@@ -193,17 +265,19 @@ function ClientProfile() {
     
     try {
       setLoading(true);
+      
+      // Load each section independently to prevent one failure from breaking everything
       await Promise.all([
-        loadClientDetails(),
-        loadClientStats(),
-        loadBookingHistory(),
-        loadPaymentHistory(),
-        loadSubscriptionHistory(),
-        loadAssignmentHistory(),
-        loadClientNotes(),
-        loadClientDocuments(),
-        loadClientLifecycle(),
-        loadClientActivity()
+        loadClientDetails().catch(error => console.error('Client details error:', error)),
+        loadClientStats().catch(error => console.error('Client stats error:', error)),
+        loadBookingHistory().catch(error => console.error('Booking history error:', error)),
+        loadPaymentHistory().catch(error => console.error('Payment history error:', error)),
+        loadSubscriptionHistory().catch(error => console.error('Subscription history error:', error)),
+        loadAssignmentHistory().catch(error => console.error('Assignment history error:', error)),
+        loadClientNotes().catch(error => console.error('Client notes error:', error)),
+        loadClientDocuments().catch(error => console.error('Client documents error:', error)),
+        loadClientLifecycle().catch(error => console.error('Client lifecycle error:', error)),
+        loadClientActivity().catch(error => console.error('Client activity error:', error))
       ]);
     } catch (error) {
       console.error('Failed to load client data:', error);
@@ -225,7 +299,7 @@ function ClientProfile() {
       console.log('🔍 Loading client details for userId:', userId);
       console.log('🔍 Current auth token:', token ? 'Token exists' : 'No token');
       
-      const response = await userService.getUser(userId);
+      const response = await userService.getUser(String(userId));
       console.log('🔍 UserService response:', response);
       
       if (response.success && response.data) {
@@ -251,8 +325,8 @@ function ClientProfile() {
     try {
       console.log('📊 Loading client stats for user:', userId);
       
-      // Get booking stats using apiService
-      const bookingStatsResponse = await apiService.get(`/api/bookings/user/${userId}/stats`);
+      // Get booking stats using bookingService (Supabase)
+      const bookingStatsResponse = await bookingService.getBookingStatsForUser(userId);
       console.log('📊 Booking stats response:', bookingStatsResponse);
       
       if (bookingStatsResponse.success && bookingStatsResponse.data) {
@@ -272,9 +346,9 @@ function ClientProfile() {
           noShowBookings: bookingStatsData.statusBreakdown?.no_show || 0,
         };
         
-        // Get subscription stats using apiService
+        // Get subscription stats using subscriptionService (Supabase)
         console.log('💳 Loading subscription stats for user:', userId);
-        const subscriptionStatsResponse = await apiService.get(`/api/subscriptions/user/${userId}/stats`);
+        const subscriptionStatsResponse = await subscriptionService.getSubscriptionStatsForUser(userId);
         console.log('💳 Subscription stats response:', subscriptionStatsResponse);
         
         if (subscriptionStatsResponse.success && subscriptionStatsResponse.data) {
@@ -300,7 +374,7 @@ function ClientProfile() {
     
     try {
       console.log('📅 Loading booking history for user:', userId);
-      const response = await apiService.get(`/api/bookings/user/${userId}`);
+      const response = await bookingService.getBookings();
       console.log('📅 Booking history response:', response);
       
       if (response.success && response.data) {
@@ -314,14 +388,14 @@ function ClientProfile() {
 
   const loadPaymentHistory = async () => {
     try {
-      const response = await paymentService.getAllPayments({ userId });
-      if (response.success && response.data) {
+      const response = await apiService.get(`/payments?user_id=eq.${userId}&select=*&order=created_at.desc`);
+      if (response.success && response.data && Array.isArray(response.data)) {
         setPaymentHistory(response.data);
         
         // Calculate total spent
         const totalSpent = response.data
-          .filter(p => p.status === 'completed')
-          .reduce((sum, payment) => sum + payment.amount, 0);
+          .filter((p: any) => p.status === 'completed')
+          .reduce((sum: number, payment: any) => sum + payment.amount, 0);
         
         if (clientStats) {
           setClientStats({ ...clientStats, totalSpent });
@@ -341,14 +415,14 @@ function ClientProfile() {
     
     try {
       console.log('💳 🆕 UPDATED CODE - Loading subscription history for user:', userId, 'at', new Date().toISOString());
-      const response = await apiService.get(`/api/subscriptions/user/${userId}`);
+      const response = await apiService.get(`/user_subscriptions?user_id=eq.${userId}&select=*,subscription_plans!inner(name,equipment_access,monthly_price,monthly_classes,category,features)&order=created_at.desc`);
       console.log('💳 Subscription history response:', response);
       
       if (response.success && response.data) {
         // Process and validate the subscription data
         console.log('💳 RAW API RESPONSE:', JSON.stringify(response.data, null, 2));
         
-        const processedSubscriptions = (response.data as SubscriptionHistory[]).map(subscription => {
+        const processedSubscriptions = (response.data as any[]).map(subscription => {
           // Double-check subscription status based on end date
           const endDate = new Date(subscription.end_date);
           const today = new Date();
@@ -357,9 +431,21 @@ function ClientProfile() {
           // If the subscription should be expired but isn't marked as such, correct it locally
           const correctedStatus = isExpired && subscription.status === 'active' ? 'expired' : subscription.status;
           
+          // Transform Supabase response to expected format
+          const transformedSubscription = {
+            ...subscription,
+            plan_name: subscription.subscription_plans?.name || 'Unknown Plan',
+            equipment_access: subscription.subscription_plans?.equipment_access || 'mat',
+            monthly_price: subscription.subscription_plans?.monthly_price || 0,
+            monthly_classes: subscription.subscription_plans?.monthly_classes || 0,
+            category: subscription.subscription_plans?.category || 'group',
+            features: subscription.subscription_plans?.features || [],
+            status: correctedStatus
+          };
+          
           console.log(`💳 PROCESSING SUBSCRIPTION:`);
           console.log(`   ID: ${subscription.id}`);
-          console.log(`   Plan: ${subscription.plan_name}`);
+          console.log(`   Plan: ${transformedSubscription.plan_name}`);
           console.log(`   Original Status: "${subscription.status}"`);
           console.log(`   End Date: ${subscription.end_date}`);
           console.log(`   Today: ${today.toISOString().split('T')[0]}`);
@@ -368,10 +454,7 @@ function ClientProfile() {
           console.log(`   ${correctedStatus === 'active' ? '🟢 WILL SHOW AS ACTIVE' : '🔴 WILL SHOW AS EXPIRED'}`);
           console.log('');
           
-          return {
-            ...subscription,
-            status: correctedStatus
-          };
+          return transformedSubscription;
         });
         
         setSubscriptionHistory(processedSubscriptions);
@@ -391,15 +474,12 @@ function ClientProfile() {
     
     try {
       console.log('📊 Loading assignment history for user:', userId);
-      const response = await apiService.get(`/api/subscriptions/assignments?userId=${userId}`);
+      const response = await apiService.get(`/manual_credits?user_id=eq.${userId}&select=*&order=created_at.desc`);
       console.log('📊 Assignment history response:', response);
       
-      if (response.success && response.data) {
-        const assignments = (response.data as any).assignments || [];
-        // Filter assignments for this specific user
-        const userAssignments = assignments.filter((assignment: any) => assignment.user_id === userId);
-        setAssignmentHistory(userAssignments);
-        console.log('✅ Assignment history loaded:', userAssignments.length, 'assignments');
+      if (response.success && response.data && Array.isArray(response.data)) {
+        setAssignmentHistory(response.data);
+        console.log('✅ Assignment history loaded:', response.data.length, 'assignments');
       }
     } catch (error) {
       console.error('Failed to load assignment history:', error);
@@ -415,7 +495,7 @@ function ClientProfile() {
     
     try {
       console.log('📝 Loading client notes for user:', userId);
-              const response = await apiService.get(`/api/client-notes/${userId}`);
+      const response = await apiService.get(`/client_notes?client_id=eq.${userId}&select=*`);
       console.log('📝 Client notes response:', response);
       
       if (response.success && response.data && Array.isArray(response.data)) {
@@ -439,7 +519,7 @@ function ClientProfile() {
     
     try {
       console.log('📄 Loading client documents for user:', userId);
-      const response = await apiService.get(`/api/client-documents/${userId}`);
+      const response = await apiService.get(`/client_documents?client_id=eq.${userId}&select=*`);
       console.log('📄 Client documents response:', response);
       
       if (response.success && response.data && Array.isArray(response.data)) {
@@ -463,17 +543,18 @@ function ClientProfile() {
     
     try {
       console.log('👥 Loading client lifecycle for user:', userId);
-      const response = await apiService.get(`/api/client-lifecycle/${userId}`);
+      const response = await apiService.get(`/client_lifecycle?client_id=eq.${userId}&select=*`);
       console.log('👥 Client lifecycle response:', response);
       
       if (response.success && response.data) {
         setClientLifecycle(response.data);
         console.log('✅ Client lifecycle loaded');
       } else {
+        console.log('👥 Client lifecycle table not available - using empty data');
         setClientLifecycle(null);
       }
     } catch (error) {
-      console.error('Failed to load client lifecycle:', error);
+      console.error('Failed to load client lifecycle (non-critical):', error);
       setClientLifecycle(null);
     }
   };
@@ -488,9 +569,9 @@ function ClientProfile() {
     try {
       console.log('📊 Loading client activity for user:', userId);
       console.log('📊 API token exists:', !!token);
-      console.log('📊 Making API call to:', `/api/client-activity/${userId}`);
+      console.log('📊 Making API call to:', `/client_activity_log?client_id=eq.${userId}`);
       
-      const response = await apiService.get(`/api/client-activity/${userId}`);
+      const response = await apiService.get(`/client_activity_log?client_id=eq.${userId}&select=*&order=created_at.desc`);
       console.log('📊 Client activity response:', response);
       console.log('📊 Response success:', response.success);
       console.log('📊 Response data type:', typeof response.data);
@@ -513,11 +594,11 @@ function ClientProfile() {
           });
         });
       } else {
-        console.log('❌ Setting client activity to empty array due to invalid response');
+        console.log('📊 Client activity table not available - using empty data');
         setClientActivity([]);
       }
     } catch (error) {
-      console.error('❌ Failed to load client activity:', error);
+      console.error('Failed to load client activity (non-critical):', error);
       setClientActivity([]);
     }
   };
@@ -539,7 +620,7 @@ function ClientProfile() {
     loadClientData();
   };
 
-  const formatCurrency = (amount: number) => `$${amount.toFixed(2)}`;
+  const formatCurrency = (amount: number) => `${amount.toFixed(0)} ALL`;
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -617,7 +698,7 @@ function ClientProfile() {
     try {
       if (selectedNote) {
         // Update existing note
-        const response = await apiService.put(`/api/client-notes/${selectedNote.id}`, {
+        const response = await apiService.put(`/client_notes?id=eq.${selectedNote.id}`, {
           title: noteForm.title,
           content: noteForm.content,
           noteType: noteForm.noteType,
@@ -637,8 +718,8 @@ function ClientProfile() {
         }
       } else {
         // Create new note
-        const response = await apiService.post('/api/client-notes', {
-          clientId: userId,
+        const response = await apiService.post('/client_notes', {
+          client_id: userId,
           title: noteForm.title,
           content: noteForm.content,
           noteType: noteForm.noteType,
@@ -673,7 +754,7 @@ function ClientProfile() {
             text: 'Delete',
             style: 'destructive',
             onPress: async () => {
-              const response = await apiService.delete(`/api/client-notes/${noteId}`);
+              const response = await apiService.delete(`/client_notes?id=eq.${noteId}`);
               if (response.success) {
                 console.log('✅ Note deleted successfully');
                 await loadClientNotes();
@@ -734,7 +815,7 @@ function ClientProfile() {
             text: 'Delete',
             style: 'destructive',
             onPress: async () => {
-              const response = await apiService.delete(`/api/client-documents/${documentId}`);
+              const response = await apiService.delete(`/client_documents?id=eq.${documentId}`);
               if (response.success) {
                 console.log('✅ Document deleted successfully');
                 await loadClientDocuments();
@@ -789,7 +870,7 @@ function ClientProfile() {
 
   const updateStage = async () => {
     try {
-              const response = await apiService.put(`/api/client-lifecycle/${userId}/stage`, {
+              const response = await apiService.put(`/client_lifecycle?client_id=eq.${userId}`, {
         newStage: lifecycleForm.newStage,
         notes: lifecycleForm.notes
       });
@@ -818,21 +899,13 @@ function ClientProfile() {
 
   const calculateRiskScore = async () => {
     try {
-      const response = await apiService.post(`/api/client-lifecycle/calculate-risk/${userId}`);
-
-      if (response.success) {
-        console.log('✅ Risk score calculated successfully');
-        setUpdateRiskDialogVisible(false);
-        await loadClientLifecycle();
-        const data = response.data as any;
-        Alert.alert(
-          'Risk Score Calculated',
-          `New risk score: ${data.riskScore}%\nRisk level: ${data.riskLevel}\n\nFactors: ${data.riskFactors.join(', ')}`,
-          [{ text: 'OK' }]
-        );
-      } else {
-        Alert.alert('Error', response.error || 'Failed to calculate risk score');
-      }
+      // Risk calculation requires backend logic - show manual input for now
+      Alert.alert(
+        'Risk Calculation',
+        'Automatic risk calculation requires backend processing. Please manually assess and update the risk score using the "Update Risk Score" option.',
+        [{ text: 'OK' }]
+      );
+      setUpdateRiskDialogVisible(false);
     } catch (error) {
       console.error('Calculate risk score error:', error);
       Alert.alert('Error', 'Failed to calculate risk score');
@@ -841,7 +914,7 @@ function ClientProfile() {
 
   const updateRiskScore = async () => {
     try {
-              const response = await apiService.put(`/api/client-lifecycle/${userId}/risk-score`, {
+              const response = await apiService.put(`/client_lifecycle?client_id=eq.${userId}`, {
         riskScore: lifecycleForm.riskScore,
         notes: lifecycleForm.notes
       });
@@ -925,7 +998,7 @@ function ClientProfile() {
       
       if (response.success) {
         if (Platform.OS !== 'web') {
-          Alert.alert('Success', response.message || `Subscription paused for ${pauseDays} days`);
+          Alert.alert('Success', `Subscription paused for ${pauseDays} days`);
         }
         await loadSubscriptionHistory();
         console.log('⏸️ Subscription history reloaded after pause');
@@ -1016,7 +1089,7 @@ function ClientProfile() {
       
       if (response.success) {
         if (Platform.OS !== 'web') {
-          Alert.alert('Success', response.message || 'Subscription resumed successfully');
+          Alert.alert('Success', 'Subscription resumed successfully');
         }
         await loadSubscriptionHistory();
         console.log('▶️ Subscription history reloaded after resume');
@@ -1234,7 +1307,7 @@ function ClientProfile() {
           <Button
             key={tab.key}
             mode={activeTab === tab.key ? 'contained' : 'outlined'}
-            onPress={() => setActiveTab(tab.key as typeof activeTab)}
+            onPress={() => handleTabChange(tab.key as typeof activeTab)}
             style={styles.tabButton}
             icon={tab.icon}
             compact
@@ -1242,6 +1315,12 @@ function ClientProfile() {
             {tab.label}
           </Button>
         ))}
+      </View>
+
+      {/* Debug current tab */}
+      <View style={{ padding: 10, backgroundColor: '#f0f0f0', margin: 10 }}>
+        <Text>🔍 Current activeTab: {activeTab}</Text>
+        <Text>🔍 activeTabRef.current: {activeTabRef.current}</Text>
       </View>
 
       {/* Tab Content */}
@@ -1254,7 +1333,7 @@ function ClientProfile() {
               <View style={styles.infoRow}>
                 <Paragraph style={styles.infoLabel}>Join Date:</Paragraph>
                 <Paragraph style={styles.infoValue}>
-                  {formatDate(client.join_date)}
+                  {formatDate(client.join_date ?? 'N/A')}
                 </Paragraph>
               </View>
               <View style={styles.infoRow}>
@@ -2309,7 +2388,7 @@ function ClientProfile() {
                 mode="outlined"
                 right={
                   <TextInput.Icon 
-                    icon="calendar" 
+                    icon="event" 
                     onPress={() => {
                       // Simple date/time picker - set to tomorrow at 9 AM
                       const tomorrow = new Date();
@@ -2442,7 +2521,7 @@ function ClientProfile() {
                 mode="outlined"
                 right={
                   <TextInput.Icon 
-                    icon="calendar" 
+                    icon="event" 
                     onPress={() => {
                       // Simple date/time picker - set to tomorrow at 9 AM
                       const tomorrow = new Date();

@@ -32,7 +32,7 @@ export const fetchClasses = createAsyncThunk(
 export const fetchClass = createAsyncThunk(
   'classes/fetchClass',
   async (id: number, { rejectWithValue }) => {
-    const response = await classService.getClass(id);
+    const response = await classService.getClassById(id);
     if (!response.success) {
       return rejectWithValue(response.error || 'Failed to fetch class');
     }

@@ -125,8 +125,8 @@ function BookingHistory() {
     
     try {
       const now = new Date();
-      const classDate = booking.class?.date || booking.class_date;
-      const classTime = booking.class?.startTime || booking.class?.time || booking.class_time;
+      const classDate = booking.classes?.date || booking.class_date;
+      const classTime = booking.classes?.time || booking.class_time;
       
       if (!classDate || !classTime) return false;
       
@@ -142,8 +142,8 @@ function BookingHistory() {
     
     try {
       const now = new Date();
-      const classDate = booking.class?.date || booking.class_date;
-      const classTime = booking.class?.startTime || booking.class?.time || booking.class_time;
+      const classDate = booking.classes?.date || booking.class_date;
+      const classTime = booking.classes?.time || booking.class_time;
       
       if (!classDate || !classTime) return false;
       
@@ -247,11 +247,11 @@ function BookingHistory() {
                 {upcomingBookings.map((booking) => {
                   if (!booking || !booking.id) return null;
                   
-                  const className = safeString(booking.class?.name || booking.class_name, 'Unknown Class');
-                  const instructorName = safeString(booking.class?.instructorName || booking.instructor_name, 'TBA');
-                  const classDate = safeString(booking.class?.date || booking.class_date || booking.createdAt, '');
-                  const classTime = safeString(booking.class?.startTime || booking.class_time, '');
-                  const equipmentType = safeString(booking.class?.equipmentType || booking.equipment_type, '');
+                  const className = safeString(booking.classes?.name || booking.class_name, 'Unknown Class');
+                  const instructorName = safeString(booking.classes?.users?.name || booking.instructor_name, 'TBA');
+                  const classDate = safeString(booking.classes?.date || booking.class_date || booking.createdAt, '');
+                  const classTime = safeString(booking.classes?.time || booking.class_time, '');
+                  const equipmentType = safeString(booking.classes?.equipment_type || booking.equipment_type, '');
                   const bookingStatus = safeString(booking.status, 'unknown');
                   
                   return (
@@ -306,11 +306,11 @@ function BookingHistory() {
                 {pastBookings.map((booking) => {
                   if (!booking || !booking.id) return null;
                   
-                  const className = safeString(booking.class?.name || booking.class_name, 'Unknown Class');
-                  const instructorName = safeString(booking.class?.instructorName || booking.instructor_name, 'TBA');
-                  const classDate = safeString(booking.class?.date || booking.class_date || booking.createdAt, '');
-                  const classTime = safeString(booking.class?.startTime || booking.class_time, '');
-                  const equipmentType = safeString(booking.class?.equipmentType || booking.equipment_type, '');
+                  const className = safeString(booking.classes?.name || booking.class_name, 'Unknown Class');
+                  const instructorName = safeString(booking.classes?.users?.name || booking.instructor_name, 'TBA');
+                  const classDate = safeString(booking.classes?.date || booking.class_date || booking.createdAt, '');
+                  const classTime = safeString(booking.classes?.time || booking.class_time, '');
+                  const equipmentType = safeString(booking.classes?.equipment_type || booking.equipment_type, '');
                   const bookingStatus = safeString(booking.status, 'unknown');
                   
                   return (

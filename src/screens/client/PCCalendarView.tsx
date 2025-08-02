@@ -1,5 +1,4 @@
 import { Body, Caption, H1, H2, H3 } from '@/components/ui/Typography';
-import { layout, spacing } from '@/constants/Spacing';
 import { useThemeColor } from '@/hooks/useThemeColor';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
@@ -19,6 +18,7 @@ import {
   Surface,
 } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
+import { layout, spacing } from '../../../constants/Spacing';
 import { AppDispatch, RootState } from '../../store';
 import { fetchBookings } from '../../store/bookingSlice';
 import { fetchClasses } from '../../store/classSlice';

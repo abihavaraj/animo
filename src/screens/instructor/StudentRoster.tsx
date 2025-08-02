@@ -1,4 +1,3 @@
-import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import {
@@ -18,6 +17,7 @@ import {
     Title
 } from 'react-native-paper';
 import { useSelector } from 'react-redux';
+import WebCompatibleIcon from '../../components/WebCompatibleIcon';
 import { bookingService } from '../../services/bookingService';
 import { BackendClass, classService } from '../../services/classService';
 import { RootState } from '../../store';
@@ -140,7 +140,7 @@ function StudentRoster() {
 
   const getClassInfo = async (classId: number) => {
     try {
-      const response = await classService.getClass(classId);
+      const response = await classService.getClassById(classId);
       return response.success ? response.data : null;
     } catch {
       return null;
@@ -340,7 +340,7 @@ function StudentRoster() {
         ) : Object.keys(groupedStudents).length === 0 ? (
           <Card style={styles.emptyCard}>
             <Card.Content style={styles.emptyContent}>
-              <MaterialIcons name="group" size={48} color="#ccc" />
+              <WebCompatibleIcon name="group" size={48} color="#ccc" />
               <Title style={styles.emptyTitle}>No students found</Title>
               <Paragraph style={styles.emptyText}>
                 {viewMode === 'today' 
@@ -395,18 +395,18 @@ function StudentRoster() {
                   <Title>Contact Information</Title>
                   <View style={styles.modalInfo}>
                     <View style={styles.infoRow}>
-                      <MaterialIcons name="email" size={20} color="#666" />
+                      <WebCompatibleIcon name="email" size={20} color="#666" />
                       <Paragraph style={styles.infoText}>{selectedStudent.user_email}</Paragraph>
                     </View>
                     {selectedStudent.user_phone && (
                       <View style={styles.infoRow}>
-                        <MaterialIcons name="phone" size={20} color="#666" />
+                        <WebCompatibleIcon name="phone" size={20} color="#666" />
                         <Paragraph style={styles.infoText}>{selectedStudent.user_phone}</Paragraph>
                       </View>
                     )}
                     {selectedStudent.emergency_contact && (
                       <View style={styles.infoRow}>
-                        <MaterialIcons name="contact-emergency" size={20} color="#666" />
+                        <WebCompatibleIcon name="contact-emergency" size={20} color="#666" />
                         <Paragraph style={styles.infoText}>{selectedStudent.emergency_contact}</Paragraph>
                       </View>
                     )}
@@ -415,17 +415,17 @@ function StudentRoster() {
                   <Title style={styles.sectionTitle}>Class Information</Title>
                   <View style={styles.modalInfo}>
                     <View style={styles.infoRow}>
-                      <MaterialIcons name="sports-handball" size={20} color="#666" />
+                      <WebCompatibleIcon name="sports-handball" size={20} color="#666" />
                       <Paragraph style={styles.infoText}>{selectedStudent.class_name}</Paragraph>
                     </View>
                     <View style={styles.infoRow}>
-                      <MaterialIcons name="access-time" size={20} color="#666" />
+                      <WebCompatibleIcon name="access-time" size={20} color="#666" />
                       <Paragraph style={styles.infoText}>
                         {getClassTiming(selectedStudent)}
                       </Paragraph>
                     </View>
                     <View style={styles.infoRow}>
-                      <MaterialIcons name={selectedStudent.checked_in ? "check-circle" : "radio-button-unchecked"} size={20} color={selectedStudent.checked_in ? "#4caf50" : "#666"} />
+                      <WebCompatibleIcon name={selectedStudent.checked_in ? "check-circle" : "radio-button-unchecked"} size={20} color={selectedStudent.checked_in ? "#4caf50" : "#666"} />
                       <Paragraph style={[styles.infoText, { color: selectedStudent.checked_in ? '#4caf50' : '#666' }]}>
                         {selectedStudent.checked_in 
                           ? `Checked in${selectedStudent.check_in_time ? ` at ${new Date(selectedStudent.check_in_time).toLocaleTimeString()}` : ''}`
@@ -439,7 +439,7 @@ function StudentRoster() {
                     <>
                       <Title style={styles.sectionTitle}>Medical Information</Title>
                       <View style={styles.medicalInfo}>
-                        <MaterialIcons name="local-hospital" size={20} color="#f44336" />
+                        <WebCompatibleIcon name="local-hospital" size={20} color="#f44336" />
                         <Paragraph style={styles.medicalText}>{selectedStudent.medical_conditions}</Paragraph>
                       </View>
                     </>

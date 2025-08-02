@@ -10,57 +10,24 @@ import ReceptionNavigator from './ReceptionNavigator';
 
 const Stack = createStackNavigator();
 
+const screens = {
+  instructor: InstructorNavigator,
+  admin: AdminNavigator,
+  reception: ReceptionNavigator,
+  client: ClientNavigator,
+};
+
 function MainNavigator() {
   const { user } = useSelector((state: RootState) => state.auth);
-
-  const getNavigatorByRole = () => {
-    switch (user?.role) {
-      case 'instructor': {
-        const InstructorWithErrorBoundary = () => (
-          <ErrorBoundary>
-            <InstructorNavigator />
-          </ErrorBoundary>
-        );
-        InstructorWithErrorBoundary.displayName = 'InstructorWithErrorBoundary';
-        return InstructorWithErrorBoundary;
-      }
-      case 'admin': {
-        const AdminWithErrorBoundary = () => (
-          <ErrorBoundary>
-            <AdminNavigator />
-          </ErrorBoundary>
-        );
-        AdminWithErrorBoundary.displayName = 'AdminWithErrorBoundary';
-        return AdminWithErrorBoundary;
-      }
-      case 'reception': {
-        const ReceptionWithErrorBoundary = () => (
-          <ErrorBoundary>
-            <ReceptionNavigator />
-          </ErrorBoundary>
-        );
-        ReceptionWithErrorBoundary.displayName = 'ReceptionWithErrorBoundary';
-        return ReceptionWithErrorBoundary;
-      }
-      case 'client':
-      default: {
-        const ClientWithErrorBoundary = () => (
-          <ErrorBoundary>
-            <ClientNavigator />
-          </ErrorBoundary>
-        );
-        ClientWithErrorBoundary.displayName = 'ClientWithErrorBoundary';
-        return ClientWithErrorBoundary;
-      }
-    }
-  };
-
-  const NavigatorComponent = getNavigatorByRole();
+  const role = user?.role || 'client';
+  const NavigatorComponent = screens[role] || screens.client;
 
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="App" component={NavigatorComponent} />
-    </Stack.Navigator>
+    <ErrorBoundary>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="App" component={NavigatorComponent} />
+      </Stack.Navigator>
+    </ErrorBoundary>
   );
 }
 

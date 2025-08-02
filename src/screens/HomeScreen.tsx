@@ -1,13 +1,13 @@
 import StatusChip from '@/components/ui/StatusChip';
 import { Body, Caption, H1, H2 } from '@/components/ui/Typography';
 import { Colors } from '@/constants/Colors';
-import { layout, spacing } from '@/constants/Spacing';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import React, { useEffect, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Button as PaperButton, Card as PaperCard } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
+import { layout, spacing } from '../../constants/Spacing';
 import { AppDispatch, RootState } from '../store';
 import { shadows } from '../utils/shadows';
 
@@ -231,7 +231,7 @@ function HomeScreen() {
                 mode="outlined" 
                 style={styles.secondaryAction}
                 labelStyle={styles.secondaryActionLabel}
-                icon={() => <MaterialIcons name="bug-report" size={20} color={Colors.light.textSecondary} />}
+                icon={() => <MaterialIcons name="settings" size={20} color={Colors.light.textSecondary} />}
                 onPress={handleSupabaseTest}
               >
                 Supabase Test

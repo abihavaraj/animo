@@ -1,11 +1,9 @@
 import { Body, Caption, H1 } from '@/components/ui/Typography';
 import { Colors } from '@/constants/Colors';
-import { layout, spacing } from '@/constants/Spacing';
-import { useState } from 'react';
-import { Alert, Linking, StyleSheet, View } from 'react-native';
-import { Button as PaperButton, Card as PaperCard, TextInput } from 'react-native-paper';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, Linking, TextInput as RNTextInput, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
-import { useThemeColor } from '../../hooks/useThemeColor';
+import { layout, spacing } from '../../constants/Spacing';
 import { AppDispatch, RootState } from '../store';
 import { loginUser } from '../store/authSlice';
 import { componentShadows } from '../utils/shadows';
@@ -13,30 +11,84 @@ import { componentShadows } from '../utils/shadows';
 function LoginScreen() {
   const [emailOrPhone, setEmailOrPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [localError, setLocalError] = useState('');
+  const [hasLoginError, setHasLoginError] = useState(false);
+  const [inputKey, setInputKey] = useState(0); // Force re-render to reset autocomplete
   const dispatch = useDispatch<AppDispatch>();
-  const { isLoading } = useSelector((state: RootState) => state.auth);
+  const { isLoading, error: reduxError, isLoggedIn } = useSelector((state: RootState) => state.auth);
+  const passwordInputRef = useRef<RNTextInput>(null);
 
-  // Theme colors for input fields
-  const backgroundColor = useThemeColor({}, 'background');
-  const surfaceColor = useThemeColor({}, 'surface');
-  const textColor = useThemeColor({}, 'text');
-  const textSecondaryColor = useThemeColor({}, 'textSecondary');
-  const primaryColor = useThemeColor({}, 'primary');
-  const borderColor = useThemeColor({}, 'border');
+  // Handle Redux error and show alert
+  useEffect(() => {
+    if (reduxError) {
+      console.log('🔍 [LoginScreen] Redux error detected:', reduxError);
+      
+      // Set error flag to disable autocomplete
+      setHasLoginError(true);
+      
+      // Force input fields to re-render and reset autocomplete
+      setInputKey(prev => prev + 1);
+      
+      // Clear password field when there's an error to prevent autocomplete of wrong credentials
+      setPassword('');
+      
+      // Show alert for any login error on mobile
+      if (reduxError.toLowerCase().includes('password') || 
+          reduxError.toLowerCase().includes('credentials') ||
+          reduxError.toLowerCase().includes('wrong') ||
+          reduxError.toLowerCase().includes('invalid')) {
+        console.log('🔍 [LoginScreen] Showing alert for Redux error:', reduxError);
+        Alert.alert(
+          '🔐 Login Failed', 
+          reduxError,
+          [{ text: 'Try Again', style: 'default' }]
+        );
+      }
+    } else {
+      // Clear error flag when no error
+      setHasLoginError(false);
+    }
+  }, [reduxError]);
+
+  // Theme colors for input fields - using static values to prevent re-render issues
+  const backgroundColor = Colors.light.background;
+  const surfaceColor = Colors.light.surface;
+  const textColor = Colors.light.text;
+  const textSecondaryColor = Colors.light.textSecondary;
+  const primaryColor = Colors.light.primary;
+  const borderColor = Colors.light.border;
 
   const handleLogin = async () => {
     if (!emailOrPhone || !password) {
-      setError('Please fill in all fields');
+      setLocalError('Please fill in all fields');
       return;
     }
 
-    setError('');
+    setLocalError('');
     
     try {
       await dispatch(loginUser({ emailOrPhone, password })).unwrap();
     } catch (err: any) {
-      setError(err.message || 'Login failed. Please try again.');
+      // The error from Redux thunk is in err.payload, not err.message
+      const errorMessage = err.payload || err.message || 'Login failed. Please try again.';
+      setLocalError(errorMessage);
+      
+      console.log('🔍 [LoginScreen] Error message:', errorMessage);
+      
+      // Show alert for any login error on mobile
+      if (errorMessage.toLowerCase().includes('password') || 
+          errorMessage.toLowerCase().includes('credentials') ||
+          errorMessage.toLowerCase().includes('wrong') ||
+          errorMessage.toLowerCase().includes('invalid')) {
+        console.log('🔍 [LoginScreen] Showing alert for error:', errorMessage);
+        Alert.alert(
+          '🔐 Login Failed', 
+          errorMessage,
+          [{ text: 'Try Again', style: 'default' }]
+        );
+      } else {
+        console.log('🔍 [LoginScreen] Not showing alert for error:', errorMessage);
+      }
     }
   };
 
@@ -59,7 +111,7 @@ function LoginScreen() {
   // Demo account configurations
   const demoAccounts = [
     {
-      label: '👨‍�� Admin Demo',
+      label: '👨‍💼 Admin Demo',
       credentials: { emailOrPhone: 'admin@pilatesstudio.com', password: 'admin123' },
       description: 'Full system access'
     },
@@ -80,64 +132,76 @@ function LoginScreen() {
     }
   ];
 
+  
   return (
     <View style={styles.container}>
-      <PaperCard style={styles.card}>
-        <PaperCard.Content style={styles.cardContent}>
+      <View style={styles.card}>
+        <View style={styles.cardContent}>
           <H1 style={styles.title}>Welcome to ANIMO</H1>
           <Body style={styles.subtitle}>Sign in to access your pilates journey</Body>
           
-          {error ? <Caption style={styles.errorText}>{error}</Caption> : null}
+          {(localError || reduxError) ? <Caption style={styles.errorText}>{localError || reduxError}</Caption> : null}
           
-          <TextInput
-            label="Email or Phone"
+          <RNTextInput
+            key={`email-${inputKey}`}
+            placeholder="Email or Phone Number"
             value={emailOrPhone}
-            onChangeText={setEmailOrPhone}
-            mode="outlined"
-            style={styles.input}
+            onChangeText={(text) => {
+              setEmailOrPhone(text);
+              // Clear error flag when user starts typing
+              if (hasLoginError) setHasLoginError(false);
+            }}
+            style={[styles.input, {
+              borderColor: borderColor,
+              backgroundColor: surfaceColor,
+              color: textColor,
+            }]}
+            placeholderTextColor={textSecondaryColor}
             autoCapitalize="none"
-            disabled={isLoading}
-            theme={{
-              colors: {
-                primary: primaryColor,
-                onSurface: textColor,
-                onSurfaceVariant: textSecondaryColor,
-                outline: borderColor,
-                surface: surfaceColor,
-                background: backgroundColor,
-              }
-            }}
-          />
-          <TextInput
-            label="Password"
-            value={password}
-            onChangeText={setPassword}
-            mode="outlined"
-            style={styles.input}
-            secureTextEntry
-            disabled={isLoading}
-            theme={{
-              colors: {
-                primary: primaryColor,
-                onSurface: textColor,
-                onSurfaceVariant: textSecondaryColor,
-                outline: borderColor,
-                surface: surfaceColor,
-                background: backgroundColor,
-              }
-            }}
+            autoCorrect={false}
+            keyboardType="default"
+            autoComplete={hasLoginError ? "off" : "username"}
+            textContentType={hasLoginError ? "none" : "username"}
+            returnKeyType="next"
+            enablesReturnKeyAutomatically
+            onSubmitEditing={() => passwordInputRef.current?.focus()}
           />
           
-          <PaperButton 
-            mode="contained" 
-            onPress={handleLogin} 
-            style={styles.loginButton}
-            labelStyle={styles.loginButtonLabel}
-            loading={isLoading}
+          
+          <RNTextInput
+            key={`password-${inputKey}`}
+            ref={passwordInputRef}
+            placeholder="Password"
+            value={password}
+            onChangeText={(text) => {
+              setPassword(text);
+              // Clear error flag when user starts typing
+              if (hasLoginError) setHasLoginError(false);
+            }}
+            style={[styles.input, {
+              borderColor: borderColor,
+              backgroundColor: surfaceColor,
+              color: textColor,
+            }]}
+            secureTextEntry
+            editable={!isLoading}
+            placeholderTextColor={textSecondaryColor}
+            autoComplete={hasLoginError ? "off" : "current-password"}
+            textContentType={hasLoginError ? "none" : "password"}
+            returnKeyType="done"
+            enablesReturnKeyAutomatically
+            onSubmitEditing={handleLogin}
+          />
+          
+          <TouchableOpacity 
+            style={[styles.loginButton, isLoading && { backgroundColor: '#cccccc' }]} 
+            onPress={handleLogin}
             disabled={isLoading}
           >
-            Sign In
-          </PaperButton>
+            <Text style={styles.loginButtonLabel}>
+              {isLoading ? 'Signing In...' : 'Sign In'}
+            </Text>
+          </TouchableOpacity>
 
           <View style={styles.registrationSection}>
             <Body style={styles.registrationTitle}>Need to Register?</Body>
@@ -146,25 +210,19 @@ function LoginScreen() {
             </Body>
             
             <View style={styles.contactButtons}>
-              <PaperButton 
-                mode="outlined" 
+              <TouchableOpacity 
+                style={styles.contactButton}
                 onPress={() => handleContactReception('phone')} 
-                style={styles.contactButton}
-                labelStyle={styles.contactButtonLabel}
-                icon="phone"
               >
-                Call Reception
-              </PaperButton>
+                <Text style={styles.contactButtonLabel}>📞 Call Reception</Text>
+              </TouchableOpacity>
               
-              <PaperButton 
-                mode="outlined" 
-                onPress={() => handleContactReception('whatsapp')} 
+              <TouchableOpacity 
                 style={styles.contactButton}
-                labelStyle={styles.contactButtonLabel}
-                icon="whatsapp"
+                onPress={() => handleContactReception('whatsapp')} 
               >
-                WhatsApp
-              </PaperButton>
+                <Text style={styles.contactButtonLabel}>💬 WhatsApp</Text>
+              </TouchableOpacity>
             </View>
             
             <Body style={styles.contactInfo}>
@@ -173,8 +231,8 @@ function LoginScreen() {
               🏢 Visit us at the front desk
             </Body>
           </View>
-        </PaperCard.Content>
-      </PaperCard>
+        </View>
+      </View>
     </View>
   );
 }
@@ -192,6 +250,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.light.border,
     ...componentShadows.loginCard,
+    maxWidth: 400,
+    alignSelf: 'center',
   },
   cardContent: {
     padding: spacing.lg,
@@ -218,7 +278,18 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   input: {
-    marginBottom: spacing.md,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
+    fontSize: 16,
+    height: 48,
+    borderRadius: spacing.sm,
+  },
+  helpText: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
   },
   loginButton: {
     backgroundColor: Colors.light.accent,
@@ -226,12 +297,13 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     marginBottom: spacing.lg,
     ...componentShadows.loginButton,
+    padding: 16,
   },
   loginButtonLabel: {
     fontSize: 16,
     fontWeight: '600',
     color: Colors.light.textOnAccent,
-    paddingVertical: spacing.xs,
+    textAlign: 'center',
   },
   registrationSection: {
     borderTopWidth: 1,
@@ -262,11 +334,15 @@ const styles = StyleSheet.create({
     flex: 1,
     borderColor: Colors.light.border,
     borderRadius: layout.borderRadius,
+    borderWidth: 1,
+    padding: 12,
+    backgroundColor: Colors.light.surface,
   },
   contactButtonLabel: {
     fontSize: 12,
     fontWeight: '500',
     color: Colors.light.textSecondary,
+    textAlign: 'center',
   },
   contactInfo: {
     textAlign: 'center',

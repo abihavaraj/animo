@@ -1,4 +1,3 @@
-import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import {
@@ -15,15 +14,18 @@ import {
     Title
 } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
+import WebCompatibleIcon from '../../components/WebCompatibleIcon';
 import { SubscriptionPlan } from '../../services/subscriptionService';
 import { AppDispatch, RootState } from '../../store';
 import { createPlan, deletePlan, fetchPlans, updatePlan } from '../../store/subscriptionSlice';
 
-// Enhanced form data interface to support personal classes
+// Enhanced form data interface to support simple duration
 interface PlanFormData {
   name: string;
   monthlyClasses: number;
   monthlyPrice: number;
+  duration: number;
+  duration_unit: 'days' | 'months' | 'years';
   equipmentAccess: 'mat' | 'reformer' | 'both';
   description: string;
   category: 'trial' | 'basic' | 'standard' | 'premium' | 'unlimited' | 'personal' | 'special';
@@ -34,6 +36,31 @@ interface PlanFormData {
   instructorRequired: boolean;
   preferredInstructor: string;
 }
+
+// Helper function to map backend categories to form categories
+const mapBackendCategoryToForm = (backendCategory: string | undefined): PlanFormData['category'] => {
+  switch (backendCategory) {
+    case 'group': return 'basic';
+    case 'personal': return 'personal';
+    case 'personal_duo': return 'premium';
+    case 'personal_trio': return 'standard';
+    default: return 'basic';
+  }
+};
+
+// Helper function to map form categories to backend categories
+const mapFormCategoryToBackend = (formCategory: PlanFormData['category']): 'group' | 'personal' | 'personal_duo' | 'personal_trio' => {
+  switch (formCategory) {
+    case 'personal': return 'personal';
+    case 'premium': return 'personal_duo';
+    case 'standard': return 'personal_trio';
+    case 'trial':
+    case 'basic':
+    case 'unlimited':
+    case 'special':
+    default: return 'group';
+  }
+};
 
 function SubscriptionPlans() {
   const dispatch = useDispatch<AppDispatch>();
@@ -47,6 +74,8 @@ function SubscriptionPlans() {
     name: '',
     monthlyClasses: 8,
     monthlyPrice: 120,
+    duration: 1,
+    duration_unit: 'months',
     equipmentAccess: 'mat',
     description: '',
     category: 'basic',
@@ -135,6 +164,8 @@ function SubscriptionPlans() {
       name: '',
       monthlyClasses: 8,
       monthlyPrice: 120,
+      duration: 1,
+      duration_unit: 'months',
       equipmentAccess: 'mat',
       description: '',
       category: 'basic',
@@ -151,11 +182,13 @@ function SubscriptionPlans() {
     setEditingPlan(plan);
     setPlanFormData({
       name: plan.name,
-      monthlyClasses: plan.monthly_classes,
-      monthlyPrice: plan.monthly_price,
-      equipmentAccess: plan.equipment_access,
+      monthlyClasses: plan.monthly_classes ?? plan.monthlyClasses ?? 8,
+      monthlyPrice: plan.monthly_price ?? plan.monthlyPrice ?? 120,
+      duration: plan.duration ?? 1,
+      duration_unit: plan.duration_unit ?? 'months',
+      equipmentAccess: plan.equipment_access ?? plan.equipmentAccess ?? 'mat',
       description: plan.description,
-      category: plan.category,
+      category: mapBackendCategoryToForm(plan.category),
       features: Array.isArray(plan.features) ? plan.features.join('\n') : '',
       // Personal class fields (use defaults if not present)
       sessionDuration: 60,
@@ -200,7 +233,7 @@ function SubscriptionPlans() {
           monthlyPrice: planFormData.monthlyPrice,
           equipmentAccess: planFormData.equipmentAccess,
           description: planFormData.description,
-          category: planFormData.category,
+          category: mapFormCategoryToBackend(planFormData.category),
           features: featuresArray,
           isActive: true
         };
@@ -212,9 +245,11 @@ function SubscriptionPlans() {
           name: planFormData.name,
           monthlyClasses: planFormData.monthlyClasses,
           monthlyPrice: planFormData.monthlyPrice,
+          duration: planFormData.duration,
+          duration_unit: planFormData.duration_unit,
           equipmentAccess: planFormData.equipmentAccess,
           description: planFormData.description,
-          category: planFormData.category,
+          category: mapFormCategoryToBackend(planFormData.category),
           features: featuresArray
         };
         await dispatch(createPlan(createData)).unwrap();
@@ -308,7 +343,7 @@ function SubscriptionPlans() {
                 <View style={styles.planInfo}>
                   <Title style={styles.planName}>{plan.name}</Title>
                   <Paragraph style={styles.planDetails}>
-                    {plan.monthly_classes >= 999 ? 'Unlimited' : plan.monthly_classes} classes per month
+                    {(plan.monthly_classes ?? plan.monthlyClasses ?? 8) >= 999 ? 'Unlimited' : (plan.monthly_classes ?? plan.monthlyClasses ?? 8)} classes per month
                   </Paragraph>
                   <Paragraph style={styles.planDescription}>{plan.description}</Paragraph>
                 </View>
@@ -320,7 +355,7 @@ function SubscriptionPlans() {
                     {plan.equipment_access || 'mat'}
                   </Chip>
                   <Chip 
-                    style={[styles.categoryChip, { backgroundColor: getCategoryColor(plan.category || 'basic') }]}
+                    style={[styles.categoryChip, { backgroundColor: getCategoryColor(mapBackendCategoryToForm(plan.category)) }]}
                     textStyle={styles.chipText}
                   >
                     {plan.category || 'basic'}
@@ -336,13 +371,13 @@ function SubscriptionPlans() {
 
               <View style={styles.priceSection}>
                 <View style={styles.priceInfo}>
-                  <Title style={styles.planPrice}>{plan.monthly_price.toLocaleString()} ALL</Title>
+                  <Title style={styles.planPrice}>{(plan.monthly_price ?? plan.monthlyPrice ?? 120).toLocaleString()} ALL</Title>
                   <Paragraph style={styles.priceLabel}>per month</Paragraph>
                 </View>
                 <View style={styles.priceBreakdown}>
-                  {plan.monthly_classes !== 999 && (
+                  {(plan.monthly_classes ?? plan.monthlyClasses ?? 8) !== 999 && (
                     <Paragraph style={styles.pricePerClass}>
-                      {(plan.monthly_price / plan.monthly_classes).toLocaleString()} ALL per class
+                      {((plan.monthly_price ?? plan.monthlyPrice ?? 120) / (plan.monthly_classes ?? plan.monthlyClasses ?? 8)).toLocaleString()} ALL per class
                     </Paragraph>
                   )}
                   <Paragraph style={styles.billingInfo}>
@@ -355,7 +390,7 @@ function SubscriptionPlans() {
                 <Title style={styles.featuresTitle}>Features:</Title>
                 {(Array.isArray(plan.features) ? plan.features : []).map((feature, index) => (
                   <View key={index} style={styles.featureItem}>
-                    <MaterialIcons name="check-circle" size={16} color="#4caf50" />
+                    <WebCompatibleIcon name="check-circle" size={16} color="#4caf50" />
                     <Paragraph style={styles.featureText}>{feature}</Paragraph>
                   </View>
                 ))}
@@ -386,7 +421,7 @@ function SubscriptionPlans() {
         {filteredPlans.length === 0 && (
           <Card style={styles.emptyCard}>
             <Card.Content style={styles.emptyContent}>
-              <MaterialIcons name="card-membership" size={48} color="#ccc" />
+              <WebCompatibleIcon name="card-membership" size={48} color="#ccc" />
               <Title style={styles.emptyTitle}>No subscription plans found</Title>
               <Paragraph style={styles.emptyText}>
                 Create your first subscription plan or adjust your filters.
@@ -432,6 +467,26 @@ function SubscriptionPlans() {
               label="Monthly Price (ALL) *"
               value={planFormData.monthlyPrice.toString()}
               onChangeText={(text) => setPlanFormData({...planFormData, monthlyPrice: parseInt(text) || 8500})}
+              mode="outlined"
+              keyboardType="numeric"
+              style={styles.input}
+            />
+
+            <Title style={styles.sectionTitle}>Duration</Title>
+            <SegmentedButtons
+              value={planFormData.duration_unit}
+              onValueChange={(value) => setPlanFormData({...planFormData, duration_unit: value as 'days' | 'months' | 'years'})}
+              buttons={[
+                { value: 'days', label: 'Days' },
+                { value: 'months', label: 'Months' },
+                { value: 'years', label: 'Years' },
+              ]}
+              style={styles.input}
+            />
+            <TextInput
+              label="Duration"
+              value={planFormData.duration.toString()}
+              onChangeText={(text) => setPlanFormData({...planFormData, duration: parseInt(text) || 1})}
               mode="outlined"
               keyboardType="numeric"
               style={styles.input}

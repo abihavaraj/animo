@@ -144,7 +144,7 @@ function PaymentHistory() {
             <Card.Content>
               <H2 style={{ color: textColor }}>No Payment History</H2>
               <Body style={{ color: textSecondaryColor }}>You haven&apos;t made any payments yet. Purchase a subscription to get started!</Body>
-              <Button mode="contained" style={[styles.browseButton, { backgroundColor: accentColor }]} labelStyle={{ color: backgroundColor }} icon="gift-outline">
+              <Button mode="contained" style={[styles.browseButton, { backgroundColor: accentColor }]} labelStyle={{ color: backgroundColor }} icon="card-giftcard">
                 Browse Plans
               </Button>
             </Card.Content>

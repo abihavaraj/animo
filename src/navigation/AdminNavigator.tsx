@@ -2,8 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { useEffect, useState } from 'react';
-import { Dimensions, Text, TouchableOpacity, View } from 'react-native';
-import { useDispatch } from 'react-redux';
+import { Alert, Dimensions, Text, TouchableOpacity, View } from 'react-native';
 import AdminClassManagement from '../screens/admin/AdminClassManagement';
 import AdminDashboard from '../screens/admin/AdminDashboard';
 import AssignmentHistory from '../screens/admin/AssignmentHistory';
@@ -17,7 +16,8 @@ import SubscriptionPlans from '../screens/admin/SubscriptionPlans';
 import SystemSettings from '../screens/admin/SystemSettings';
 import UserManagement from '../screens/admin/UserManagement';
 import { apiService } from '../services/api';
-import { logout } from '../store/authSlice';
+import { useAppDispatch } from '../store';
+import { logoutUser } from '../store/authSlice';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -31,7 +31,7 @@ function AdminSidebar({ activeScreen, onNavigate, stats }: any) {
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
-  const dispatch = useDispatch();
+  const dispatch = useAppDispatch();
 
   useEffect(() => {
     loadInitialNotifications();
@@ -86,10 +86,21 @@ function AdminSidebar({ activeScreen, onNavigate, stats }: any) {
     setSettingsModalVisible(true);
   };
 
-  const handleLogout = () => {
-    console.log('🚪 Admin user logging out...');
-    setLogoutModalVisible(false);
-    dispatch(logout());
+  const handleLogout = async () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            await dispatch(logoutUser());
+          },
+        },
+      ]
+    );
   };
 
   const showLogoutConfirmation = () => {
@@ -222,13 +233,7 @@ function AdminPCLayout({ navigation }: any) {
         return <SystemSettings />;
       case 'Dashboard':
       default:
-        return (
-          <AdminDashboard 
-            navigation={navigation} 
-            onNavigate={handleNavigate}
-            onStatsUpdate={(newStats: any) => setStats(newStats)}
-          />
-        );
+        return <AdminDashboard />;
     }
   };
 

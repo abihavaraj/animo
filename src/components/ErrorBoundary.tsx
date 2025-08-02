@@ -1,9 +1,5 @@
-import { MaterialIcons } from '@expo/vector-icons';
 import { Component, ErrorInfo, ReactNode } from 'react';
-import { StyleSheet, View } from 'react-native';
-import { Button, Card, Paragraph, Title } from 'react-native-paper';
-import { devError, isDev } from '../utils/devUtils';
-import { handleErrorBoundaryError } from '../utils/errorHandler';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface Props {
   children: ReactNode;
@@ -14,7 +10,6 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
-  errorInfo: ErrorInfo | null;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -22,13 +17,11 @@ export class ErrorBoundary extends Component<Props, State> {
     super(props);
     this.state = { 
       hasError: false, 
-      error: null,
-      errorInfo: null 
+      error: null
     };
   }
 
   static getDerivedStateFromError(error: Error): Partial<State> {
-    // Update state so the next render will show the fallback UI
     return { 
       hasError: true, 
       error 
@@ -36,13 +29,9 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // Update state with error info for detailed debugging
-    this.setState({ errorInfo });
+    console.error('🚨 ErrorBoundary caught an error:', error);
+    console.error('🚨 Error info:', errorInfo);
     
-    // Use enhanced error handler
-    handleErrorBoundaryError(error, errorInfo);
-    
-    // Call custom error handler if provided
     if (this.props.onError) {
       try {
         this.props.onError(error, errorInfo);
@@ -50,98 +39,29 @@ export class ErrorBoundary extends Component<Props, State> {
         console.error('🚨 Error in custom error handler:', handlerError);
       }
     }
-
-    // Additional logging for crash analysis
-    devError('Component stack:', errorInfo.componentStack);
-    devError('Error details:', {
-      message: error.message,
-      stack: error.stack,
-      name: error.name
-    });
   }
 
   handleRetry = () => {
-    console.log('🔄 ErrorBoundary: Attempting recovery...');
-    this.setState({ 
-      hasError: false, 
-      error: null,
-      errorInfo: null 
-    });
-  };
-
-  handleForceRefresh = () => {
-    console.log('🔄 ErrorBoundary: Force refresh requested...');
-    
-    // Clear state and force a complete re-render
-    this.setState({ 
-      hasError: false, 
-      error: null,
-      errorInfo: null 
-    });
-    
-    // Force component tree to remount by changing key
-    // This is a more aggressive recovery approach
-    setTimeout(() => {
-      if (this.state.hasError) {
-        this.forceUpdate();
-      }
-    }, 100);
+    this.setState({ hasError: false, error: null });
   };
 
   render() {
     if (this.state.hasError) {
-      // Custom fallback UI
       if (this.props.fallback) {
         return this.props.fallback;
       }
 
-      // Enhanced default fallback UI
       return (
         <View style={styles.container}>
-          <Card style={styles.errorCard}>
-            <Card.Content style={styles.cardContent}>
-              <MaterialIcons 
-                name="error-outline" 
-                size={64} 
-                color="#f44336" 
-                style={styles.errorIcon} 
-              />
-              <Title style={styles.errorTitle}>Oops! Something went wrong</Title>
-              <Paragraph style={styles.errorMessage}>
-                We&apos;re sorry, but something unexpected happened. Please try again.
-              </Paragraph>
-              
-              {isDev() && this.state.error && (
-                <>
-                  <Paragraph style={styles.debugInfo}>
-                    <strong>Error:</strong> {this.state.error.message}
-                  </Paragraph>
-                  {this.state.errorInfo?.componentStack && (
-                    <Paragraph style={styles.debugInfo}>
-                      <strong>Component Stack:</strong> {this.state.errorInfo.componentStack.slice(0, 200)}...
-                    </Paragraph>
-                  )}
-                </>
-              )}
-              
-              <View style={styles.buttonContainer}>
-                <Button 
-                  mode="contained" 
-                  onPress={this.handleRetry}
-                  style={[styles.button, styles.retryButton]}
-                >
-                  Try Again
-                </Button>
-                <Button 
-                  mode="outlined" 
-                  onPress={this.handleForceRefresh}
-                  style={[styles.button, styles.refreshButton]}
-                >
-                  Force Refresh
-                </Button>
-              </View>
-            </Card.Content>
-          </Card>
+          <View style={styles.errorCard}>
+            <Text style={styles.title}>🚨 Something went wrong</Text>
+            <Text style={styles.message}>
+              {this.state.error?.message || 'An unexpected error occurred'}
+            </Text>
+            <TouchableOpacity style={styles.retryButton} onPress={this.handleRetry}>
+              <Text style={styles.retryButtonText}>Try Again</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       );
     }
@@ -155,57 +75,43 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#f8f9fa',
     padding: 20,
-    backgroundColor: '#f5f5f5',
   },
   errorCard: {
-    width: '100%',
-    maxWidth: 400,
-    elevation: 4,
-  },
-  cardContent: {
-    alignItems: 'center',
+    backgroundColor: '#ffffff',
     padding: 24,
-  },
-  errorIcon: {
-    marginBottom: 16,
-  },
-  errorTitle: {
-    textAlign: 'center',
-    marginBottom: 12,
-    color: '#333',
-  },
-  errorMessage: {
-    textAlign: 'center',
-    marginBottom: 16,
-    color: '#666',
-    lineHeight: 20,
-  },
-  debugInfo: {
-    textAlign: 'left',
-    marginBottom: 8,
-    color: '#999',
-    fontSize: 12,
-    fontFamily: 'monospace',
-    backgroundColor: '#f0f0f0',
-    padding: 8,
-    borderRadius: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    maxWidth: 400,
     width: '100%',
+    alignItems: 'center',
   },
-  buttonContainer: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 16,
+  title: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#DC2626',
+    marginBottom: 12,
+    textAlign: 'center',
   },
-  button: {
-    flex: 1,
-    minWidth: 100,
+  message: {
+    fontSize: 16,
+    color: '#374151',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 24,
   },
   retryButton: {
-    backgroundColor: '#2196F3',
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 6,
   },
-  refreshButton: {
-    borderColor: '#2196F3',
+  retryButtonText: {
+    color: '#ffffff',
+    fontWeight: '600',
+    fontSize: 16,
   },
 });
 

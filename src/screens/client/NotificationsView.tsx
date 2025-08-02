@@ -1,13 +1,13 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import {
-    Alert,
-    Dimensions,
-    FlatList,
-    RefreshControl,
-    StyleSheet,
-    Text,
-    View
+  Alert,
+  Dimensions,
+  FlatList,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View
 } from 'react-native';
 import { useSelector } from 'react-redux';
 import { notificationService } from '../../services/notificationService';

@@ -5,6 +5,7 @@ import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import {
     ActivityIndicator,
     Button,
+    Caption,
     Card,
     Chip,
     FAB,
@@ -49,6 +50,10 @@ function AdminClassManagement() {
   // Instructor selection menu state
   const [instructorMenuVisible, setInstructorMenuVisible] = useState(false);
   
+  // Instructor availability state
+  const [instructorAvailability, setInstructorAvailability] = useState<{[key: string]: {available: boolean, conflictClass: any}}>({});
+  const [checkingInstructorAvailability, setCheckingInstructorAvailability] = useState(false);
+  
   const [formData, setFormData] = useState({
     name: '',
     instructorId: '',
@@ -69,6 +74,13 @@ function AdminClassManagement() {
     loadClasses();
     loadInstructors();
   }, []);
+
+  // Check instructor availability when date, time, or instructor changes
+  useEffect(() => {
+    if (formData.date && formData.time && formData.instructorId) {
+      checkInstructorAvailability();
+    }
+  }, [formData.date, formData.time, formData.instructorId, formData.duration]);
 
   const loadClasses = async () => {
     try {
@@ -102,13 +114,41 @@ function AdminClassManagement() {
         setInstructors(response.data);
       } else {
         console.error('Failed to load instructors:', response.error);
-        Alert.alert('Error', 'Failed to load instructors');
+        setInstructors([]);
       }
     } catch (error) {
       console.error('Error loading instructors:', error);
-      Alert.alert('Error', 'Failed to load instructors');
+      setInstructors([]);
     } finally {
       setLoadingInstructors(false);
+    }
+  };
+
+  const checkInstructorAvailability = async () => {
+    if (!formData.date || !formData.time || !formData.instructorId) return;
+    
+    try {
+      setCheckingInstructorAvailability(true);
+      const response = await classService.checkInstructorConflict(
+        formData.instructorId,
+        formData.date,
+        formData.time,
+        formData.duration,
+        editingClass?.id
+      );
+      
+      if (response.success && response.data) {
+        setInstructorAvailability({
+          [formData.instructorId]: {
+            available: !response.data.hasConflict,
+            conflictClass: response.data.conflictClass || null
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error checking instructor availability:', error);
+    } finally {
+      setCheckingInstructorAvailability(false);
     }
   };
 
@@ -133,7 +173,7 @@ function AdminClassManagement() {
     }
   };
 
-  const getLevelColor = (level: string) => {
+  const getLevelColor = (level: string | undefined) => {
     switch (level) {
       case 'Beginner': return '#4caf50';
       case 'Intermediate': return '#ff9800';
@@ -256,7 +296,7 @@ function AdminClassManagement() {
 
       // Check for instructor conflicts using the backend service
       const conflictResponse = await classService.checkInstructorConflict(
-        parseInt(formData.instructorId),
+        formData.instructorId || '', // Keep as string for Supabase UUID
         formData.date,
         formData.time,
         formData.duration,
@@ -580,7 +620,7 @@ function AdminClassManagement() {
                                 style={[styles.levelChip, { backgroundColor: getLevelColor(class_.level) }]}
                                 textStyle={styles.chipText}
                               >
-                                {class_.level}
+                                {class_.level || 'N/A'}
                               </Chip>
                             </View>
                           </View>
@@ -670,7 +710,7 @@ function AdminClassManagement() {
                         style={[styles.levelChip, { backgroundColor: getLevelColor(class_.level) }]}
                         textStyle={styles.chipText}
                       >
-                        {class_.level}
+                        {class_.level || 'N/A'}
                       </Chip>
                     </View>
                   </View>
@@ -779,15 +819,70 @@ function AdminClassManagement() {
                   </Button>
                 }
               >
-                {instructors.map((instructor) => (
-                  <Menu.Item
-                    key={instructor.id}
-                    onPress={() => selectInstructor(instructor)}
-                    title={instructor.name}
-                  />
-                ))}
+                {instructors.map((instructor) => {
+                  const instructorId = instructor.id.toString();
+                  const isAvailable = instructorAvailability[instructorId]?.available !== false;
+                  const isChecking = checkingInstructorAvailability && formData.instructorId === instructorId;
+                  const conflictClass = instructorAvailability[instructorId]?.conflictClass;
+                  
+                  return (
+                    <Menu.Item
+                      key={instructor.id}
+                      onPress={() => selectInstructor(instructor)}
+                      title={
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <Paragraph style={{ flex: 1 }}>{instructor.name}</Paragraph>
+                          {isChecking ? (
+                            <ActivityIndicator size="small" />
+                          ) : !isAvailable ? (
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              <MaterialIcons name="schedule" size={16} color="#f44336" />
+                              <Caption style={{ color: '#f44336', marginLeft: 4 }}>
+                                Busy {conflictClass?.time}
+                              </Caption>
+                            </View>
+                          ) : (
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              <MaterialIcons name="check-circle" size={16} color="#4CAF50" />
+                              <Caption style={{ color: '#4CAF50', marginLeft: 4 }}>
+                                Available
+                              </Caption>
+                            </View>
+                          )}
+                        </View>
+                      }
+                    />
+                  );
+                })}
               </Menu>
             </View>
+
+            {/* Instructor Availability Indicator */}
+            {formData.instructorId && formData.date && formData.time && (
+              <View style={{
+                marginTop: 8,
+                padding: 8,
+                backgroundColor: '#f5f5f5',
+                borderRadius: 4,
+                borderWidth: 1,
+                borderColor: '#e0e0e0',
+              }}>
+                <Caption style={{ color: '#666', marginBottom: 4, fontSize: 12 }}>
+                  {`Instructor Availability: ${formData.instructorName || 'N/A'} on ${formData.date || 'N/A'} at ${formData.time || 'N/A'}`}
+                </Caption>
+                {checkingInstructorAvailability ? (
+                  <ActivityIndicator size="small" />
+                ) : (
+                  <Caption style={{
+                    fontWeight: '600',
+                    fontSize: 13,
+                    color: instructorAvailability[formData.instructorId]?.available !== false ? '#4CAF50' : '#f44336'
+                  }}>
+                    {instructorAvailability[formData.instructorId]?.available !== false ? 'Available' : 'Instructor is busy'}
+                  </Caption>
+                )}
+              </View>
+            )}
 
             <View style={styles.dateTimeContainer}>
               <View style={styles.dateTimeSection}>
@@ -817,7 +912,7 @@ function AdminClassManagement() {
                   mode="outlined"
                   placeholder="14:30"
                   style={styles.dateTimeInput}
-                  left={<TextInput.Icon icon="clock" />}
+                  left={<TextInput.Icon icon="access-time" />}
                 />
                 {formData.time && (
                   <Paragraph style={styles.dateTimePreview}>
@@ -857,7 +952,7 @@ function AdminClassManagement() {
             <View style={styles.segmentedContainer}>
               <Paragraph style={styles.pickerLabel}>Level *</Paragraph>
               <SegmentedButtons
-                value={formData.level}
+                value={formData.level || 'Beginner'}
                 onValueChange={(value) => setFormData({...formData, level: value as BackendClass['level']})}
                 buttons={[
                   { value: 'Beginner', label: 'Beginner' },

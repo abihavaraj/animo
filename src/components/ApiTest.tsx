@@ -36,9 +36,8 @@ export const ApiTest: React.FC = () => {
       addResult({
         operation: 'getClasses',
         success: classesResult.success,
-        data: classesResult.data?.length || 0,
-        error: classesResult.error,
-        source: classesResult.source
+        data: Array.isArray(classesResult.data) ? classesResult.data.length : 0,
+        error: classesResult.error
       });
 
       // Test 2: Get Subscription Plans
@@ -47,9 +46,8 @@ export const ApiTest: React.FC = () => {
       addResult({
         operation: 'getSubscriptionPlans',
         success: plansResult.success,
-        data: plansResult.data?.length || 0,
-        error: plansResult.error,
-        source: plansResult.source
+        data: Array.isArray(plansResult.data) ? plansResult.data.length : 0,
+        error: plansResult.error
       });
 
       // Test 3: Get Users (might require auth)
@@ -58,9 +56,8 @@ export const ApiTest: React.FC = () => {
       addResult({
         operation: 'getUsers',
         success: usersResult.success,
-        data: usersResult.data?.length || 0,
-        error: usersResult.error,
-        source: usersResult.source
+        data: Array.isArray(usersResult.data) ? usersResult.data.length : 0,
+        error: usersResult.error
       });
 
     } catch (error) {

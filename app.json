@@ -2,7 +2,7 @@
   "expo": {
     "name": "ANIMO Pilates Studio",
     "slug": "PilatesStudioApp",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "scheme": "animopilatesstudio",
     "userInterfaceStyle": "automatic",
@@ -18,15 +18,19 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.animo.pilatesstudio",
-      "buildNumber": "1",
-      "icon": "./assets/images/icon.png",
+      "buildNumber": "22",
+      "icon": "./assets/images/ios/iTunesArtwork@2x.png",
+      "jsEngine": "jsc",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCalendarsUsageDescription": "ANIMO Pilates Studio uses calendar access to help you schedule and manage your pilates classes and appointments.",
         "NSCameraUsageDescription": "This app may need camera access for profile photos.",
         "NSMicrophoneUsageDescription": "This app may need microphone access for video features.",
         "NSPhotoLibraryUsageDescription": "This app may need photo library access for profile photos.",
-        "UIBackgroundModes": ["remote-notification"],
+        "NSUserNotificationsUsageDescription": "ANIMO Pilates Studio needs notification access to send you class reminders, subscription updates, and important studio announcements.",
+        "UIBackgroundModes": [
+          "remote-notification"
+        ],
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": false,
           "NSAllowsArbitraryLoadsInWebContent": false,
@@ -49,31 +53,33 @@
     "android": {
       "package": "com.animo.pilatesstudio",
       "icon": "./assets/images/icon.png",
+      "jsEngine": "jsc",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "permissions": [
+        "android.permission.READ_CALENDAR",
+        "android.permission.WRITE_CALENDAR",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE",
+        "android.permission.WAKE_LOCK",
+        "com.google.android.c2dm.permission.RECEIVE"
+      ]
     },
     "web": {
-      "bundler": "metro",
-      "output": "single",
       "favicon": "./assets/images/favicon.png",
-      "config": {
-        "firebase": {
-          "measurementId": "G-XXXXXXXXXX"
-        }
-      }
+      "bundler": "metro"
     },
     "plugins": [
       [
         "expo-notifications",
         {
           "color": "#F5F2B8",
-          "defaultChannel": "animo-notifications",
-          "mode": "development"
+          "defaultChannel": "animo-notifications"
         }
       ],
-      "expo-web-browser",
+   "expo-web-browser",
       [
         "expo-calendar",
         {
@@ -85,6 +91,7 @@
       "eas": {
         "projectId": "d4bdbfc4-ecbc-40d7-aabb-ad545c836ab3"
       }
-    }
+    },
+    "owner": "argjendi96"
   }
 }

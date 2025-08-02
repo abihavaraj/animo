@@ -1,46 +1,21 @@
-import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Avatar, Button, Card, Chip, FAB, IconButton, List, Modal, Paragraph, Portal, Searchbar, Surface, TextInput, Title } from 'react-native-paper';
 import { useSelector } from 'react-redux';
+import WebCompatibleIcon from '../../components/WebCompatibleIcon';
+import { ProgressNote, progressNotesService, Student as StudentData } from '../../services/progressNotesService';
 import { RootState } from '../../store';
 
-interface Student {
-  id: number;
-  name: string;
-  email: string;
-  phone?: string;
-  emergency_contact?: string;
-  medical_conditions?: string;
-  profile_image?: string;
-  totalClasses: number;
-  attendanceRate: number;
-  lastClassDate?: string;
-  progressNotes: ProgressNote[];
-}
-
-interface ProgressNote {
-  id: number;
-  studentId: number;
-  instructorId: number;
-  classId?: number;
-  className?: string;
-  classDate?: string;
-  note: string;
-  category: 'improvement' | 'concern' | 'achievement' | 'general';
-  private: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
+// Using types from progressNotesService
 
 function StudentProgress() {
   const { user } = useSelector((state: RootState) => state.auth);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
+  const [students, setStudents] = useState<StudentData[]>([]);
+  const [filteredStudents, setFilteredStudents] = useState<StudentData[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [selectedStudent, setSelectedStudent] = useState<StudentData | null>(null);
   const [studentModalVisible, setStudentModalVisible] = useState(false);
   const [addNoteModalVisible, setAddNoteModalVisible] = useState(false);
   const [sortBy, setSortBy] = useState<'name' | 'recent' | 'attendance'>('name');
@@ -50,7 +25,7 @@ function StudentProgress() {
     note: '',
     category: 'general' as ProgressNote['category'],
     private: false,
-    classId: undefined as number | undefined,
+    class_id: undefined as number | undefined,
   });
 
   useEffect(() => {
@@ -64,95 +39,15 @@ function StudentProgress() {
   const loadStudentData = async () => {
     try {
       setLoading(true);
-      // This would be a new endpoint to get instructor's students with progress data
-      // For now, we'll simulate the data structure
-      const mockStudents: Student[] = [
-        {
-          id: 1,
-          name: 'Sarah Wilson',
-          email: 'sarah@example.com',
-          phone: '+1 (555) 123-4567',
-          emergency_contact: 'John Wilson - (555) 987-6543',
-          medical_conditions: 'Lower back sensitivity',
-          totalClasses: 24,
-          attendanceRate: 89,
-          lastClassDate: '2025-06-02',
-          progressNotes: [
-            {
-              id: 1,
-              studentId: 1,
-              instructorId: user?.id || 5,
-              classId: 45,
-              className: 'Power Mat',
-              classDate: '2025-06-02',
-              note: 'Excellent improvement in core strength. Held plank for full 60 seconds today!',
-              category: 'achievement',
-              private: false,
-              createdAt: '2025-06-02T10:30:00Z',
-              updatedAt: '2025-06-02T10:30:00Z',
-            },
-            {
-              id: 2,
-              studentId: 1,
-              instructorId: user?.id || 5,
-              note: 'Needs to focus on breathing during challenging poses. Tends to hold breath.',
-              category: 'improvement',
-              private: true,
-              createdAt: '2025-05-28T09:15:00Z',
-              updatedAt: '2025-05-28T09:15:00Z',
-            }
-          ]
-        },
-        {
-          id: 2,
-          name: 'Michael Chen',
-          email: 'michael@example.com',
-          phone: '+1 (555) 234-5678',
-          totalClasses: 31,
-          attendanceRate: 94,
-          lastClassDate: '2025-06-01',
-          progressNotes: [
-            {
-              id: 3,
-              studentId: 2,
-              instructorId: user?.id || 5,
-              classId: 44,
-              className: 'Reformer Flow',
-              classDate: '2025-06-01',
-              note: 'Ready to advance to intermediate reformer classes. Shows great control and form.',
-              category: 'achievement',
-              private: false,
-              createdAt: '2025-06-01T14:20:00Z',
-              updatedAt: '2025-06-01T14:20:00Z',
-            }
-          ]
-        },
-        {
-          id: 3,
-          name: 'Emma Rodriguez',
-          email: 'emma@example.com',
-          phone: '+1 (555) 345-6789',
-          emergency_contact: 'Carlos Rodriguez - (555) 876-5432',
-          medical_conditions: 'Pregnancy - Second trimester',
-          totalClasses: 12,
-          attendanceRate: 75,
-          lastClassDate: '2025-05-30',
-          progressNotes: [
-            {
-              id: 4,
-              studentId: 3,
-              instructorId: user?.id || 5,
-              note: 'Ensure modifications are being followed. Check comfort level regularly.',
-              category: 'concern',
-              private: true,
-              createdAt: '2025-05-30T11:45:00Z',
-              updatedAt: '2025-05-30T11:45:00Z',
-            }
-          ]
-        }
-      ];
+      if (!user?.id) return;
+
+      const response = await progressNotesService.getInstructorStudents(user.id.toString());
       
-      setStudents(mockStudents);
+      if (response.success && response.data) {
+        setStudents(response.data);
+      } else {
+        Alert.alert('Error', response.error || 'Failed to load student data');
+      }
     } catch (error) {
       console.error('Failed to load student data:', error);
       Alert.alert('Error', 'Failed to load student progress data');
@@ -179,9 +74,9 @@ function StudentProgress() {
         case 'name':
           return a.name.localeCompare(b.name);
         case 'recent':
-          return new Date(b.lastClassDate || 0).getTime() - new Date(a.lastClassDate || 0).getTime();
+          return new Date(b.last_class_date || 0).getTime() - new Date(a.last_class_date || 0).getTime();
         case 'attendance':
-          return b.attendanceRate - a.attendanceRate;
+          return (b.attendance_rate || 0) - (a.attendance_rate || 0);
         default:
           return 0;
       }
@@ -190,61 +85,59 @@ function StudentProgress() {
     setFilteredStudents(filtered);
   };
 
-  const openStudentDetails = (student: Student) => {
+  const openStudentDetails = (student: StudentData) => {
     setSelectedStudent(student);
     setStudentModalVisible(true);
   };
 
-  const openAddNote = (student: Student) => {
+  const openAddNote = (student: StudentData) => {
     setSelectedStudent(student);
     setNewNote({
       note: '',
       category: 'general',
       private: false,
-      classId: undefined,
+      class_id: undefined,
     });
     setAddNoteModalVisible(true);
   };
 
   const saveProgressNote = async () => {
-    if (!selectedStudent || !newNote.note.trim()) {
+    if (!selectedStudent || !newNote.note.trim() || !user?.id) {
       Alert.alert('Error', 'Please enter a note');
       return;
     }
 
     try {
-      // This would call a backend API to save the progress note
-      const noteData: Partial<ProgressNote> = {
+      const response = await progressNotesService.createProgressNote({
         studentId: selectedStudent.id,
-        instructorId: user?.id || 5,
+        instructorId: user.id.toString(),
         note: newNote.note.trim(),
         category: newNote.category,
-        private: newNote.private,
-        classId: newNote.classId,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      // Update local state for immediate feedback
-      const updatedStudents = students.map(student => {
-        if (student.id === selectedStudent.id) {
-          return {
-            ...student,
-            progressNotes: [
-              {
-                ...noteData,
-                id: Date.now(), // Temporary ID
-              } as ProgressNote,
-              ...student.progressNotes,
-            ]
-          };
-        }
-        return student;
+        isPrivate: newNote.private,
+        classId: newNote.class_id,
       });
 
-      setStudents(updatedStudents);
-      setAddNoteModalVisible(false);
-      Alert.alert('Success', 'Progress note saved successfully');
+      if (response.success && response.data) {
+        // Update local state for immediate feedback
+        const updatedStudents = students.map(student => {
+          if (student.id === selectedStudent.id) {
+            return {
+              ...student,
+              progress_notes: [
+                response.data!,
+                ...(student.progress_notes || []),
+              ]
+            };
+          }
+          return student;
+        });
+
+        setStudents(updatedStudents);
+        setAddNoteModalVisible(false);
+        Alert.alert('Success', 'Progress note saved successfully');
+      } else {
+        Alert.alert('Error', response.error || 'Failed to save progress note');
+      }
     } catch (error) {
       console.error('Failed to save progress note:', error);
       Alert.alert('Error', 'Failed to save progress note');
@@ -330,9 +223,9 @@ function StudentProgress() {
                   <View style={styles.studentDetails}>
                     <Title style={styles.studentName}>{student.name}</Title>
                     <Paragraph style={styles.studentEmail}>{student.email}</Paragraph>
-                    {student.lastClassDate && (
+                    {student.last_class_date && (
                       <Paragraph style={styles.lastClass}>
-                        Last class: {formatDate(student.lastClassDate)}
+                        Last class: {formatDate(student.last_class_date)}
                       </Paragraph>
                     )}
                   </View>
@@ -340,23 +233,23 @@ function StudentProgress() {
                 
                 <View style={styles.studentStats}>
                   <View style={styles.statItem}>
-                    <Paragraph style={styles.statNumber}>{student.totalClasses}</Paragraph>
+                    <Paragraph style={styles.statNumber}>{student.total_classes || 0}</Paragraph>
                     <Paragraph style={styles.statLabel}>Classes</Paragraph>
                   </View>
                   <View style={styles.statItem}>
-                    <Paragraph style={styles.statNumber}>{student.attendanceRate}%</Paragraph>
+                    <Paragraph style={styles.statNumber}>{student.attendance_rate || 0}%</Paragraph>
                     <Paragraph style={styles.statLabel}>Attendance</Paragraph>
                   </View>
                 </View>
               </View>
 
               {/* Recent Progress Notes */}
-              {student.progressNotes.length > 0 && (
+              {student.progress_notes && student.progress_notes.length > 0 && (
                 <View style={styles.recentNotes}>
                   <Paragraph style={styles.recentNotesTitle}>Recent Notes</Paragraph>
-                  {student.progressNotes.slice(0, 2).map((note) => (
+                  {student.progress_notes.slice(0, 2).map((note) => (
                     <View key={note.id} style={styles.notePreview}>
-                      <MaterialIcons 
+                      <WebCompatibleIcon 
                         name={getCategoryIcon(note.category)} 
                         size={16} 
                         color={getCategoryColor(note.category)} 
@@ -365,7 +258,7 @@ function StudentProgress() {
                         {note.note}
                       </Paragraph>
                       {note.private && (
-                        <MaterialIcons name="lock" size={14} color="#666" />
+                        <WebCompatibleIcon name="lock" size={14} color="#666" />
                       )}
                     </View>
                   ))}
@@ -387,7 +280,7 @@ function StudentProgress() {
                   mode="contained"
                   onPress={() => openAddNote(student)}
                   style={styles.actionButton}
-                  icon="note-plus"
+                  icon="note-add"
                   compact
                 >
                   Add Note
@@ -399,7 +292,7 @@ function StudentProgress() {
 
         {filteredStudents.length === 0 && !loading && (
           <View style={styles.emptyContainer}>
-            <MaterialIcons name="school" size={64} color="#ccc" />
+            <WebCompatibleIcon name="school" size={64} color="#ccc" />
             <Title style={styles.emptyTitle}>No Students Found</Title>
             <Paragraph style={styles.emptyText}>
               {searchQuery ? 'No students match your search' : 'No students have attended your classes yet'}
@@ -433,27 +326,27 @@ function StudentProgress() {
                   <List.Item
                     title="Email"
                     description={selectedStudent.email}
-                    left={() => <MaterialIcons name="email" size={24} color="#666" />}
+                    left={() => <WebCompatibleIcon name="email" size={24} color="#666" />}
                   />
                   {selectedStudent.phone && (
                     <List.Item
                       title="Phone"
                       description={selectedStudent.phone}
-                      left={() => <MaterialIcons name="phone" size={24} color="#666" />}
+                      left={() => <WebCompatibleIcon name="phone" size={24} color="#666" />}
                     />
                   )}
                   {selectedStudent.emergency_contact && (
                     <List.Item
                       title="Emergency Contact"
                       description={selectedStudent.emergency_contact}
-                      left={() => <MaterialIcons name="contact-phone" size={24} color="#666" />}
+                      left={() => <WebCompatibleIcon name="contact-phone" size={24} color="#666" />}
                     />
                   )}
                   {selectedStudent.medical_conditions && (
                     <List.Item
                       title="Medical Conditions"
                       description={selectedStudent.medical_conditions}
-                      left={() => <MaterialIcons name="medical-services" size={24} color="#f44336" />}
+                      left={() => <WebCompatibleIcon name="medical-services" size={24} color="#f44336" />}
                     />
                   )}
                 </Card.Content>
@@ -465,15 +358,15 @@ function StudentProgress() {
                   <Title>Progress Statistics</Title>
                   <View style={styles.statsGrid}>
                     <View style={styles.statCard}>
-                      <Paragraph style={styles.statNumber}>{selectedStudent.totalClasses}</Paragraph>
+                      <Paragraph style={styles.statNumber}>{selectedStudent.total_classes || 0}</Paragraph>
                       <Paragraph style={styles.statLabel}>Total Classes</Paragraph>
                     </View>
                     <View style={styles.statCard}>
-                      <Paragraph style={styles.statNumber}>{selectedStudent.attendanceRate}%</Paragraph>
+                      <Paragraph style={styles.statNumber}>{selectedStudent.attendance_rate || 0}%</Paragraph>
                       <Paragraph style={styles.statLabel}>Attendance Rate</Paragraph>
                     </View>
                     <View style={styles.statCard}>
-                      <Paragraph style={styles.statNumber}>{selectedStudent.progressNotes.length}</Paragraph>
+                      <Paragraph style={styles.statNumber}>{selectedStudent.progress_notes?.length || 0}</Paragraph>
                       <Paragraph style={styles.statLabel}>Progress Notes</Paragraph>
                     </View>
                   </View>
@@ -483,12 +376,12 @@ function StudentProgress() {
               {/* All Progress Notes */}
               <Card style={styles.modalCard}>
                 <Card.Content>
-                  <Title>Progress Notes ({selectedStudent.progressNotes.length})</Title>
-                  {selectedStudent.progressNotes.map((note) => (
+                  <Title>Progress Notes ({selectedStudent.progress_notes?.length || 0})</Title>
+                  {selectedStudent.progress_notes?.map((note) => (
                     <View key={note.id} style={styles.noteItem}>
                       <View style={styles.noteHeader}>
                         <View style={styles.noteCategory}>
-                          <MaterialIcons 
+                          <WebCompatibleIcon 
                             name={getCategoryIcon(note.category)} 
                             size={20} 
                             color={getCategoryColor(note.category)} 
@@ -497,17 +390,17 @@ function StudentProgress() {
                             {note.category.charAt(0).toUpperCase() + note.category.slice(1)}
                           </Paragraph>
                           {note.private && (
-                            <MaterialIcons name="lock" size={16} color="#666" />
+                            <WebCompatibleIcon name="lock" size={16} color="#666" />
                           )}
                         </View>
                         <Paragraph style={styles.noteDate}>
-                          {formatDate(note.createdAt)}
+                          {formatDate(note.created_at)}
                         </Paragraph>
                       </View>
                       
-                      {note.className && (
+                      {note.class_name && (
                         <Paragraph style={styles.noteClass}>
-                          Class: {note.className} - {note.classDate && formatDate(note.classDate)}
+                          Class: {note.class_name} - {note.class_date && formatDate(note.class_date)}
                         </Paragraph>
                       )}
                       
@@ -515,7 +408,7 @@ function StudentProgress() {
                     </View>
                   ))}
                   
-                  {selectedStudent.progressNotes.length === 0 && (
+                  {(!selectedStudent.progress_notes || selectedStudent.progress_notes.length === 0) && (
                     <View style={styles.noNotesContainer}>
                       <Paragraph style={styles.noNotesText}>No progress notes yet</Paragraph>
                       <Button
@@ -592,7 +485,7 @@ function StudentProgress() {
                 title="Private Note"
                 description="Only visible to instructors"
                 left={() => (
-                  <MaterialIcons 
+                  <WebCompatibleIcon 
                     name={newNote.private ? "lock" : "lock-open"} 
                     size={24} 
                     color={newNote.private ? "#666" : "#ccc"} 

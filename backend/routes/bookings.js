@@ -563,46 +563,143 @@ router.put('/:id/cancel', authenticateToken, async (req, res) => {
           }
 
           if (userSubscription && (userSubscription.remaining_classes > 0 || userSubscription.plan_type === 'unlimited')) {
-            // Create booking for waitlisted user
-            await db.run(`
-              INSERT INTO bookings (user_id, class_id, subscription_id)
-              VALUES (?, ?, ?)
-            `, [nextInLine.user_id, booking.class_id, userSubscription.id]);
+            // Check if the user already has a booking for this class to prevent duplicates
+            const existingBookingResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/bookings?user_id=eq.${nextInLine.user_id}&class_id=eq.${booking.class_id}&status=eq.confirmed&select=id`, {
+              headers: {
+                'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                'Content-Type': 'application/json'
+              }
+            });
+            
+            const existingBookings = existingBookingResponse.ok ? await existingBookingResponse.json() : [];
+            const existingBooking = existingBookings.length > 0 ? existingBookings[0] : null;
+            
+            if (existingBooking) {
+              console.log(`⚠️ User ${nextInLine.user_name} already has a booking for class ${booking.class_id}, removing from waitlist without creating duplicate booking`);
+              
+              // Remove the user from waitlist since they already have a booking
+              await fetch(`${process.env.SUPABASE_URL}/rest/v1/waitlist?id=eq.${nextInLine.id}`, {
+                method: 'DELETE',
+                headers: {
+                  'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                  'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                  'Content-Type': 'application/json'
+                }
+              });
+              
+              // Update positions for remaining waitlist entries - decrease by 1
+              const waitlistUpdateResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/waitlist?class_id=eq.${booking.class_id}&position=gt.${nextInLine.position}`, {
+                method: 'PATCH',
+                headers: {
+                  'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                  'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                  'Content-Type': 'application/json',
+                  'Prefer': 'return=minimal'
+                },
+                body: JSON.stringify({
+                  position: 'raw(position - 1)'
+                })
+              });
+              
+              if (!waitlistUpdateResponse.ok) {
+                console.warn('Failed to update waitlist positions after duplicate removal');
+              }
+              
+              console.log(`🔄 Removed duplicate user from waitlist, skipping to next person`);
+            } else {
+              // Create booking for waitlisted user
+              await fetch(`${process.env.SUPABASE_URL}/rest/v1/bookings`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                  'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  user_id: nextInLine.user_id,
+                  class_id: booking.class_id,
+                  subscription_id: userSubscription.id,
+                  status: 'confirmed',
+                  booking_date: new Date().toISOString()
+                })
+              });
 
-            // Update subscription
-            if (userSubscription.plan_type !== 'unlimited') {
-              await db.run(
-                'UPDATE user_subscriptions SET remaining_classes = remaining_classes - 1 WHERE id = ?',
-                [userSubscription.id]
-              );
+              // Update subscription
+              if (userSubscription.plan_type !== 'unlimited') {
+                await fetch(`${process.env.SUPABASE_URL}/rest/v1/user_subscriptions?id=eq.${userSubscription.id}`, {
+                  method: 'PATCH',
+                  headers: {
+                    'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                    'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({
+                    remaining_classes: userSubscription.remaining_classes - 1
+                  })
+                });
+              }
+
+              // Update class enrollment back to full
+              await fetch(`${process.env.SUPABASE_URL}/rest/v1/classes?id=eq.${booking.class_id}`, {
+                method: 'PATCH',
+                headers: {
+                  'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                  'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  enrolled: booking.enrolled + 1
+                })
+              });
+
+              // Remove from waitlist
+              await fetch(`${process.env.SUPABASE_URL}/rest/v1/waitlist?id=eq.${nextInLine.id}`, {
+                method: 'DELETE',
+                headers: {
+                  'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                  'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                  'Content-Type': 'application/json'
+                }
+              });
+              
+              // Update other waitlist positions  
+              await fetch(`${process.env.SUPABASE_URL}/rest/v1/waitlist?class_id=eq.${booking.class_id}&position=gt.${nextInLine.position}`, {
+                method: 'PATCH',
+                headers: {
+                  'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                  'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                  'Content-Type': 'application/json',
+                  'Prefer': 'return=minimal'
+                },
+                body: JSON.stringify({
+                  position: 'raw(position - 1)'
+                })
+              });
+
+              // Schedule notification for the promoted user
+              const notificationTime = new Date().toISOString();
+              const classDate = new Date(booking.date).toLocaleDateString();
+              const message = `🎉 Great news! A spot opened up in "${booking.class_name}" on ${classDate} at ${booking.time}. You are now booked automatically!`;
+              
+              await fetch(`${process.env.SUPABASE_URL}/rest/v1/notifications`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                  'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  class_id: booking.class_id,
+                  user_id: nextInLine.user_id,
+                  type: 'waitlist_promotion',
+                  message: message,
+                  scheduled_time: notificationTime
+                })
+              });
+
+              console.log(`📋 Promoted ${nextInLine.user_name} from waitlist for class "${booking.class_name}"`);
             }
-
-            // Update class enrollment back to full
-            await db.run(
-              'UPDATE classes SET enrolled = enrolled + 1 WHERE id = ?',
-              [booking.class_id]
-            );
-
-            // Remove from waitlist
-            await db.run('DELETE FROM waitlist WHERE id = ?', [nextInLine.id]);
-            
-            // Update other waitlist positions
-            await db.run(
-              'UPDATE waitlist SET position = position - 1 WHERE class_id = ? AND position > ?',
-              [booking.class_id, nextInLine.position]
-            );
-
-            // Schedule notification for the promoted user
-            const notificationTime = new Date().toISOString();
-            const classDate = new Date(booking.date).toLocaleDateString();
-            const message = `🎉 Great news! A spot opened up in "${booking.class_name}" on ${classDate} at ${booking.time}. You are now booked automatically!`;
-            
-            await db.run(`
-              INSERT INTO notifications (class_id, user_id, type, message, scheduled_time)
-              VALUES (?, ?, 'waitlist_promotion', ?, ?)
-            `, [booking.class_id, nextInLine.user_id, message, notificationTime]);
-
-            console.log(`📋 Promoted ${nextInLine.user_name} from waitlist for class "${booking.class_name}"`);
           }
         }
       }
@@ -2076,6 +2173,77 @@ router.post('/reception-cancel', authenticateToken, requireAdminOrReception, [
         }
 
         if (nextInLine) {
+          // Check if the user already has a booking for this class to prevent duplicates
+          let existingBooking = null;
+          if (db.useSupabase) {
+            const existingBookingResponse = await fetch(`${process.env.SUPABASE_URL}/rest/v1/bookings?user_id=eq.${nextInLine.user_id}&class_id=eq.${classId}&status=eq.confirmed&select=id`, {
+              headers: {
+                'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                'Content-Type': 'application/json'
+              }
+            });
+            if (existingBookingResponse.ok) {
+              const existingBookings = await existingBookingResponse.json();
+              existingBooking = existingBookings.length > 0 ? existingBookings[0] : null;
+            }
+          } else {
+            existingBooking = await db.get(
+              'SELECT id FROM bookings WHERE user_id = ? AND class_id = ? AND status = "confirmed"',
+              [nextInLine.user_id, classId]
+            );
+          }
+          
+          if (existingBooking) {
+            console.log(`⚠️ User ${nextInLine.user_name} already has a booking for class ${classId}, removing from waitlist without creating duplicate booking`);
+            
+            // Remove the user from waitlist since they already have a booking
+            if (db.useSupabase) {
+              await fetch(`${process.env.SUPABASE_URL}/rest/v1/waitlist?id=eq.${nextInLine.id}`, {
+                method: 'DELETE',
+                headers: {
+                  'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                  'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                  'Content-Type': 'application/json'
+                }
+              });
+            } else {
+              await db.run('DELETE FROM waitlist WHERE id = ?', [nextInLine.id]);
+            }
+            
+            // Update positions for remaining waitlist entries
+            if (db.useSupabase) {
+              await fetch(`${process.env.SUPABASE_URL}/rest/v1/rpc/update_waitlist_positions`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                  'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  p_class_id: classId,
+                  p_removed_position: nextInLine.position
+                })
+              });
+            } else {
+              await db.run(
+                'UPDATE waitlist SET position = position - 1 WHERE class_id = ? AND position > ?',
+                [classId, nextInLine.position]
+              );
+            }
+            
+            console.log(`🔄 Skipped duplicate booking, will try next person in waitlist`);
+            // Continue to check next person in waitlist by returning without further processing
+            return res.json({
+              success: true,
+              message: 'Booking cancelled successfully. Waitlist user already had booking, cleaned up waitlist.',
+              data: {
+                cancelledAt: new Date().toISOString(),
+                duplicateRemoved: true
+              }
+            });
+          }
+
           // Check if they have a valid subscription
           let userSubscription = null;
           if (db.useSupabase) {

@@ -458,7 +458,7 @@ You&apos;ll be notified if a spot becomes available.`,
                         textColor={warningColor}
                         disabled={isWaitlistLoading}
                         loading={isWaitlistLoading}
-                        icon="clock-outline"
+                        icon="access-time"
                       >
                         Join Waitlist
                       </Button>
@@ -473,7 +473,7 @@ You&apos;ll be notified if a spot becomes available.`,
                         style={[styles.bookButton, styles.waitlistedButton, { borderColor: primaryColor }]}
                         textColor={primaryColor}
                         disabled
-                        icon="clock-check"
+                        icon="check-circle"
                       >
                         On Waitlist (#{getWaitlistPosition(class_.id)})
                       </Button>

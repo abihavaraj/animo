@@ -3,14 +3,14 @@ import { MaterialIcons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import {
-    Button,
-    Card,
-    Paragraph,
-    TextInput,
-    Title
+  Button,
+  Card,
+  Paragraph,
+  TextInput,
+  Title
 } from 'react-native-paper';
-import { useDispatch } from 'react-redux';
-import { logout } from '../../store/authSlice';
+import { useAppDispatch } from '../../store';
+import { logoutUser } from '../../store/authSlice';
 
 function SystemSettings() {
   // Theme colors
@@ -22,7 +22,7 @@ function SystemSettings() {
   const accentColor = useThemeColor({}, 'accent');
   const errorColor = useThemeColor({}, 'error');
 
-  const dispatch = useDispatch();
+  const dispatch = useAppDispatch();
 
   // Studio Settings State
   const [studioSettings, setStudioSettings] = useState({
@@ -32,17 +32,19 @@ function SystemSettings() {
     address: '123 Wellness Street, City, State 12345',
   });
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     Alert.alert(
       'Logout',
       'Are you sure you want to logout?',
       [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Logout', 
+        {
+          text: 'Logout',
           style: 'destructive',
-          onPress: () => dispatch(logout())
-        }
+          onPress: async () => {
+            await dispatch(logoutUser());
+          },
+        },
       ]
     );
   };
@@ -65,7 +67,7 @@ function SystemSettings() {
               <MaterialIcons name="business" size={24} color={accentColor} />
               <Title style={[styles.sectionTitle, { color: textColor }]}>Studio Information</Title>
             </View>
-            
+
             <TextInput
               label="Studio Name"
               value={studioSettings.studioName}
@@ -99,9 +101,9 @@ function SystemSettings() {
               style={styles.input}
             />
 
-            <Button 
-              mode="contained" 
-              onPress={handleSaveStudioSettings} 
+            <Button
+              mode="contained"
+              onPress={handleSaveStudioSettings}
               style={[styles.saveButton, { backgroundColor: accentColor }]}
             >
               Save Settings
@@ -115,14 +117,14 @@ function SystemSettings() {
               <MaterialIcons name="exit-to-app" size={24} color={errorColor} />
               <Title style={[styles.sectionTitle, { color: textColor }]}>Account</Title>
             </View>
-            
+
             <Paragraph style={[styles.logoutDescription, { color: textSecondaryColor }]}>
               Sign out of your administrator account
             </Paragraph>
-            
-            <Button 
-              mode="outlined" 
-              onPress={handleLogout} 
+
+            <Button
+              mode="outlined"
+              onPress={handleLogout}
               style={[styles.logoutButton, { borderColor: errorColor }]}
               labelStyle={{ color: errorColor }}
               icon="logout"

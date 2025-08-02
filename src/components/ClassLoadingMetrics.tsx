@@ -1,13 +1,13 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { Button, Card, Chip, Modal, Portal } from 'react-native-paper';
 import { apiService } from '../services/api';
@@ -83,8 +83,10 @@ export default function ClassLoadingMetrics({
 
       const response = await apiService.get(`/api/classes/loading-metrics?${params.toString()}`);
       
-      if (response.success && response.data) {
-        setMetricsData(response.data);
+      if (response.success && response.data && typeof response.data === 'object' && 'date' in response.data) {
+        setMetricsData(response.data as LoadingMetricsData);
+      } else {
+        setMetricsData(null);
       }
     } catch (error) {
       console.error('Failed to load class metrics:', error);

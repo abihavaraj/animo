@@ -866,25 +866,75 @@ router.put('/:id/password', authenticateToken, requireAdminOrReception, [
       });
     }
 
-    const existingUser = await db.get('SELECT id FROM users WHERE id = ?', [req.params.id]);
-    if (!existingUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
+    if (db.useSupabase) {
+      // For Supabase, update password using Auth Admin API
+      console.log('🔐 Updating user password in Supabase Auth:', req.params.id);
+      
+      // First check if user exists in our users table
+      const { data: userData, error: userError } = await db.supabase
+        .from('users')
+        .select('id, email')
+        .eq('id', req.params.id)
+        .single();
+        
+      if (userError || !userData) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+
+      // Update password in Supabase Auth
+      const updatePasswordResponse = await fetch(`${process.env.SUPABASE_URL}/auth/v1/admin/users/${req.params.id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          password: req.body.newPassword
+        })
+      });
+
+      if (!updatePasswordResponse.ok) {
+        const error = await updatePasswordResponse.json();
+        console.error('❌ Supabase password update failed:', error);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to update password'
+        });
+      }
+
+      console.log('✅ Supabase password updated successfully for user:', req.params.id);
+      
+      res.json({
+        success: true,
+        message: 'Password updated successfully'
+      });
+      
+    } else {
+      // Original SQLite logic
+      const existingUser = await db.get('SELECT id FROM users WHERE id = ?', [req.params.id]);
+      if (!existingUser) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+
+      const hashedPassword = await bcrypt.hash(req.body.newPassword, 10);
+
+      await db.run(
+        'UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [hashedPassword, req.params.id]
+      );
+
+      res.json({
+        success: true,
+        message: 'Password updated successfully'
       });
     }
-
-    const hashedPassword = await bcrypt.hash(req.body.newPassword, 10);
-
-    await db.run(
-      'UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [hashedPassword, req.params.id]
-    );
-
-    res.json({
-      success: true,
-      message: 'Password updated successfully'
-    });
 
   } catch (error) {
     console.error('Reset password error:', error);

@@ -1,5 +1,4 @@
 import { Caption, H2 } from '@/components/ui/Typography';
-import { spacing } from '@/constants/Spacing';
 import { useThemeColor } from '@/hooks/useThemeColor';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
@@ -7,6 +6,7 @@ import { ActivityIndicator, Alert, AppState, Pressable, RefreshControl, ScrollVi
 import { Calendar, LocaleConfig } from 'react-native-calendars';
 import { Button, Card, Chip, FAB, Paragraph, SegmentedButtons, Surface } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
+import { spacing } from '../../../constants/Spacing';
 import { bookingService } from '../../services/bookingService';
 import { BackendClass } from '../../services/classService';
 import { AppDispatch, RootState } from '../../store';
@@ -670,9 +670,7 @@ function ClassesView() {
       String(today.getMonth() + 1).padStart(2, '0') + '-' + 
       String(today.getDate()).padStart(2, '0');
     
-    console.log('📅 Generating marked dates for calendar');
-    console.log(`📊 Total classes: ${classesArray.length}`);
-    console.log(`📋 Total bookings: ${bookingsArray.length}`);
+
     
     classesArray.forEach((classItem: BackendClass) => {
       if (!classItem.date) return;
@@ -718,10 +716,10 @@ function ClassesView() {
       
       marked[date].dots.push({ color: dotColor });
       
-      console.log(`📅 ${date}: ${classItem.name} - ${userBooking ? 'Booked' : 'Available'} ${isPastDate ? '(past)' : ''}`);
+
     });
     
-    console.log(`📅 Total marked dates: ${Object.keys(marked).length}`);
+
     setMarkedDates(marked);
   };
 
@@ -729,7 +727,7 @@ function ClassesView() {
     const classesArray = Array.isArray(classes) ? classes : [];
     const bookingsArray = Array.isArray(bookings) ? bookings : [];
     
-    console.log(`🗓️ Getting classes for date: ${date}`);
+
     
     const dayClasses = classesArray
       .filter((classItem: BackendClass) => {
@@ -737,7 +735,7 @@ function ClassesView() {
         const classDate = classItem.date;
         const matches = classDate === date;
         if (matches) {
-          console.log(`✅ Found class on ${date}: ${classItem.name}`);
+          // Class found for date
         }
         return matches;
       })
@@ -757,7 +755,7 @@ function ClassesView() {
         return a.startTime.localeCompare(b.startTime);
       });
     
-    console.log(`🗓️ Classes found for ${date}: ${dayClasses.length}`);
+
     return dayClasses;
   };
 
@@ -908,14 +906,15 @@ function ClassesView() {
         { 
           text: 'Book Class', 
           onPress: async () => {
-            try {
-              await dispatch(createBooking({ classId })).unwrap();
-              Alert.alert('Success', 'Class booked successfully!');
-              // Refresh data after successful booking
-              await loadData();
-            } catch (error) {
-              Alert.alert('Booking Failed', error as string || 'Failed to book class');
-            }
+                          try {
+                await dispatch(createBooking({ classId })).unwrap();
+                Alert.alert('Success', 'Class booked successfully!');
+                // Refresh data and close modal after successful booking
+                await loadData();
+                setDayClassesVisible(false);
+              } catch (error) {
+                Alert.alert('Booking Failed', error as string || 'Failed to book class');
+              }
           }
         }
       ]
@@ -936,8 +935,9 @@ function ClassesView() {
               try {
                 await dispatch(cancelBooking(bookingId)).unwrap();
                 Alert.alert('Success', 'Booking cancelled successfully');
-                // Refresh data to update UI
+                // Refresh data and close modal after successful cancellation
                 await loadData();
+                setDayClassesVisible(false);
               } catch (error) {
                 Alert.alert('Error', error as string || 'Failed to cancel booking');
               }
@@ -955,9 +955,11 @@ function ClassesView() {
       const result = await bookingService.joinWaitlist({ classId });
       if (result.success) {
         Alert.alert('Success', `You've been added to the waitlist at position #${result.data?.position}.`);
+        // Refresh data and close modal after successful waitlist join
         await loadData();
+        setDayClassesVisible(false);
       } else {
-        Alert.alert('Error', result.message || 'Failed to join waitlist');
+        Alert.alert('Error', result.error || 'Failed to join waitlist');
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to join waitlist');
@@ -977,9 +979,11 @@ function ClassesView() {
               const result = await bookingService.leaveWaitlist(waitlistId);
               if (result.success) {
                 Alert.alert('Success', 'You have been removed from the waitlist.');
+                // Refresh data and close modal after successful waitlist leave
                 await loadData();
+                setDayClassesVisible(false);
               } else {
-                Alert.alert('Error', result.message || 'Failed to leave waitlist');
+                Alert.alert('Error', result.error || 'Failed to leave waitlist');
               }
             }
           }

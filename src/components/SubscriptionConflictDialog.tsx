@@ -85,15 +85,13 @@ export function SubscriptionConflictDialog({
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(amount);
+    return `${amount.toFixed(0)} ALL`;
   };
 
   const getComparisonIcon = () => {
+    if (!conflictData.comparison) {
+      return <Icon source="minus" size={20} color={Colors.light.textSecondary} />;
+    }
     if (conflictData.comparison.isUpgrade) {
       return <Icon source="arrow-up" size={20} color={Colors.light.success} />;
     } else if (conflictData.comparison.isDowngrade) {
@@ -104,6 +102,9 @@ export function SubscriptionConflictDialog({
   };
 
   const getComparisonText = () => {
+    if (!conflictData.comparison) {
+      return 'Plan Comparison';
+    }
     if (conflictData.comparison.isUpgrade) {
       return `Upgrade (+${formatCurrency(conflictData.comparison.priceDifference)}/month)`;
     } else if (conflictData.comparison.isDowngrade) {

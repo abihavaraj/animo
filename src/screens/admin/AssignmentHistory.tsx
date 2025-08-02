@@ -120,7 +120,7 @@ function AssignmentHistory() {
 
     // Filter by current user if "My Assignments" is toggled
     if (showMyAssignments && user) {
-      filtered = filtered.filter(assignment => assignment.admin_id === user.id);
+      filtered = filtered.filter(assignment => assignment.admin_id === Number(user.id));
     }
 
     // Filter by search query
@@ -142,7 +142,7 @@ function AssignmentHistory() {
     loadData();
   };
 
-  const formatCurrency = (amount: number) => `$${amount.toFixed(2)}`;
+  const formatCurrency = (amount: number) => `${amount.toFixed(0)} ALL`;
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -254,7 +254,7 @@ function AssignmentHistory() {
           mode={showMyAssignments ? 'contained' : 'outlined'}
           onPress={() => setShowMyAssignments(!showMyAssignments)}
           style={styles.filterButton}
-          icon="account"
+          icon="person"
         >
           My Assignments
         </Button>

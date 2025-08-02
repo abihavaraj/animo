@@ -1,17 +1,8 @@
-import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
-import {
-  Alert,
-  Dimensions,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
-} from 'react-native';
+import { Alert, Dimensions, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { SubscriptionConflictDialog } from '../../components/SubscriptionConflictDialog';
+import WebCompatibleIcon from '../../components/WebCompatibleIcon';
 import { SubscriptionPlan, subscriptionService } from '../../services/subscriptionService';
 import { BackendUser, userService } from '../../services/userService';
 import { AppDispatch, RootState } from '../../store';
@@ -33,7 +24,8 @@ interface PlanFormData {
   name: string;
   monthlyClasses: number;
   monthlyPrice: number;
-  durationMonths: number;
+  duration: number;
+  duration_unit: 'days' | 'months' | 'years';
   equipmentAccess: 'mat' | 'reformer' | 'both';
   description: string;
   category: 'group' | 'personal' | 'personal_duo' | 'personal_trio';
@@ -69,7 +61,8 @@ function PCSubscriptionPlans() {
     name: '',
     monthlyClasses: 8,
     monthlyPrice: 8500,
-    durationMonths: 1,
+    duration: 1,
+    duration_unit: 'months',
     equipmentAccess: 'mat',
     description: '',
     category: 'group',
@@ -109,24 +102,21 @@ function PCSubscriptionPlans() {
 
   const loadPlanStatistics = async () => {
     try {
-      // This would be a new API endpoint to get plan statistics
-      // For now, we'll simulate the data
-      const statsMap: { [key: number]: PlanStats } = {};
+      console.log('📊 Loading real plan statistics...');
+      const response = await subscriptionService.getPlanStatistics();
       
-      if (Array.isArray(plans)) {
-        plans.forEach((plan, index) => {
-          statsMap[plan.id] = {
-            activeSubscriptions: Math.floor(Math.random() * 50) + 5,
-            totalRevenue: (plan.monthlyPrice || 0) * (Math.floor(Math.random() * 30) + 10),
-            averagePrice: plan.monthlyPrice || 0,
-            popularityRank: index + 1
-          };
-        });
+      if (response.success && response.data) {
+        console.log('✅ Plan statistics loaded successfully:', response.data);
+        setPlanStats(response.data);
+      } else {
+        console.error('❌ Failed to load plan statistics:', response.error);
+        // Fallback to empty stats instead of simulated data
+        setPlanStats({});
       }
-      
-      setPlanStats(statsMap);
     } catch (error) {
-      console.error('Failed to load plan statistics:', error);
+      console.error('❌ Error loading plan statistics:', error);
+      // Fallback to empty stats instead of simulated data
+      setPlanStats({});
     }
   };
 
@@ -321,38 +311,34 @@ function PCSubscriptionPlans() {
   };
 
   const handleSubscriptionOption = async (optionId: string) => {
-    if (!subscriptionOptionsData) return;
-    
+    if (!subscriptionOptionsData || !subscriptionOptionsData.user || !subscriptionOptionsData.newPlan) {
+      Alert.alert('Error', 'Missing data to perform subscription action.');
+      return;
+    }
+
     try {
+      const userId = subscriptionOptionsData.user.id;
+      const planId = subscriptionOptionsData.newPlan.id;
+      const notes = 'Updated via reception conflict dialog';
       let response;
-      
+
+      console.log(`[handleSubscriptionOption] Action: ${optionId}, UserID: ${userId}, PlanID: ${planId}`);
+
+      if (!userId || !planId) {
+        Alert.alert('Error', 'User ID or Plan ID is missing.');
+        return;
+      }
+
       switch (optionId) {
         case 'replace':
-          // Cancel existing and create new
-          const userId = subscriptionOptionsData.user.id;
-          const planId = subscriptionOptionsData.newPlan.id;
-          response = await subscriptionService.assignSubscription(
-            userId, 
-            planId, 
-            'Replacing existing subscription', 
-            'new'
-          );
+          response = await subscriptionService.assignSubscription(userId, planId, notes, 'replace');
           break;
         case 'extend':
-          // Extend existing subscription
-          const userId2 = subscriptionOptionsData.user.id;
-          const planId2 = subscriptionOptionsData.newPlan.id;
-          response = await subscriptionService.assignSubscription(
-            userId2, 
-            planId2, 
-            'Extending existing subscription', 
-            'extend'
-          );
+          response = await subscriptionService.assignSubscription(userId, planId, notes, 'extend');
           break;
         case 'queue':
-          // Queue for next period (not implemented yet)
-          Alert.alert('Info', 'Queue functionality will be implemented soon.');
-          return;
+          response = await subscriptionService.assignSubscription(userId, planId, notes, 'queue');
+          break;
         default:
           Alert.alert('Error', 'Invalid option selected');
           return;
@@ -367,7 +353,7 @@ function PCSubscriptionPlans() {
       }
     } catch (error: any) {
       console.error('Option handling error:', error);
-      Alert.alert('Error', 'An unexpected error occurred');
+      Alert.alert('Error', `An unexpected error occurred: ${error.message}`);
     }
   };
 
@@ -378,7 +364,8 @@ function PCSubscriptionPlans() {
       name: '',
       monthlyClasses: 8,
       monthlyPrice: 8500,
-      durationMonths: 1,
+      duration: 1,
+      duration_unit: 'months',
       equipmentAccess: 'mat',
       description: '',
       category: 'group',
@@ -391,69 +378,51 @@ function PCSubscriptionPlans() {
     setEditingPlan(plan);
     setPlanFormData({
       name: plan.name || '',
-      monthlyClasses: plan.monthlyClasses || 0,
-      monthlyPrice: plan.monthlyPrice || 0,
-      durationMonths: plan.durationMonths || 1,
-      equipmentAccess: plan.equipmentAccess || 'mat',
+      monthlyClasses: plan.monthly_classes || 8,
+      monthlyPrice: plan.monthly_price || 8500,
+      duration: plan.duration || 1,
+      duration_unit: plan.duration_unit || 'months',
+      equipmentAccess: plan.equipment_access || 'mat',
       description: plan.description || '',
       category: plan.category || 'group',
-      features: Array.isArray(plan.features) ? plan.features.join('\n') : '',
+      features: Array.isArray(plan.features) ? plan.features.join('\n') : (plan.features || ''),
     });
     setShowPlanModal(true);
   };
 
   const handleSavePlan = async () => {
-    // Comprehensive validation
-    const errors = [];
-    
-    if (!planFormData.name || planFormData.name.trim().length === 0) {
-      errors.push('Plan name is required');
-    }
-    
-    if (planFormData.monthlyClasses <= 0) {
-      errors.push('Monthly classes must be greater than 0');
-    }
-    
-    if (planFormData.monthlyPrice <= 0) {
-      errors.push('Monthly price must be greater than 0');
-    }
-    
-    if (planFormData.durationMonths <= 0) {
-      errors.push('Duration must be greater than 0');
-    }
-    
-    if (!planFormData.category) {
-      errors.push('Category is required');
-    }
-    
-    if (!planFormData.equipmentAccess) {
-      errors.push('Equipment access is required');
-    }
-    
-    if (errors.length > 0) {
-      Alert.alert('Validation Error', errors.join('\n'));
+    if (!planFormData.name || !planFormData.monthlyPrice || !planFormData.monthlyClasses) {
+      Alert.alert('Error', 'Please fill in all required fields');
       return;
     }
+
+    const planData = {
+      name: planFormData.name,
+      monthlyClasses: planFormData.monthlyClasses,
+      monthlyPrice: planFormData.monthlyPrice,
+      duration: planFormData.duration,
+      duration_unit: planFormData.duration_unit,
+      equipmentAccess: planFormData.equipmentAccess,
+      description: planFormData.description,
+      category: planFormData.category,
+      features: planFormData.features.split('\n').filter(f => f.trim())
+    };
 
     setIsSavingPlan(true);
     
     try {
-      const featuresArray = planFormData.features
-        .split('\n')
-        .map(feature => feature.trim())
-        .filter(feature => feature.length > 0);
-
       if (editingPlan) {
         // Update existing plan
         const updateData = {
-          name: planFormData.name.trim(),
-          monthlyClasses: planFormData.monthlyClasses,
-          monthlyPrice: planFormData.monthlyPrice,
-          durationMonths: planFormData.durationMonths,
-          equipmentAccess: planFormData.equipmentAccess,
-          description: planFormData.description.trim(),
-          category: planFormData.category,
-          features: featuresArray,
+          name: planData.name.trim(),
+          monthlyClasses: planData.monthlyClasses,
+          monthlyPrice: planData.monthlyPrice,
+          duration: planData.duration,
+          duration_unit: planData.duration_unit,
+          equipmentAccess: planData.equipmentAccess,
+          description: planData.description.trim(),
+          category: planData.category,
+          features: planData.features,
           isActive: true
         };
         await dispatch(updatePlan({ id: editingPlan.id, planData: updateData })).unwrap();
@@ -461,14 +430,15 @@ function PCSubscriptionPlans() {
       } else {
         // Create new plan
         const createData = {
-          name: planFormData.name.trim(),
-          monthlyClasses: planFormData.monthlyClasses,
-          monthlyPrice: planFormData.monthlyPrice,
-          durationMonths: planFormData.durationMonths,
-          equipmentAccess: planFormData.equipmentAccess,
-          description: planFormData.description.trim(),
-          category: planFormData.category,
-          features: featuresArray
+          name: planData.name.trim(),
+          monthlyClasses: planData.monthlyClasses,
+          monthlyPrice: planData.monthlyPrice,
+          duration: planData.duration,
+          duration_unit: planData.duration_unit,
+          equipmentAccess: planData.equipmentAccess,
+          description: planData.description.trim(),
+          category: planData.category,
+          features: planData.features
         };
         await dispatch(createPlan(createData)).unwrap();
         Alert.alert('Success', 'Plan created successfully');
@@ -600,7 +570,7 @@ function PCSubscriptionPlans() {
           style={styles.checkboxCell}
           onPress={() => togglePlanSelection(plan.id)}
         >
-          <MaterialIcons
+          <WebCompatibleIcon
             name={isSelected ? 'check-box' : 'check-box-outline-blank'}
             size={20}
             color={isSelected ? '#C77474' : '#666'}
@@ -628,7 +598,7 @@ function PCSubscriptionPlans() {
 
         {/* Equipment */}
         <View style={styles.equipmentCell}>
-          <MaterialIcons
+          <WebCompatibleIcon
             name={getEquipmentIcon(plan.equipmentAccess || 'mat')}
             size={18}
             color="#666"
@@ -665,7 +635,7 @@ function PCSubscriptionPlans() {
                 handleQuickAssign(plan);
               }}
             >
-              <MaterialIcons name="person-add" size={16} color="white" />
+              <WebCompatibleIcon name="person-add" size={16} color="white" />
               <Text style={styles.assignButtonText}>Assign</Text>
             </TouchableOpacity>
           </View>
@@ -678,7 +648,7 @@ function PCSubscriptionPlans() {
                 handleEditPlan(plan);
               }}
             >
-              <MaterialIcons name="edit" size={16} color="#666" />
+              <WebCompatibleIcon name="edit" size={16} color="#666" />
             </TouchableOpacity>
             <Text style={styles.buttonLabel}>Edit</Text>
           </View>
@@ -694,7 +664,7 @@ function PCSubscriptionPlans() {
                 handleTogglePlanStatus(plan.id);
               }}
             >
-              <MaterialIcons 
+              <WebCompatibleIcon 
                 name={plan.isActive ? 'pause' : 'play-arrow'} 
                 size={16} 
                 color="white"
@@ -713,7 +683,7 @@ function PCSubscriptionPlans() {
                 handleDeletePlan(plan.id);
               }}
             >
-              <MaterialIcons name="delete" size={16} color="white" />
+              <WebCompatibleIcon name="delete" size={16} color="white" />
             </TouchableOpacity>
             <Text style={styles.buttonLabel}>Delete</Text>
           </View>
@@ -739,7 +709,7 @@ function PCSubscriptionPlans() {
               style={styles.headerButton}
               onPress={handleCreatePlan}
             >
-              <MaterialIcons name="add" size={20} color="white" />
+              <WebCompatibleIcon name="add" size={20} color="white" />
               <Text style={styles.headerButtonText}>New Plan</Text>
             </TouchableOpacity>
             
@@ -748,7 +718,7 @@ function PCSubscriptionPlans() {
                 style={[styles.headerButton, styles.assignHeaderButton]}
                 onPress={handleBulkAssign}
               >
-                <MaterialIcons name="group-add" size={20} color="white" />
+                <WebCompatibleIcon name="group-add" size={20} color="white" />
                 <Text style={styles.headerButtonText}>Bulk Assign</Text>
               </TouchableOpacity>
             )}
@@ -758,7 +728,7 @@ function PCSubscriptionPlans() {
         {/* Search and Filters */}
         <View style={styles.filtersRow}>
           <View style={styles.searchContainer}>
-            <MaterialIcons name="search" size={20} color="#666" />
+            <WebCompatibleIcon name="search" size={20} color="#666" />
             <TextInput
               style={styles.searchInput}
               placeholder="Search plans..."
@@ -841,7 +811,7 @@ function PCSubscriptionPlans() {
           style={styles.selectAllButton}
           onPress={selectedPlans.length === filteredAndSortedPlans.length ? clearSelection : selectAllPlans}
         >
-          <MaterialIcons
+          <WebCompatibleIcon
             name={selectedPlans.length === filteredAndSortedPlans.length ? 'check-box' : 'check-box-outline-blank'}
             size={20}
             color="#666"
@@ -857,7 +827,7 @@ function PCSubscriptionPlans() {
         >
           <Text style={styles.headerCellText}>Plan & Category</Text>
           {sortBy === 'name' && (
-            <MaterialIcons
+            <WebCompatibleIcon
               name={sortOrder === 'asc' ? 'keyboard-arrow-up' : 'keyboard-arrow-down'}
               size={16}
               color="#666"
@@ -874,7 +844,7 @@ function PCSubscriptionPlans() {
         >
           <Text style={styles.headerCellText}>Price & Classes</Text>
           {sortBy === 'price' && (
-            <MaterialIcons
+            <WebCompatibleIcon
               name={sortOrder === 'asc' ? 'keyboard-arrow-up' : 'keyboard-arrow-down'}
               size={16}
               color="#666"
@@ -895,7 +865,7 @@ function PCSubscriptionPlans() {
         >
           <Text style={styles.headerCellText}>Active Subs</Text>
           {sortBy === 'popularity' && (
-            <MaterialIcons
+            <WebCompatibleIcon
               name={sortOrder === 'asc' ? 'keyboard-arrow-up' : 'keyboard-arrow-down'}
               size={16}
               color="#666"
@@ -923,7 +893,7 @@ function PCSubscriptionPlans() {
           filteredAndSortedPlans.map((plan, index) => renderPlanRow(plan, index))
         ) : (
           <View style={styles.emptyState}>
-            <MaterialIcons name="card-membership" size={48} color="#ccc" />
+            <WebCompatibleIcon name="card-membership" size={48} color="#ccc" />
             <Text style={styles.emptyStateText}>No subscription plans found</Text>
             <Text style={styles.emptyStateSubtext}>
               {searchTerm || filterCategory !== 'all' || filterStatus !== 'all' 
@@ -947,7 +917,7 @@ function PCSubscriptionPlans() {
                 Assign Subscription{selectedPlans.length > 1 ? 's' : ''} to Client
               </Text>
               <TouchableOpacity onPress={() => setShowAssignModal(false)}>
-                <MaterialIcons name="close" size={24} color="#666" />
+                <WebCompatibleIcon name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
 
@@ -963,7 +933,7 @@ function PCSubscriptionPlans() {
                     ]}
                     onPress={() => setSelectedClient(client)}
                   >
-                    <MaterialIcons
+                    <WebCompatibleIcon
                       name="person"
                       size={20}
                       color={selectedClient?.id === client.id ? '#C77474' : '#666'}
@@ -973,7 +943,7 @@ function PCSubscriptionPlans() {
                       <Text style={styles.clientEmail}>{client.email}</Text>
                     </View>
                     {selectedClient?.id === client.id && (
-                      <MaterialIcons name="check-circle" size={20} color="#C77474" />
+                      <WebCompatibleIcon name="check-circle" size={20} color="#C77474" />
                     )}
                   </TouchableOpacity>
                 ))}
@@ -1028,7 +998,7 @@ function PCSubscriptionPlans() {
                 {editingPlan ? 'Edit Subscription Plan' : 'Create New Subscription Plan'}
               </Text>
               <TouchableOpacity onPress={() => setShowPlanModal(false)}>
-                <MaterialIcons name="close" size={24} color="#666" />
+                <WebCompatibleIcon name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
 
@@ -1076,41 +1046,74 @@ function PCSubscriptionPlans() {
 
                 <View style={styles.formRow}>
                   <View style={styles.formField}>
-                    <Text style={styles.formLabel}>Duration (Months) *</Text>
+                    <Text style={styles.formLabel}>Duration *</Text>
                     <View style={styles.durationButtons}>
                       {[
-                        { value: 0.033, label: '1 Day' },
-                        { value: 0.233, label: '1 Week' },
-                        { value: 1, label: '1 Month' },
-                        { value: 3, label: '3 Months' },
-                        { value: 6, label: '6 Months' },
-                        { value: 12, label: '1 Year' }
-                      ].map(duration => (
+                        { label: '1 Day', duration: 1, unit: 'days' },
+                        { label: '3 Days', duration: 3, unit: 'days' },
+                        { label: '1 Week', duration: 7, unit: 'days' },
+                        { label: '1 Month', duration: 1, unit: 'months' },
+                        { label: '3 Months', duration: 3, unit: 'months' },
+                        { label: '6 Months', duration: 6, unit: 'months' },
+                        { label: '1 Year', duration: 1, unit: 'years' },
+                      ].map(option => (
                         <TouchableOpacity
-                          key={duration.value}
+                          key={option.label}
                           style={[
                             styles.durationButton,
-                            Math.abs(planFormData.durationMonths - duration.value) < 0.01 && styles.activeDurationButton
+                            planFormData.duration === option.duration && 
+                            planFormData.duration_unit === option.unit && styles.activeDurationButton,
                           ]}
-                          onPress={() => setPlanFormData({...planFormData, durationMonths: duration.value})}
+                          onPress={() => setPlanFormData({ 
+                            ...planFormData, 
+                            duration: option.duration,
+                            duration_unit: option.unit as 'days' | 'months' | 'years'
+                          })}
                         >
                           <Text style={[
                             styles.durationButtonText,
-                            Math.abs(planFormData.durationMonths - duration.value) < 0.01 && styles.activeDurationButtonText
+                            planFormData.duration === option.duration && 
+                            planFormData.duration_unit === option.unit && styles.activeDurationButtonText,
                           ]}>
-                            {duration.label}
+                            {option.label}
                           </Text>
                         </TouchableOpacity>
                       ))}
                     </View>
-                    <Text style={styles.helperText}>Or enter custom duration below (in months: 0.033 = 1 day, 0.233 = 1 week)</Text>
-                    <TextInput
-                      style={styles.formInput}
-                      value={planFormData.durationMonths.toString()}
-                      onChangeText={(text) => setPlanFormData({...planFormData, durationMonths: parseFloat(text) || 1})}
-                      placeholder="1"
-                      keyboardType="numeric"
-                    />
+                    <Text style={styles.helperText}>Or enter custom duration below</Text>
+                    
+                    {/* Custom Duration Input */}
+                    <View style={styles.customDurationRow}>
+                      <TextInput
+                        style={[styles.formInput, { flex: 2, marginRight: 10 }]}
+                        value={planFormData.duration.toString()}
+                        onChangeText={(text) => {
+                          const duration = parseInt(text, 10) || 1;
+                          setPlanFormData({ ...planFormData, duration });
+                        }}
+                        placeholder="Enter number"
+                        keyboardType="numeric"
+                      />
+                      <View style={[styles.formInput, { flex: 1 }]}>
+                        <TouchableOpacity
+                          style={styles.unitSelector}
+                          onPress={() => {
+                            // Cycle through units: days -> months -> years -> days
+                            const units: ('days' | 'months' | 'years')[] = ['days', 'months', 'years'];
+                            const currentIndex = units.indexOf(planFormData.duration_unit);
+                            const nextIndex = (currentIndex + 1) % units.length;
+                            setPlanFormData({ 
+                              ...planFormData, 
+                              duration_unit: units[nextIndex]
+                            });
+                          }}
+                        >
+                          <Text style={styles.unitSelectorText}>
+                            {planFormData.duration_unit.charAt(0).toUpperCase() + planFormData.duration_unit.slice(1)}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
                   </View>
                 </View>
 
@@ -1787,6 +1790,23 @@ const styles = StyleSheet.create({
   },
   activeDurationButtonText: {
     color: '#C77474',
+  },
+  customDurationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 8,
+  },
+  unitSelector: {
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#E5E5E5',
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  unitSelectorText: {
+    fontSize: 12,
+    color: '#666',
   },
 
 });

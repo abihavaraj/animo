@@ -1,18 +1,18 @@
 import StatusChip from '@/components/ui/StatusChip';
 import { Body, Caption, H1, H2, H3 } from '@/components/ui/Typography';
-import { layout, spacing } from '@/constants/Spacing';
 import { useThemeColor } from '@/hooks/useThemeColor';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Modal, Button as PaperButton, Card as PaperCard, Portal } from 'react-native-paper';
-import { useDispatch, useSelector } from 'react-redux';
-import { AppDispatch, RootState } from '../store';
-import { logout } from '../store/authSlice';
+import { useSelector } from 'react-redux';
+import { layout, spacing } from '../../constants/Spacing';
+import { RootState, useAppDispatch } from '../store';
+import { logoutUser } from '../store/authSlice';
 import { shadows } from '../utils/shadows';
 
 function ProfileScreen() {
-  const dispatch = useDispatch<AppDispatch>();
+  const dispatch = useAppDispatch();
   const { user } = useSelector((state: RootState) => state.auth);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
 
@@ -32,9 +32,21 @@ function ProfileScreen() {
   const surfaceVariantColor = useThemeColor({}, 'surfaceVariant');
   const textOnAccentColor = useThemeColor({}, 'textOnAccent');
 
-  const handleLogout = () => {
-    setLogoutModalVisible(false);
-    dispatch(logout());
+  const handleLogout = async () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            await dispatch(logoutUser());
+          },
+        },
+      ]
+    );
   };
 
   const handleEditProfile = () => {

@@ -2,11 +2,12 @@ import StatusChip from '@/components/ui/StatusChip';
 import { Body, Caption, H1, H2 } from '@/components/ui/Typography';
 import { Colors } from '@/constants/Colors';
 import { layout, spacing } from '@/constants/Spacing';
-import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Button as PaperButton, Card as PaperCard } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
+import WebCompatibleIcon from '../../components/WebCompatibleIcon';
+import { BackendClass, classService } from '../../services/classService';
 import { AppDispatch, RootState } from '../../store';
 import { shadows } from '../../utils/shadows';
 
@@ -14,13 +15,20 @@ function InstructorDashboard() {
   const dispatch = useDispatch<AppDispatch>();
   const { user } = useSelector((state: RootState) => state.auth);
   const [refreshing, setRefreshing] = useState(false);
-  const [upcomingClasses, setUpcomingClasses] = useState<any[]>([]);
+  const [upcomingClasses, setUpcomingClasses] = useState<BackendClass[]>([]);
   const [todaysStats, setTodaysStats] = useState({
     classesToday: 0,
     totalAttendees: 0,
     completedClasses: 0,
-    revenue: 0,
+    averageAttendance: 0,
   });
+  const [weeklyStats, setWeeklyStats] = useState({
+    totalClasses: 0,
+    completedClasses: 0,
+    averageAttendance: 0,
+    upcomingThisWeek: 0,
+  });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadInstructorData();
@@ -28,46 +36,89 @@ function InstructorDashboard() {
 
   const loadInstructorData = async () => {
     try {
-      // Simulate loading instructor data
-      setUpcomingClasses([
-        {
-          id: 1,
-          name: 'Power Mat',
-          time: '09:00',
-          date: 'Today',
-          attendees: 12,
-          maxCapacity: 15,
-          status: 'confirmed',
-        },
-        {
-          id: 2,
-          name: 'Reformer Flow',
-          time: '14:30',
-          date: 'Today',
-          attendees: 8,
-          maxCapacity: 10,
-          status: 'confirmed',
-        },
-        {
-          id: 3,
-          name: 'Gentle Restoration',
-          time: '10:00',
-          date: 'Tomorrow',
-          attendees: 6,
-          maxCapacity: 12,
-          status: 'open',
-        },
-      ]);
+      setLoading(true);
+      if (!user?.id) return;
 
-      setTodaysStats({
-        classesToday: 2,
-        totalAttendees: 20,
-        completedClasses: 1,
-        revenue: 580,
+      // Get instructor's classes
+      const classResponse = await classService.getClasses({
+        instructor: user.id.toString(),
+        status: 'active'
       });
+
+      if (classResponse.success && classResponse.data) {
+        const allClasses = classResponse.data;
+        const today = new Date().toISOString().split('T')[0];
+        const now = new Date();
+        
+        // Filter upcoming classes (today and future)
+        const upcomingClasses = allClasses.filter(cls => {
+          const classDate = new Date(cls.date);
+          const classDateTime = new Date(`${cls.date}T${cls.time}`);
+          return classDate >= new Date(today) && classDateTime > now;
+        }).slice(0, 3); // Show only next 3 classes
+
+        setUpcomingClasses(upcomingClasses);
+
+        // Calculate today's stats
+        const todaysClasses = allClasses.filter(cls => cls.date === today);
+        const totalTodayAttendees = todaysClasses.reduce((sum, cls) => sum + (cls.enrolled || 0), 0);
+        
+        // Calculate completed classes today (past classes)
+        const completedToday = todaysClasses.filter(cls => {
+          const classDateTime = new Date(`${cls.date}T${cls.time}`);
+          return classDateTime < now;
+        }).length;
+
+        // Calculate average attendance for all instructor's classes
+        const totalEnrolled = allClasses.reduce((sum, cls) => sum + (cls.enrolled || 0), 0);
+        const totalCapacity = allClasses.reduce((sum, cls) => sum + cls.capacity, 0);
+        const avgAttendance = totalCapacity > 0 ? Math.round((totalEnrolled / totalCapacity) * 100) : 0;
+
+        setTodaysStats({
+          classesToday: todaysClasses.length,
+          totalAttendees: totalTodayAttendees,
+          completedClasses: completedToday,
+          averageAttendance: avgAttendance,
+        });
+
+        // Calculate this week's stats
+        const startOfWeek = new Date();
+        startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+        const startOfWeekStr = startOfWeek.toISOString().split('T')[0];
+        
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(endOfWeek.getDate() + 6);
+        const endOfWeekStr = endOfWeek.toISOString().split('T')[0];
+
+        const thisWeekClasses = allClasses.filter(cls => 
+          cls.date >= startOfWeekStr && cls.date <= endOfWeekStr
+        );
+
+        const weeklyCompleted = thisWeekClasses.filter(cls => {
+          const classDateTime = new Date(`${cls.date}T${cls.time}`);
+          return classDateTime < now;
+        }).length;
+
+        const weeklyUpcoming = thisWeekClasses.filter(cls => {
+          const classDateTime = new Date(`${cls.date}T${cls.time}`);
+          return classDateTime > now;
+        }).length;
+
+        const weeklyTotalEnrolled = thisWeekClasses.reduce((sum, cls) => sum + (cls.enrolled || 0), 0);
+        const weeklyTotalCapacity = thisWeekClasses.reduce((sum, cls) => sum + cls.capacity, 0);
+        const weeklyAvgAttendance = weeklyTotalCapacity > 0 ? Math.round((weeklyTotalEnrolled / weeklyTotalCapacity) * 100) : 0;
+
+        setWeeklyStats({
+          totalClasses: thisWeekClasses.length,
+          completedClasses: weeklyCompleted,
+          averageAttendance: weeklyAvgAttendance,
+          upcomingThisWeek: weeklyUpcoming,
+        });
+      }
     } catch (error) {
       console.error('Failed to load instructor data:', error);
     } finally {
+      setLoading(false);
       setRefreshing(false);
     }
   };
@@ -89,17 +140,42 @@ function InstructorDashboard() {
     console.log('View class details:', classId);
   };
 
-  const getStatusChipState = (status: string) => {
-    switch (status) {
-      case 'confirmed':
-        return 'success';
-      case 'open':
-        return 'info';
-      case 'cancelled':
-        return 'warning';
-      default:
-        return 'neutral';
-    }
+  const getStatusChipState = (cls: BackendClass) => {
+    const enrollmentPercentage = (cls.enrolled / cls.capacity) * 100;
+    
+    if (enrollmentPercentage >= 100) return 'warning';
+    if (enrollmentPercentage >= 80) return 'info';
+    return 'success';
+  };
+
+  const getStatusText = (cls: BackendClass) => {
+    const enrollmentPercentage = (cls.enrolled / cls.capacity) * 100;
+    
+    if (enrollmentPercentage >= 100) return 'Full';
+    if (enrollmentPercentage >= 80) return 'Almost Full';
+    return 'Available';
+  };
+
+  const formatTime = (time: string) => {
+    const [hours, minutes] = time.split(':');
+    const hour = parseInt(hours, 10);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+    return `${displayHour}:${minutes} ${ampm}`;
+  };
+
+  const formatDate = (dateString: string) => {
+    const today = new Date().toISOString().split('T')[0];
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    
+    if (dateString === today) return 'Today';
+    if (dateString === tomorrow) return 'Tomorrow';
+    
+    return new Date(dateString).toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric'
+    });
   };
 
   return (
@@ -123,7 +199,7 @@ function InstructorDashboard() {
             <View style={styles.statsGrid}>
               <View style={styles.statItem}>
                 <View style={styles.statHeader}>
-                  <MaterialIcons name="event" size={24} color={Colors.light.accent} />
+                  <WebCompatibleIcon name="event" size={24} color={Colors.light.accent} />
                   <Body style={styles.statNumber}>{todaysStats.classesToday}</Body>
                 </View>
                 <Caption style={styles.statLabel}>Classes Today</Caption>
@@ -131,7 +207,7 @@ function InstructorDashboard() {
               
               <View style={styles.statItem}>
                 <View style={styles.statHeader}>
-                  <MaterialIcons name="people" size={24} color={Colors.light.primary} />
+                  <WebCompatibleIcon name="people" size={24} color={Colors.light.primary} />
                   <Body style={styles.statNumber}>{todaysStats.totalAttendees}</Body>
                 </View>
                 <Caption style={styles.statLabel}>Total Attendees</Caption>
@@ -139,7 +215,7 @@ function InstructorDashboard() {
               
               <View style={styles.statItem}>
                 <View style={styles.statHeader}>
-                  <MaterialIcons name="check-circle" size={24} color={Colors.light.success} />
+                  <WebCompatibleIcon name="check-circle" size={24} color={Colors.light.success} />
                   <Body style={styles.statNumber}>{todaysStats.completedClasses}</Body>
                 </View>
                 <Caption style={styles.statLabel}>Completed</Caption>
@@ -147,10 +223,10 @@ function InstructorDashboard() {
               
               <View style={styles.statItem}>
                 <View style={styles.statHeader}>
-                  <MaterialIcons name="attach-money" size={24} color={Colors.light.warning} />
-                  <Body style={styles.statNumber}>${todaysStats.revenue}</Body>
+                  <WebCompatibleIcon name="trending-up" size={24} color={Colors.light.warning} />
+                  <Body style={styles.statNumber}>{todaysStats.averageAttendance}%</Body>
                 </View>
-                <Caption style={styles.statLabel}>Revenue</Caption>
+                <Caption style={styles.statLabel}>Avg Attendance</Caption>
               </View>
             </View>
           </PaperCard.Content>
@@ -177,25 +253,34 @@ function InstructorDashboard() {
                   <View style={styles.classHeader}>
                     <Body style={styles.className}>{classItem.name}</Body>
                     <StatusChip 
-                      state={getStatusChipState(classItem.status)}
-                      text={classItem.status.charAt(0).toUpperCase() + classItem.status.slice(1)}
+                      state={getStatusChipState(classItem)}
+                      text={getStatusText(classItem)}
                     />
                   </View>
                   
                   <View style={styles.classDetails}>
                     <View style={styles.classDetailItem}>
-                      <MaterialIcons name="schedule" size={16} color={Colors.light.textSecondary} />
+                      <WebCompatibleIcon name="schedule" size={16} color={Colors.light.textSecondary} />
                       <Caption style={styles.classDetailText}>
-                        {classItem.date} at {classItem.time}
+                        {formatDate(classItem.date)} at {formatTime(classItem.time)}
                       </Caption>
                     </View>
                     
                     <View style={styles.classDetailItem}>
-                      <MaterialIcons name="people" size={16} color={Colors.light.textSecondary} />
+                      <WebCompatibleIcon name="people" size={16} color={Colors.light.textSecondary} />
                       <Caption style={styles.classDetailText}>
-                        {classItem.attendees}/{classItem.maxCapacity} attendees
+                        {classItem.enrolled || 0}/{classItem.capacity} enrolled
                       </Caption>
                     </View>
+                    
+                    {classItem.room && (
+                      <View style={styles.classDetailItem}>
+                        <WebCompatibleIcon name="location-on" size={16} color={Colors.light.textSecondary} />
+                        <Caption style={styles.classDetailText}>
+                          {classItem.room}
+                        </Caption>
+                      </View>
+                    )}
                   </View>
                 </View>
                 
@@ -223,7 +308,7 @@ function InstructorDashboard() {
                 mode="contained" 
                 style={styles.primaryAction}
                 labelStyle={styles.primaryActionLabel}
-                icon={() => <MaterialIcons name="schedule" size={20} color="white" />}
+                icon={() => <WebCompatibleIcon name="schedule" size={20} color="white" />}
                 onPress={handleViewSchedule}
               >
                 View Schedule
@@ -233,7 +318,7 @@ function InstructorDashboard() {
                 mode="outlined" 
                 style={styles.secondaryAction}
                 labelStyle={styles.secondaryActionLabel}
-                icon={() => <MaterialIcons name="people" size={20} color={Colors.light.textSecondary} />}
+                icon={() => <WebCompatibleIcon name="people" size={20} color={Colors.light.textSecondary} />}
                 onPress={handleViewClients}
               >
                 My Clients
@@ -249,31 +334,45 @@ function InstructorDashboard() {
             
             <View style={styles.performanceItem}>
               <View style={styles.performanceIcon}>
-                <MaterialIcons name="trending-up" size={20} color={Colors.light.accent} />
+                <WebCompatibleIcon name="trending-up" size={20} color={Colors.light.accent} />
               </View>
               <View style={styles.performanceContent}>
-                <Body style={styles.performanceText}>Average class attendance: 92%</Body>
-                <Caption style={styles.performanceSubtext}>Up 5% from last week</Caption>
+                <Body style={styles.performanceText}>Average class attendance: {weeklyStats.averageAttendance}%</Body>
+                <Caption style={styles.performanceSubtext}>
+                  {weeklyStats.totalClasses > 0 ? `Based on ${weeklyStats.totalClasses} classes` : 'No classes this week'}
+                </Caption>
               </View>
             </View>
             
             <View style={styles.performanceItem}>
               <View style={styles.performanceIcon}>
-                <MaterialIcons name="star" size={20} color={Colors.light.warning} />
+                <WebCompatibleIcon name="event-available" size={20} color={Colors.light.success} />
               </View>
               <View style={styles.performanceContent}>
-                <Body style={styles.performanceText}>Client satisfaction: 4.8/5</Body>
-                <Caption style={styles.performanceSubtext}>Based on 15 reviews</Caption>
+                <Body style={styles.performanceText}>
+                  Classes completed: {weeklyStats.completedClasses}/{weeklyStats.totalClasses}
+                </Body>
+                <Caption style={styles.performanceSubtext}>
+                  {weeklyStats.upcomingThisWeek > 0 
+                    ? `${weeklyStats.upcomingThisWeek} more this week` 
+                    : 'Week completed'
+                  }
+                </Caption>
               </View>
             </View>
             
             <View style={styles.performanceItem}>
               <View style={styles.performanceIcon}>
-                <MaterialIcons name="event-available" size={20} color={Colors.light.success} />
+                <WebCompatibleIcon name="people" size={20} color={Colors.light.primary} />
               </View>
               <View style={styles.performanceContent}>
-                <Body style={styles.performanceText}>Classes completed: 12/14</Body>
-                <Caption style={styles.performanceSubtext}>2 more this week</Caption>
+                <Body style={styles.performanceText}>Total attendees today: {todaysStats.totalAttendees}</Body>
+                <Caption style={styles.performanceSubtext}>
+                  {todaysStats.classesToday > 0 
+                    ? `Across ${todaysStats.classesToday} classes` 
+                    : 'No classes today'
+                  }
+                </Caption>
               </View>
             </View>
           </PaperCard.Content>

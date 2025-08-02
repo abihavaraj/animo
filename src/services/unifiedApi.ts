@@ -64,7 +64,7 @@ class UnifiedApiService {
   async signOut() {
     return this.withFallback(
       () => supabaseApiService.signOut(),
-      () => apiService.post('/api/auth/signout')
+      () => apiService.post('/api/auth/signout', {})
     );
   }
 
@@ -129,7 +129,7 @@ class UnifiedApiService {
   async cancelBooking(id: string) {
     return this.withFallback(
       () => supabaseApiService.cancelBooking(id),
-      () => apiService.put(`/api/bookings/${id}/cancel`)
+      () => apiService.put(`/api/bookings/${id}/cancel`, {})
     );
   }
 
@@ -236,7 +236,7 @@ class UnifiedApiService {
   }
 
   // ===== MODE MANAGEMENT =====
-  setMode(mode: 'REST' | 'SUPABASE' | 'HYBRID') {
+  setMode(mode: 'REST' | 'SUPABASE') {
     this.currentMode = mode;
     devLog(`🔄 API mode changed to: ${mode}`);
   }
@@ -246,7 +246,34 @@ class UnifiedApiService {
   }
 
   isRealTimeEnabled() {
-    return API_MODE_CONFIG.enableRealTime && this.currentMode === 'SUPABASE';
+    return this.currentMode === 'SUPABASE';
+  }
+
+  // ===== LOGGING AND DEBUGGING =====
+  logConfiguration() {
+    console.log('🔧 UnifiedAPI Configuration:');
+    console.log(`   Current Mode: ${this.currentMode}`);
+    console.log(`   Fallback Mode: ${this.fallbackMode}`);
+    console.log(`   Enable Fallback: ${API_MODE_CONFIG.enableFallback}`);
+    console.log(`   Real-time Enabled: ${this.isRealTimeEnabled()}`);
+  }
+
+  // ===== MODE SWITCHING METHODS =====
+  switchToRest() {
+    this.setMode('REST');
+    devLog('🔄 Switched to REST API mode');
+  }
+
+  switchToSupabase() {
+    this.setMode('SUPABASE');
+    devLog('🔄 Switched to Supabase API mode');
+  }
+
+  switchToHybrid() {
+    // Since we removed HYBRID mode from the config, this will default to current behavior
+    // which is to use Supabase with REST fallback
+    this.setMode('SUPABASE');
+    devLog('🔄 Switched to Hybrid mode (Supabase with REST fallback)');
   }
 }
 
