@@ -9,8 +9,8 @@ interface ApiResponse<T> {
 
 export interface ClassFeedback {
   id: number;
-  class_id: number;
-  instructor_id: number;
+  class_id: string;
+  instructor_id: string;
   overall_rating: number;
   energy_level: 'low' | 'medium' | 'high';
   difficulty_feedback: 'too_easy' | 'just_right' | 'too_hard';

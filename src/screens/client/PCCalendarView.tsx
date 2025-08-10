@@ -5,23 +5,44 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, Dimensions, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import {
-  ActivityIndicator,
-  Badge,
-  Button,
-  Card,
-  Chip,
-  FAB,
-  Modal,
-  Portal,
-  Searchbar,
-  SegmentedButtons,
-  Surface,
+    ActivityIndicator,
+    Badge,
+    Button,
+    Card,
+    Chip,
+    FAB,
+    Modal,
+    Portal,
+    Searchbar,
+    SegmentedButtons,
+    Surface,
 } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 import { layout, spacing } from '../../../constants/Spacing';
 import { AppDispatch, RootState } from '../../store';
-import { fetchBookings } from '../../store/bookingSlice';
+import { createBooking, fetchBookings } from '../../store/bookingSlice';
 import { fetchClasses } from '../../store/classSlice';
+import { fetchCurrentSubscription } from '../../store/subscriptionSlice';
+
+// Helper function to check equipment access validation
+const isEquipmentAccessAllowed = (userAccess: string, classEquipment: string): boolean => {
+  // 'both' access allows everything
+  if (userAccess === 'both') {
+    return true;
+  }
+  
+  // For specific access, user can only book classes that match their access level
+  if (userAccess === classEquipment) {
+    return true;
+  }
+  
+  // Special case: if class requires 'both' equipment, user needs 'both' access
+  if (classEquipment === 'both' && userAccess !== 'both') {
+    return false;
+  }
+  
+  return false;
+};
 
 const { width: screenWidth } = Dimensions.get('window');
 const isLargeScreen = screenWidth > 1024;
@@ -60,6 +81,7 @@ function PCCalendarView() {
   const dispatch = useDispatch<AppDispatch>();
   const { bookings, isLoading: bookingsLoading } = useSelector((state: RootState) => state.bookings);
   const { classes, isLoading: classesLoading } = useSelector((state: RootState) => state.classes);
+  const { currentSubscription } = useSelector((state: RootState) => state.subscription);
   
   const [viewMode, setViewMode] = useState<'month' | 'agenda'>('month');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -79,7 +101,8 @@ function PCCalendarView() {
 
   useEffect(() => {
     loadCalendarData();
-  }, []);
+    dispatch(fetchCurrentSubscription());
+  }, [dispatch]);
 
   useEffect(() => {
     generateMarkedDates();
@@ -187,13 +210,69 @@ function PCCalendarView() {
   const confirmBooking = async () => {
     if (!selectedClass) return;
     
+    // Check if user has a subscription
+    if (!currentSubscription) {
+      Alert.alert('Subscription Required', 'You need an active subscription plan to book classes. Please contact reception to purchase a plan.');
+      return;
+    }
+
+    // Check if subscription is active
+    if (currentSubscription.status !== 'active') {
+      Alert.alert('Subscription Not Active', 'Your subscription is not active. Please contact reception for assistance.');
+      return;
+    }
+
+    // Check if user has remaining classes (unless unlimited)
+    const monthlyClasses = currentSubscription.monthly_classes || 0;
+    const remainingClasses = currentSubscription.remaining_classes || 0;
+    const isUnlimited = monthlyClasses >= 999;
+    
+    if (!isUnlimited && remainingClasses <= 0) {
+      Alert.alert('No Classes Remaining', 'You have no remaining classes in your subscription. Please renew or upgrade your plan.');
+      return;
+    }
+
+    // Check personal subscription restrictions
+    const subscriptionCategory = currentSubscription.category || currentSubscription.plan?.category;
+    const isPersonalSubscription = subscriptionCategory === 'personal';
+    const isPersonalClass = selectedClass.equipmentType === 'personal'; // Note: equipmentType might not be the right field
+    
+    if (isPersonalSubscription && !isPersonalClass) {
+      Alert.alert('Personal Subscription Required', 'Your personal subscription only allows booking personal/private classes. Please choose a personal training session.');
+      return;
+    }
+
+    if (!isPersonalSubscription && isPersonalClass) {
+      Alert.alert('Personal Training Session', 'This is a personal training session. You need a personal subscription to book this class.');
+      return;
+    }
+
+    // Check equipment access
+    const planEquipment = currentSubscription.equipment_access;
+    
+    if (!isEquipmentAccessAllowed(planEquipment, selectedClass.equipmentType)) {
+      const accessMap = {
+        'mat': 'Mat-only',
+        'reformer': 'Reformer-only',
+        'both': 'Full equipment'
+      };
+      
+      Alert.alert(
+        'Equipment Access Required',
+        `This class requires ${accessMap[selectedClass.equipmentType] || selectedClass.equipmentType} access. Your subscription only includes ${accessMap[planEquipment] || planEquipment} access. Please upgrade your plan.`
+      );
+      return;
+    }
+    
     try {
+      // Call the actual booking service here instead of just showing success
+      const result = await dispatch(createBooking({ classId: selectedClass.id })).unwrap();
       Alert.alert('Success', `Booking confirmed for ${selectedClass.name}`);
       await loadCalendarData();
       setShowBookingModal(false);
       setSelectedClass(null);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to book class');
+    } catch (error: any) {
+      Alert.alert('Booking Failed', error || 'Failed to book class');
     }
   };
 

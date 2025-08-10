@@ -1,18 +1,39 @@
-import { Caption, H2 } from '@/components/ui/Typography';
-import { useThemeColor } from '@/hooks/useThemeColor';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Notifications from 'expo-notifications';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, AppState, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
 import { Button, Card, Chip, FAB, Paragraph, SegmentedButtons, Surface } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
+import { Caption, H2 } from '../../../components/ui/Typography';
 import { spacing } from '../../../constants/Spacing';
+import { useThemeColor } from '../../../hooks/useThemeColor';
 import { bookingService } from '../../services/bookingService';
 import { BackendClass } from '../../services/classService';
 import { AppDispatch, RootState } from '../../store';
 import { cancelBooking, createBooking, fetchBookings } from '../../store/bookingSlice';
 import { fetchClasses } from '../../store/classSlice';
 import { fetchCurrentSubscription } from '../../store/subscriptionSlice';
+
+// Helper function to check equipment access validation
+const isEquipmentAccessAllowed = (userAccess: string, classEquipment: string): boolean => {
+  // 'both' access allows everything
+  if (userAccess === 'both') {
+    return true;
+  }
+  
+  // For specific access, user can only book classes that match their access level
+  if (userAccess === classEquipment) {
+    return true;
+  }
+  
+  // Special case: if class requires 'both' equipment, user needs 'both' access
+  if (classEquipment === 'both' && userAccess !== 'both') {
+    return false;
+  }
+  
+  return false;
+};
 
 // Configure locale for calendar
 LocaleConfig.locales['en'] = {
@@ -33,7 +54,7 @@ LocaleConfig.defaultLocale = 'en';
 
 
 interface ClassItem {
-  id: number;
+  id: string;
   name: string;
   date: string;
   startTime: string;
@@ -58,9 +79,9 @@ interface DayClassesModalProps {
   selectedDate: string;
   classes: ClassItem[];
   onDismiss: () => void;
-  onBookClass: (classId: number) => void;
+  onBookClass: (classId: string) => void;
   onCancelBooking: (bookingId: number) => void;
-  onJoinWaitlist: (classId: number) => void;
+  onJoinWaitlist: (classId: string) => void;
   onLeaveWaitlist: (waitlistId: number) => void;
 }
 
@@ -108,14 +129,17 @@ function DayClassesModal({
   onJoinWaitlist, 
   onLeaveWaitlist 
 }: DayClassesModalProps) {
-    // Theme colors for modal
-    const backgroundColor = useThemeColor({}, 'background');
-    const surfaceColor = useThemeColor({}, 'surface');
-    const textColor = useThemeColor({}, 'text');
-    const textSecondaryColor = useThemeColor({}, 'textSecondary');
-    const textMutedColor = useThemeColor({}, 'textMuted');
-    const primaryColor = useThemeColor({}, 'primary');
-      const accentColor = useThemeColor({}, 'accent');
+  // Get subscription state from Redux
+  const { currentSubscription } = useSelector((state: RootState) => state.subscriptions);
+  
+  // Theme colors for modal
+  const backgroundColor = useThemeColor({}, 'background');
+  const surfaceColor = useThemeColor({}, 'surface');
+  const textColor = useThemeColor({}, 'text');
+  const textSecondaryColor = useThemeColor({}, 'textSecondary');
+  const textMutedColor = useThemeColor({}, 'textMuted');
+  const primaryColor = useThemeColor({}, 'primary');
+  const accentColor = useThemeColor({}, 'accent');
   // Blue color that works well in both light and dark modes
   const availableColor = '#5B9BD5';
   const successColor = useThemeColor({}, 'success');
@@ -193,28 +217,27 @@ function DayClassesModal({
     );
   };
 
-  // Helper to check if class is bookable
+  // Helper to check if class is bookable (calendar modal version)
   const isBookable = (classItem: ClassItem): boolean => {
-    const today = new Date();
-    const todayString = today.getFullYear() + '-' + 
-      String(today.getMonth() + 1).padStart(2, '0') + '-' + 
-      String(today.getDate()).padStart(2, '0');
-    
-    if (classItem.date < todayString) return false;
-    if (classItem.isBooked) return false;
-    
-    // If it's today, allow booking up to 15 minutes before class
-    if (classItem.date === todayString) {
-      const [hours, minutes] = classItem.startTime.split(':').map(Number);
-      const classDateTime = new Date();
-      classDateTime.setHours(hours, minutes, 0, 0);
-      
-      const cutoffTime = new Date(classDateTime);
-      cutoffTime.setMinutes(cutoffTime.getMinutes() - 15);
-      
-      return new Date() < cutoffTime;
+    const now = new Date();
+    const classDateTime = new Date(`${classItem.date}T${classItem.startTime}`);
+
+    // Class is in the past
+    if (now > classDateTime) {
+      return false;
     }
-    
+
+    // Class is already booked
+    if (classItem.isBooked) {
+      return false;
+    }
+
+    // Booking cutoff (e.g., 15 minutes before class)
+    const cutoffTime = new Date(classDateTime.getTime() - 15 * 60 * 1000);
+    if (now > cutoffTime) {
+      return false;
+    }
+
     return true;
   };
 
@@ -249,6 +272,28 @@ function DayClassesModal({
     }
     
     return true;
+  };
+
+  // Helper to check if class has ended (considering duration)
+  const isClassEnded = (classItem: ClassItem): boolean => {
+    const classDateTime = new Date(`${classItem.date}T${classItem.startTime}`);
+    const classEndTime = new Date(classDateTime.getTime() + (classItem.duration || 60) * 60000);
+    return classEndTime < new Date();
+  };
+
+  // Helper to check if can join waitlist (calendar modal version - same 2-hour rule as cancellation)
+  const canJoinWaitlist = (classItem: ClassItem): boolean => {
+    const now = new Date();
+    const classDateTime = new Date(`${classItem.date}T${classItem.startTime}`);
+    
+    // Class is in the past
+    if (now > classDateTime) {
+      return false;
+    }
+    
+    // Check 2-hour rule
+    const hoursUntilClass = (classDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+    return hoursUntilClass >= 2;
   };
 
   const renderBookingButton = (classItem: ClassItem, isBookable: boolean, isCancellable: boolean, isPast: boolean) => {
@@ -291,15 +336,19 @@ function DayClassesModal({
     }
 
     if (isFull && !isOnWaitlist) {
+      const canJoin = canJoinWaitlist(classItem);
       return (
         <Button 
           mode="contained" 
           onPress={() => onJoinWaitlist(classItem.id)}
-          style={[styles.actionButton, { backgroundColor: warningColor }]}
+          style={[styles.actionButton, { 
+            backgroundColor: canJoin ? warningColor : textSecondaryColor 
+          }]}
           labelStyle={{ color: backgroundColor }}
           icon="queue"
+          disabled={!canJoin}
         >
-          Join Waitlist
+          {canJoin ? 'Join Waitlist' : 'Waitlist Closed'}
         </Button>
       );
     }
@@ -315,9 +364,9 @@ function DayClassesModal({
         ]}
         labelStyle={{ color: backgroundColor }}
         icon="calendar-today"
-        disabled={!isBookable}
+        disabled={!isBookable || !currentSubscription || currentSubscription.status !== 'active'}
       >
-        Book Class
+        {(!currentSubscription || currentSubscription.status !== 'active') ? 'Subscription Required' : 'Book Class'}
       </Button>
     );
   };
@@ -351,7 +400,7 @@ function DayClassesModal({
             classes.map((classItem) => {
               const canBook = isBookable(classItem);
               const isCancellable = isBookingCancellable(classItem);
-              const isPast = isPastDate(classItem.date);
+              const isPast = isClassEnded(classItem); // Use class end time instead of just date
 
               return (
                 <Surface key={classItem.id} style={[
@@ -597,12 +646,33 @@ function ClassesView() {
     return true;
   };
 
+  // Helper to check if can join waitlist (same 2-hour rule as cancellation)
+  const canJoinWaitlistMain = (classItem: ClassItem): boolean => {
+    const now = new Date();
+    const classDateTime = new Date(`${classItem.date}T${classItem.startTime}`);
+    
+    // Class is in the past
+    if (now > classDateTime) {
+      return false;
+    }
+    
+    // Check 2-hour rule
+    const hoursUntilClass = (classDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+    return hoursUntilClass >= 2;
+  };
+
   // Effects
   useEffect(() => {
     loadData();
   }, [dispatch]);
 
   useEffect(() => {
+    console.log('🔄 [ClassesView] Classes updated, total classes:', classes?.length || 0);
+    if (classes && classes.length > 0) {
+      const dates = classes.map(c => c.date).sort();
+      console.log('📅 [ClassesView] Class dates range:', dates[0], 'to', dates[dates.length - 1]);
+      console.log('📋 [ClassesView] Sample classes:', classes.slice(0, 3).map(c => ({ name: c.name, date: c.date, status: c.status })));
+    }
     generateMarkedDates();
   }, [classes, bookings, userWaitlist]);
 
@@ -632,8 +702,32 @@ function ClassesView() {
     }
   }, [viewMode, classes, bookings]);
 
+  // Add notification listener for automatic refresh on waitlist updates
+  useEffect(() => {
+    const notificationListener = Notifications.addNotificationReceivedListener(notification => {
+      const data = notification.request.content.data;
+      
+      // Refresh classes view when waitlist-related notifications are received
+      if (data?.type === 'class_notification' && user?.id === data?.userId) {
+        console.log('🔄 [ClassesView] Auto-refreshing due to waitlist notification');
+        setTimeout(() => {
+          console.log('🔄 [ClassesView] Starting delayed refresh for waitlist update...');
+          // Dispatch the store actions directly instead of calling loadData
+          dispatch(fetchClasses({}));
+          dispatch(fetchBookings({}));
+          dispatch(fetchCurrentSubscription());
+        }, 2000); // Increased delay to ensure all backend updates are complete
+      }
+    });
+
+    return () => {
+      notificationListener.remove();
+    };
+  }, [user?.id, dispatch]);
+
   const loadData = async () => {
     try {
+      console.log('🔄 [ClassesView] Loading all classes (including past classes)...');
       await Promise.all([
         dispatch(fetchClasses({})),
         dispatch(fetchBookings({})),
@@ -677,15 +771,17 @@ function ClassesView() {
       
       const date = classItem.date;
       
-      // Skip marking dates older than 30 days to keep calendar clean
+      // Skip marking dates older than 60 days to keep calendar clean but show recent past classes
       const classDate = new Date(date);
-      const thirtyDaysAgo = new Date(today);
-      thirtyDaysAgo.setDate(today.getDate() - 30);
+      const sixtyDaysAgo = new Date(today);
+      sixtyDaysAgo.setDate(today.getDate() - 60);
       
-      if (classDate < thirtyDaysAgo) {
-        console.log(`⏰ Skipping old date: ${date} (${classItem.name})`);
+      if (classDate < sixtyDaysAgo) {
+        console.log(`⏰ Skipping old date: ${date} (${classItem.name}) - older than 60 days`);
         return;
       }
+      
+      console.log(`📅 Marking date: ${date} (${classItem.name}) - status: ${classItem.status}`);
       
       const userBooking = bookingsArray.find((booking: any) => 
         booking.class_id === classItem.id && 
@@ -742,7 +838,7 @@ function ClassesView() {
       .map((classItem: BackendClass) => {
         const userBooking = bookingsArray.find((booking: any) => 
           booking.class_id === classItem.id && 
-          ['confirmed', 'waitlist'].includes(booking.status)
+          booking.status === 'confirmed'
         );
         
         // Check if user is on waitlist for this class
@@ -765,7 +861,7 @@ function ClassesView() {
     const allClasses: ClassItem[] = [];
     
     classes.forEach(cls => {
-      const userBooking = bookings.find(booking => booking.class_id === cls.id);
+      const userBooking = bookings.find(booking => booking.class_id === cls.id && booking.status === 'confirmed');
       const waitlistEntry = userWaitlist.find(w => w.class_id === cls.id);
       const classItem = mapBackendClassToClassItem(cls, userBooking, waitlistEntry);
       
@@ -843,7 +939,7 @@ function ClassesView() {
     setDayClassesVisible(true);
   };
 
-  const handleBookClass = async (classId: number) => {
+  const handleBookClass = async (classId: string) => {
     const class_ = classes.find(c => c.id === classId);
     if (!class_) return;
 
@@ -886,13 +982,18 @@ function ClassesView() {
 
     // Check equipment access
     const planEquipment = currentSubscription.equipment_access;
-    if (class_.equipment_type === 'reformer' && planEquipment === 'mat') {
-      Alert.alert('Equipment Access Required', 'Your subscription does not include Reformer access. Please upgrade your plan.');
-      return;
-    }
-
-    if (class_.equipment_type === 'both' && planEquipment !== 'both') {
-      Alert.alert('Full Equipment Access Required', 'This class requires full equipment access. Please upgrade your plan.');
+    
+    if (!isEquipmentAccessAllowed(planEquipment, class_.equipment_type)) {
+      const accessMap = {
+        'mat': 'Mat-only',
+        'reformer': 'Reformer-only',
+        'both': 'Full equipment'
+      };
+      
+      Alert.alert(
+        'Equipment Access Required',
+        `This class requires ${accessMap[class_.equipment_type] || class_.equipment_type} access. Your subscription only includes ${accessMap[planEquipment] || planEquipment} access. Please upgrade your plan.`
+      );
       return;
     }
 
@@ -907,7 +1008,7 @@ function ClassesView() {
           text: 'Book Class', 
           onPress: async () => {
                           try {
-                await dispatch(createBooking({ classId })).unwrap();
+                await dispatch(createBooking({ classId }));
                 Alert.alert('Success', 'Class booked successfully!');
                 // Refresh data and close modal after successful booking
                 await loadData();
@@ -950,7 +1051,17 @@ function ClassesView() {
     }
   };
 
-  const handleJoinWaitlist = async (classId: number) => {
+  const handleJoinWaitlist = async (classId: string) => {
+    // Require active subscription to join waitlist
+    if (!currentSubscription) {
+      Alert.alert('Subscription Required', 'You need an active subscription plan to join waitlists. Please contact reception to purchase a plan.');
+      return;
+    }
+    if (currentSubscription.status !== 'active') {
+      Alert.alert('Subscription Not Active', 'Your subscription is not active. Please contact reception for assistance.');
+      return;
+    }
+
     try {
       const result = await bookingService.joinWaitlist({ classId });
       if (result.success) {
@@ -1337,35 +1448,88 @@ function ClassesView() {
                           
                           <View style={styles.actionButtonsContainer}>
                             {classItem.isBooked ? (
-                              <Button 
-                                mode="contained" 
-                                onPress={() => handleCancelBooking(classItem.bookingId!)}
-                                style={[styles.actionButton, { backgroundColor: textMutedColor }]}
-                                labelStyle={styles.cancelButtonLabel}
-                                compact
-                                accessibilityLabel={`Cancel booking for ${classItem.name} at ${classItem.startTime}`}
-                                accessibilityHint="Double tap to cancel your booking for this class"
-                              >
-                                Cancel
-                              </Button>
+                              (() => {
+                                const isCancellable = isBookingCancellable(classItem);
+                                return (
+                                  <Button 
+                                    mode="contained" 
+                                    onPress={() => handleCancelBooking(classItem.bookingId!)}
+                                    style={[
+                                      styles.actionButton, 
+                                      { backgroundColor: isCancellable ? errorColor : textMutedColor },
+                                      !isCancellable && styles.disabledButton
+                                    ]}
+                                    labelStyle={{ color: backgroundColor }}
+                                    compact
+                                    disabled={!isCancellable}
+                                    accessibilityLabel={`${isCancellable ? 'Cancel' : 'Cannot cancel'} booking for ${classItem.name} at ${classItem.startTime}`}
+                                    accessibilityHint={isCancellable ? 'Double tap to cancel your booking for this class' : 'Cancellation not allowed within 2 hours of class start'}
+                                  >
+                                    {isCancellable ? 'Cancel' : 'Cannot Cancel'}
+                                  </Button>
+                                );
+                              })()
                             ) : (
-                              <Button 
-                                mode="contained" 
-                                onPress={() => {
-                                  if (classItem.enrolled >= classItem.capacity) {
-                                    handleJoinWaitlist(classItem.id);
-                                  } else {
-                                    handleBookClass(classItem.id);
-                                  }
-                                }}
-                                style={[styles.actionButton, { backgroundColor: isClassBookable(classItem) ? accentColor : textMutedColor }]}
-                                labelStyle={styles.bookButtonLabel}
-                                compact
-                                accessibilityLabel={`${classItem.enrolled >= classItem.capacity ? 'Join waitlist for' : 'Book'} ${classItem.name} at ${classItem.startTime}`}
-                                accessibilityHint={`Double tap to ${classItem.enrolled >= classItem.capacity ? 'join waitlist for' : 'book'} this class`}
-                              >
-                                {classItem.enrolled >= classItem.capacity ? 'Waitlist' : 'Book'}
-                              </Button>
+                              (() => {
+                                const isFull = classItem.enrolled >= classItem.capacity;
+                                const canBook = isClassBookable(classItem);
+                                const canWaitlist = canJoinWaitlistMain(classItem);
+                                const isOnWaitlist = classItem.waitlistPosition !== undefined;
+                                
+                                // If user is on waitlist, show leave waitlist button
+                                if (isOnWaitlist) {
+                                  return (
+                                    <Button 
+                                      mode="outlined" 
+                                      onPress={() => handleLeaveWaitlist(classItem.waitlistId!)}
+                                      style={[styles.actionButton, { borderColor: warningColor }]}
+                                      textColor={warningColor}
+                                      compact
+                                      icon="queue"
+                                      accessibilityLabel={`Leave waitlist for ${classItem.name} at ${classItem.startTime}`}
+                                      accessibilityHint="Double tap to leave waitlist for this class"
+                                    >
+                                      Leave Waitlist #{classItem.waitlistPosition}
+                                    </Button>
+                                  );
+                                }
+                                
+                                if (isFull && !isOnWaitlist) {
+                                  return (
+                                    <Button 
+                                      mode="contained" 
+                                      onPress={() => handleJoinWaitlist(classItem.id)}
+                                      style={[styles.actionButton, { 
+                                        backgroundColor: canWaitlist ? warningColor : textSecondaryColor 
+                                      }]}
+                                      labelStyle={styles.bookButtonLabel}
+                                      compact
+                                      disabled={!canWaitlist || !currentSubscription || currentSubscription.status !== 'active'}
+                                      accessibilityLabel={`Join waitlist for ${classItem.name} at ${classItem.startTime}`}
+                                      accessibilityHint="Double tap to join waitlist for this class"
+                                    >
+                                      {(!currentSubscription || currentSubscription.status !== 'active') ? 'Subscription Required' : (canWaitlist ? 'Join Waitlist' : 'Waitlist Closed')}
+                                    </Button>
+                                  );
+                                }
+                                
+                                return (
+                                  <Button 
+                                    mode="contained" 
+                                    onPress={() => handleBookClass(classItem.id)}
+                                    style={[styles.actionButton, { 
+                                      backgroundColor: canBook ? accentColor : textMutedColor 
+                                    }]}
+                                    labelStyle={styles.bookButtonLabel}
+                                    compact
+                                    disabled={!canBook || !currentSubscription || currentSubscription.status !== 'active'}
+                                    accessibilityLabel={`Book ${classItem.name} at ${classItem.startTime}`}
+                                    accessibilityHint="Double tap to book this class"
+                                  >
+                                    {(!currentSubscription || currentSubscription.status !== 'active') ? 'Subscription Required' : 'Book'}
+                                  </Button>
+                                );
+                              })()
                             )}
                           </View>
                         </View>

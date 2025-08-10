@@ -275,7 +275,7 @@ function ClientTabNavigator() {
       <Tab.Screen name="Dashboard" component={ClientDashboard} />
       <Tab.Screen name="Book" component={ClassesView} />
       <Tab.Screen name="History" component={BookingHistory} />
-      <Tab.Screen name="Profile" component={ClientProfile} />
+              <Tab.Screen name="Profile" component={ClientProfile} />
     </Tab.Navigator>
   );
 }

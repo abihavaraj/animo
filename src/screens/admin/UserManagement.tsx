@@ -164,7 +164,7 @@ function UserManagement() {
 
   const handleViewUser = (user: BackendUser) => {
     if (user.role === 'client') {
-      // Navigate to detailed client profile
+      // Navigate to detailed client profile (same as reception)
       navigation.navigate('ClientProfile', {
         userId: user.id,
         userName: user.name
@@ -210,17 +210,29 @@ function UserManagement() {
         
         const updateData = {
           name: formData.name,
-          email: formData.email,
           phone: formData.phone,
           role: formData.role,
-          emergencyContact: formData.emergencyContact || undefined,
-          medicalConditions: formData.medicalConditions || undefined,
-          referralSource: finalReferralSource || undefined
+          emergency_contact: formData.emergencyContact || undefined,
+          medical_conditions: formData.medicalConditions || undefined,
+          referral_source: finalReferralSource || undefined
         };
 
         const response = await userService.updateUser(editingUser.id, updateData);
         
         if (response.success) {
+          let warnings: string[] = [];
+          
+          // Update email separately if it changed
+          if (formData.email !== editingUser.email) {
+            const emailResponse = await userService.updateEmail(editingUser.id, {
+              newEmail: formData.email
+            });
+            
+            if (!emailResponse.success) {
+              warnings.push('email update failed');
+            }
+          }
+          
           // Update password separately if provided
           if (formData.password) {
             const passwordResponse = await userService.updatePassword(editingUser.id, {
@@ -228,11 +240,14 @@ function UserManagement() {
             });
             
             if (!passwordResponse.success) {
-              Alert.alert('Warning', 'User updated but password update failed');
+              warnings.push('password update failed');
             }
           }
           
-          Alert.alert('Success', `User ${formData.name} has been updated${formData.password ? ' with new password' : ''}`);
+          const warningText = warnings.length > 0 ? ` (${warnings.join(', ')})` : '';
+          const successMessage = `User ${formData.name} has been updated${formData.password ? ' with new password' : ''}${warningText}`;
+          
+          Alert.alert(warnings.length > 0 ? 'Partial Success' : 'Success', successMessage);
           await loadUsers();
         } else {
           Alert.alert('Error', response.error || 'Failed to update user');
@@ -711,7 +726,7 @@ function UserManagement() {
       </ScrollView>
 
       <FAB
-        icon="plus"
+                      icon="add"
         style={styles.fab}
         onPress={handleCreateUser}
         label="New User"

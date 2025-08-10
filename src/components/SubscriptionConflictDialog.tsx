@@ -126,7 +126,7 @@ export function SubscriptionConflictDialog({
             {/* Client Info */}
             <Surface style={styles.infoSection}>
               <View style={styles.clientInfo}>
-                <Icon source="account" size={24} color={Colors.light.primary} />
+                <Icon source="person" size={24} color={Colors.light.primary} />
                 <View style={styles.clientDetails}>
                   <H3 style={styles.clientName}>{conflictData.user.name}</H3>
                   <Caption style={styles.clientEmail}>{conflictData.user.email}</Caption>

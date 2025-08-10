@@ -175,6 +175,46 @@ class UserService {
     }
   }
 
+  // Update user email directly with admin privileges
+  async updateEmail(userId: string, emailData: { newEmail: string }): Promise<ApiResponse<void>> {
+    try {
+      devLog('📧 [userService] Updating user email directly:', userId, emailData.newEmail);
+      
+      // Update email using Supabase admin client (has service role key)
+      const { data, error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+        email: emailData.newEmail,
+        email_confirm: true // Auto-confirm the new email for admin updates
+      });
+      
+      if (error) {
+        devError('❌ [userService] Email update error:', error);
+        return { success: false, error: error.message };
+      }
+
+      // Also update email in the users table
+      const { error: profileError } = await supabase
+        .from('users')
+        .update({ 
+          email: emailData.newEmail,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId);
+
+      if (profileError) {
+        devError('❌ [userService] Profile email update error:', profileError);
+        // Don't fail the whole operation, just warn
+        console.warn('Email updated in auth but profile update failed:', profileError);
+      }
+      
+      devLog('✅ [userService] Email updated successfully');
+      return { success: true };
+      
+    } catch (error) {
+      devError('❌ [userService] Exception in updateEmail:', error);
+      return { success: false, error: 'Failed to update email' };
+    }
+  }
+
   // Create new user
   async createUser(userData: CreateUserRequest): Promise<ApiResponse<BackendUser>> {
     try {
@@ -324,6 +364,32 @@ class UserService {
     } catch (error) {
       devError('❌ [userService] Exception in getUserStats:', error);
       return { success: false, error: 'Failed to fetch user stats' };
+    }
+  }
+
+  // Get all instructors for assignment purposes
+  async getAllInstructors(): Promise<ApiResponse<{id: string, name: string, email: string}[]>> {
+    try {
+      devLog('👩‍🏫 [userService] Fetching all instructors');
+      
+      const response = await this.getUsers({ role: 'instructor' });
+      
+      if (response.success && response.data) {
+        const instructors = response.data.map(user => ({
+          id: user.id,
+          name: user.name,
+          email: user.email
+        }));
+        
+        devLog('✅ [userService] Instructors fetched for assignment:', instructors.length);
+        return { success: true, data: instructors };
+      }
+      
+      return { success: false, error: response.error || 'Failed to fetch instructors' };
+      
+    } catch (error) {
+      devError('❌ [userService] Exception in getAllInstructors:', error);
+      return { success: false, error: 'Failed to fetch instructors' };
     }
   }
 }

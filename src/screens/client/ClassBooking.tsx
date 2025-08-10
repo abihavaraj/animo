@@ -12,6 +12,41 @@ import { createBooking, fetchBookings, fetchUserWaitlist, joinWaitlist } from '.
 import { fetchClasses } from '../../store/classSlice';
 import { fetchCurrentSubscription } from '../../store/subscriptionSlice';
 
+// Helper function to check equipment access validation
+const isEquipmentAccessAllowed = (userAccess: string, classEquipment: string): boolean => {
+  // 'both' access allows everything
+  if (userAccess === 'both') {
+    return true;
+  }
+  
+  // For specific access, user can only book classes that match their access level
+  if (userAccess === classEquipment) {
+    return true;
+  }
+  
+  // Special case: if class requires 'both' equipment, user needs 'both' access
+  if (classEquipment === 'both' && userAccess !== 'both') {
+    return false;
+  }
+  
+  return false;
+};
+
+// Helper to check if can join waitlist (same 2-hour rule as cancellation)
+const canJoinWaitlistCheck = (classDate: string, classTime: string): boolean => {
+  const now = new Date();
+  const classDateTime = new Date(`${classDate}T${classTime}`);
+  
+  // Class is in the past
+  if (now > classDateTime) {
+    return false;
+  }
+  
+  // Check 2-hour rule
+  const hoursUntilClass = (classDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+  return hoursUntilClass >= 2;
+};
+
 function ClassBooking() {
   // Theme colors
   const backgroundColor = useThemeColor({}, 'background');
@@ -158,18 +193,30 @@ function ClassBooking() {
 
     // Check equipment access
     const planEquipment = currentSubscription.equipment_access || currentSubscription.plan?.equipment_access;
-    if (class_.equipment_type === 'reformer' && planEquipment === 'mat') {
-      return { canBook: false, reason: 'Reformer access required' };
-    }
-
-    if (class_.equipment_type === 'both' && planEquipment !== 'both') {
-      return { canBook: false, reason: 'Full equipment access required' };
+    
+    // Use the same logic as the backend validation
+    if (!isEquipmentAccessAllowed(planEquipment, class_.equipment_type)) {
+      const accessMap = {
+        'mat': 'Mat-only',
+        'reformer': 'Reformer-only',
+        'both': 'Full equipment'
+      };
+      
+      return { 
+        canBook: false, 
+        reason: `Equipment access required: This class requires ${accessMap[class_.equipment_type] || class_.equipment_type} access. Your subscription only includes ${accessMap[planEquipment] || planEquipment} access.`
+      };
     }
 
     // Check availability
     const spotsAvailable = class_.capacity - class_.enrolled;
     if (spotsAvailable <= 0) {
-      return { canBook: false, reason: 'Class is full', waitlistAvailable: true };
+      const waitlistAvailable = canJoinWaitlistCheck(class_.date, class_.time);
+      return { 
+        canBook: false, 
+        reason: waitlistAvailable ? 'Class is full' : 'Class is full and waitlist is closed (less than 2 hours before start)', 
+        waitlistAvailable 
+      };
     }
 
     return { canBook: true, reason: '' };

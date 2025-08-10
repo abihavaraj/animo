@@ -255,18 +255,8 @@ function PCClassManagement() {
         marked[date] = { dots: [], periods: [] };
       }
       
-      // Add color coding based on status and enrollment
-      const enrollmentCount = getEnrollmentCount(classItem.id);
-      const enrollmentPercentage = (enrollmentCount / (classItem.capacity || 1)) * 100;
-      let color = Colors.light.primary;
-      
-      if (classItem.status === 'cancelled') {
-        color = Colors.light.error;
-      } else if (enrollmentPercentage >= 100) {
-        color = Colors.light.warning;
-      } else if (enrollmentPercentage >= 80) {
-        color = Colors.light.secondary;
-      }
+      // Use the new status color logic that matches instructor view
+      const color = getClassStatusColor(classItem);
       
       marked[date].dots.push({
         key: `class-${classItem.id}`,
@@ -619,7 +609,7 @@ function PCClassManagement() {
             </Body>
             <Button
               mode="contained"
-              icon="plus"
+              icon="add"
               onPress={handleCreateClass}
               style={[styles.addClassButton, {paddingHorizontal: spacing.md}]}
               compact
@@ -652,18 +642,35 @@ function PCClassManagement() {
                       
                       <View style={styles.calendarClassInfo}>
                         <H3 style={styles.calendarClassName}>{classItem.name}</H3>
-                        <Body style={styles.calendarInstructorName}>with {classItem.instructor_name}</Body>
+                        <Body style={styles.instructorName}>with {classItem.instructor_name}</Body>
                         
-                        <View style={styles.calendarClassStats}>
+                        {/* Room information */}
+                        {classItem.room && (
+                          <Body style={styles.roomInfo}>📍 {classItem.room}</Body>
+                        )}
+                        
+                        <View style={styles.classStats}>
+                          {/* Personal/Group class badge */}
                           <Chip
-                            style={[styles.levelChip, { backgroundColor: getLevelColor(classItem.level) }]}
+                            style={[styles.categoryChip, { backgroundColor: getCategoryColor(classItem.category) }]}
                             textStyle={styles.chipText}
                             compact
                           >
-                            {classItem.level}
+                            {classItem.category === 'personal' ? 'Personal' : 'Group'}
                           </Chip>
+                          
+                          {/* Class status badge - shows "Passed" if class has finished */}
                           <Chip
-                            style={[styles.statusChip, { backgroundColor: getStatusColor(classItem.status) }]}
+                            style={[styles.statusChip, { backgroundColor: getClassStatusColor(classItem) }]}
+                            textStyle={styles.chipText}
+                            compact
+                          >
+                            {getClassStatusText(classItem)}
+                          </Chip>
+                          
+                          {/* Enrollment count badge */}
+                          <Chip
+                            style={[styles.enrollmentChip, { backgroundColor: Colors.light.primary }]}
                             textStyle={styles.chipText}
                             compact
                           >
@@ -688,7 +695,7 @@ function PCClassManagement() {
                           icon="delete"
                           size={20}
                           iconColor={Colors.light.error}
-                          onPress={() => handleDeleteClass(classItem.id)}
+                          onPress={() => handleDeleteClass(Number(classItem.id))}
                         />
                       </View>
                     </View>
@@ -753,16 +760,33 @@ function PCClassManagement() {
                         <H3 style={styles.className}>{classItem.name}</H3>
                         <Body style={styles.instructorName}>with {classItem.instructor_name}</Body>
                         
+                        {/* Room information */}
+                        {classItem.room && (
+                          <Body style={styles.roomInfo}>📍 {classItem.room}</Body>
+                        )}
+                        
                         <View style={styles.classStats}>
+                          {/* Personal/Group class badge */}
                           <Chip
-                            style={[styles.levelChip, { backgroundColor: getLevelColor(classItem.level) }]}
+                            style={[styles.categoryChip, { backgroundColor: getCategoryColor(classItem.category) }]}
                             textStyle={styles.chipText}
                             compact
                           >
-                            {classItem.level}
+                            {classItem.category === 'personal' ? 'Personal' : 'Group'}
                           </Chip>
+                          
+                          {/* Class status badge - shows "Passed" if class has finished */}
                           <Chip
-                            style={[styles.statusChip, { backgroundColor: getStatusColor(classItem.status) }]}
+                            style={[styles.statusChip, { backgroundColor: getClassStatusColor(classItem) }]}
+                            textStyle={styles.chipText}
+                            compact
+                          >
+                            {getClassStatusText(classItem)}
+                          </Chip>
+                          
+                          {/* Enrollment count badge */}
+                          <Chip
+                            style={[styles.enrollmentChip, { backgroundColor: Colors.light.primary }]}
                             textStyle={styles.chipText}
                             compact
                           >
@@ -827,7 +851,7 @@ function PCClassManagement() {
                           icon="delete"
                           size={20}
                           iconColor={Colors.light.error}
-                          onPress={() => handleDeleteClass(classItem.id)}
+                          onPress={() => handleDeleteClass(Number(classItem.id))}
                         />
                       </View>
                     </View>
@@ -861,7 +885,7 @@ function PCClassManagement() {
                   value={selectedClasses.length === filteredClasses.length}
                   onValueChange={(value) => {
                     if (value) {
-                      setSelectedClasses(filteredClasses.map(c => c.id));
+                      setSelectedClasses(filteredClasses.map(c => Number(c.id)));
                     } else {
                       setSelectedClasses([]);
                     }
@@ -871,7 +895,7 @@ function PCClassManagement() {
               <DataTable.Title>Date/Time</DataTable.Title>
               <DataTable.Title>Class</DataTable.Title>
               <DataTable.Title>Instructor</DataTable.Title>
-              <DataTable.Title>Level</DataTable.Title>
+              <DataTable.Title>Category</DataTable.Title>
               <DataTable.Title>Enrollment</DataTable.Title>
               <DataTable.Title>Status</DataTable.Title>
               <DataTable.Title>Actions</DataTable.Title>
@@ -881,12 +905,12 @@ function PCClassManagement() {
               <DataTable.Row key={classItem.id}>
                 <DataTable.Cell style={styles.checkboxColumn}>
                   <Switch
-                    value={selectedClasses.includes(classItem.id)}
+                    value={selectedClasses.includes(Number(classItem.id))}
                     onValueChange={(value) => {
                       if (value) {
-                        setSelectedClasses([...selectedClasses, classItem.id]);
+                        setSelectedClasses([...selectedClasses, Number(classItem.id)]);
                       } else {
-                        setSelectedClasses(selectedClasses.filter(id => id !== classItem.id));
+                        setSelectedClasses(selectedClasses.filter(id => id !== Number(classItem.id)));
                       }
                     }}
                   />
@@ -899,17 +923,20 @@ function PCClassManagement() {
                 </DataTable.Cell>
                 <DataTable.Cell>
                   <Body>{classItem.name}</Body>
+                  {classItem.room && (
+                    <Caption style={{ color: Colors.light.textSecondary }}>📍 {classItem.room}</Caption>
+                  )}
                 </DataTable.Cell>
                 <DataTable.Cell>
                   <Body>{classItem.instructor_name}</Body>
                 </DataTable.Cell>
                 <DataTable.Cell>
                   <Chip
-                    style={[styles.levelChip, { backgroundColor: getLevelColor(classItem.level) }]}
+                    style={[styles.categoryChip, { backgroundColor: getCategoryColor(classItem.category) }]}
                     textStyle={styles.chipText}
                     compact
                   >
-                    {classItem.level}
+                    {classItem.category === 'personal' ? 'Personal' : 'Group'}
                   </Chip>
                 </DataTable.Cell>
                 <DataTable.Cell>
@@ -917,11 +944,11 @@ function PCClassManagement() {
                 </DataTable.Cell>
                 <DataTable.Cell>
                   <Chip
-                    style={[styles.statusChip, { backgroundColor: getStatusColor(classItem.status) }]}
+                    style={[styles.statusChip, { backgroundColor: getClassStatusColor(classItem) }]}
                     textStyle={styles.chipText}
                     compact
                   >
-                    {classItem.status}
+                    {getClassStatusText(classItem)}
                   </Chip>
                 </DataTable.Cell>
                 <DataTable.Cell>
@@ -954,7 +981,7 @@ function PCClassManagement() {
                       icon="delete"
                       size={16}
                       iconColor={Colors.light.error}
-                      onPress={() => handleDeleteClass(classItem.id)}
+                      onPress={() => handleDeleteClass(Number(classItem.id))}
                     />
                   </View>
                 </DataTable.Cell>
@@ -973,6 +1000,48 @@ function PCClassManagement() {
       case 'Advanced': return Colors.light.error;
       default: return Colors.light.textSecondary;
     }
+  };
+
+  const getCategoryColor = (category: string | undefined) => {
+    // Debug log for category issue
+    if (category !== 'personal' && category !== 'group') {
+      console.log(`🐛 getCategoryColor received invalid category:`, category, typeof category, `"${category}"`);
+    }
+    
+    switch (category) {
+      case 'personal': return Colors.light.error;      // Red for personal classes
+      case 'group': return Colors.light.success;       // Green for group classes
+      default: return Colors.light.textSecondary;      // Gray for unknown
+    }
+  };
+
+  // Helper function to check if a class has passed (finished)
+  const isPastClass = (date: string, time: string, duration: number) => {
+    const classDateTime = new Date(`${date}T${time}`);
+    const endDateTime = new Date(classDateTime.getTime() + duration * 60000); // Add duration in minutes
+    return endDateTime < new Date();
+  };
+
+  // Helper function to get class status text
+  const getClassStatusText = (classItem: BackendClass) => {
+    if (isPastClass(classItem.date, classItem.time, classItem.duration)) {
+      return 'Passed';
+    }
+    const enrollmentPercentage = (classItem.enrolled / classItem.capacity) * 100;
+    if (enrollmentPercentage >= 100) return 'Full';
+    if (enrollmentPercentage >= 80) return 'Almost Full';
+    return 'Available';
+  };
+
+  // Helper function to get class status color
+  const getClassStatusColor = (classItem: BackendClass) => {
+    if (isPastClass(classItem.date, classItem.time, classItem.duration)) {
+      return Colors.light.textMuted; // Gray for passed classes
+    }
+    const enrollmentPercentage = (classItem.enrolled / classItem.capacity) * 100;
+    if (enrollmentPercentage >= 100) return Colors.light.error; // Red for full
+    if (enrollmentPercentage >= 80) return Colors.light.warning; // Yellow for almost full
+    return Colors.light.success; // Green for available
   };
 
   const getBookingsForClass = (classId: string | number) => {
@@ -1343,10 +1412,12 @@ function PCClassManagement() {
       if (response.success) {
         console.log('🗑️ Delete successful, reloading classes...');
         await loadClasses();
+        // Show the detailed message including refund info
+        const successMessage = (response as any).message || 'Class deleted successfully';
         if (Platform.OS === 'web') {
-          window.alert('Class deleted successfully');
+          window.alert(successMessage);
         } else {
-          Alert.alert('Success', 'Class deleted successfully');
+          Alert.alert('Success', successMessage);
         }
       } else {
         console.error('🗑️ Delete failed:', response.error);
@@ -1516,7 +1587,7 @@ function PCClassManagement() {
                         style={styles.dropdownButton}
                       >
                         <View style={styles.dropdownContent}>
-                          <Icon source="account" size={20} color={Colors.light.primary} />
+                          <Icon source="person" size={20} color={Colors.light.primary} />
                           <Body style={{
                             ...styles.dropdownText,
                             color: !formData.instructorName ? Colors.light.textSecondary : Colors.light.text
@@ -2070,7 +2141,7 @@ function PCClassManagement() {
                         style={styles.dropdownButton}
                       >
                         <View style={styles.dropdownContent}>
-                          <Icon source="account" size={20} color={Colors.light.primary} />
+                          <Icon source="person" size={20} color={Colors.light.primary} />
                           <Body style={{
                             ...styles.dropdownText,
                             color: !selectedClient ? Colors.light.textSecondary : Colors.light.text
@@ -2086,7 +2157,7 @@ function PCClassManagement() {
                       <Menu.Item
                         title={clientSearchQuery ? "No clients found" : "Start typing to search clients..."}
                         disabled
-                        leadingIcon="magnify"
+                        leadingIcon="search"
                       />
                     ) : (
                       filteredClients.map((client) => (
@@ -2179,7 +2250,7 @@ function PCClassManagement() {
                         style={styles.dropdownButton}
                       >
                         <View style={styles.dropdownContent}>
-                          <Icon source="account" size={20} color={Colors.light.primary} />
+                          <Icon source="person" size={20} color={Colors.light.primary} />
                           <Body style={{
                             ...styles.dropdownText,
                             color: !selectedBookingForCancellation ? Colors.light.textSecondary : Colors.light.text
@@ -2497,6 +2568,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   statusChip: {
+    borderRadius: 12,
+  },
+  enrollmentChip: {
     borderRadius: 12,
   },
   chipText: {
@@ -3009,6 +3083,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minWidth: 32,
     minHeight: 32,
+  },
+  categoryChip: {
+    borderRadius: 12,
+  },
+  roomInfo: {
+    color: Colors.light.textSecondary,
+    fontSize: 12,
+    marginBottom: spacing.xs,
   },
 });
 

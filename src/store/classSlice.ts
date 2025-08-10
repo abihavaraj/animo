@@ -18,9 +18,23 @@ const initialState: ClassState = {
 };
 
 // Async thunks
+export const updateCompletedClassStatus = createAsyncThunk(
+  'classes/updateCompletedClassStatus',
+  async (_, { rejectWithValue }) => {
+    const response = await classService.updateCompletedClassStatus();
+    if (!response.success) {
+      return rejectWithValue(response.error || 'Failed to update class statuses');
+    }
+    return true;
+  }
+);
+
 export const fetchClasses = createAsyncThunk(
   'classes/fetchClasses',
-  async (filters: ClassFilters = {}, { rejectWithValue }) => {
+  async (filters: ClassFilters = {}, { rejectWithValue, dispatch }) => {
+    // First update any completed class statuses
+    await dispatch(updateCompletedClassStatus());
+    
     const response = await classService.getClasses(filters);
     if (!response.success) {
       return rejectWithValue(response.error || 'Failed to fetch classes');
@@ -186,6 +200,19 @@ const classSlice = createSlice({
       .addCase(deleteClass.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload as string;
+      });
+
+    // Update Completed Class Status
+    builder
+      .addCase(updateCompletedClassStatus.pending, (state) => {
+        // Don't set loading for this background operation
+      })
+      .addCase(updateCompletedClassStatus.fulfilled, (state) => {
+        // Successfully updated completed statuses
+      })
+      .addCase(updateCompletedClassStatus.rejected, (state, action) => {
+        // Log error but don't affect UI state
+        console.warn('Failed to update completed class statuses:', action.payload);
       });
 
     // Cancel Class

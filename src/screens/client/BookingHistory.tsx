@@ -1,3 +1,4 @@
+import { useNavigation } from '@react-navigation/native';
 import { useEffect, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { ActivityIndicator, Button, Card, Chip } from 'react-native-paper';
@@ -5,31 +6,52 @@ import { useDispatch, useSelector } from 'react-redux';
 import { Body, Caption, H1, H2 } from '../../../components/ui/Typography';
 import { spacing } from '../../../constants/Spacing';
 import { useThemeColor } from '../../../hooks/useThemeColor';
+import { bookingService } from '../../services/bookingService';
 import { AppDispatch, RootState } from '../../store';
 import { cancelBooking, fetchBookings } from '../../store/bookingSlice';
 
 function BookingHistory() {
   const dispatch = useDispatch<AppDispatch>();
+  const navigation = useNavigation();
   const { bookings, isLoading } = useSelector((state: RootState) => state.bookings);
+  const { user } = useSelector((state: RootState) => state.auth);
   const [refreshing, setRefreshing] = useState(false);
+  const [waitlistEntries, setWaitlistEntries] = useState([]);
 
   useEffect(() => {
-    loadBookings();
+    loadData();
   }, []);
 
-  const loadBookings = async () => {
+  const loadData = async () => {
     try {
-      await dispatch(fetchBookings({})).unwrap();
+      // Load both bookings and waitlist entries
+      await Promise.all([
+        dispatch(fetchBookings({})).unwrap(),
+        loadWaitlistEntries()
+      ]);
     } catch (error) {
-      console.error('Failed to load bookings:', error);
+      console.error('Failed to load data:', error);
     } finally {
       setRefreshing(false);
     }
   };
 
+  const loadWaitlistEntries = async () => {
+    if (!user?.id) return;
+    
+    try {
+      const response = await bookingService.getUserWaitlist(user.id);
+      if (response.success) {
+        setWaitlistEntries(response.data || []);
+      }
+    } catch (error) {
+      console.error('Failed to load waitlist:', error);
+    }
+  };
+
   const onRefresh = () => {
     setRefreshing(true);
-    loadBookings();
+    loadData();
   };
 
   const handleCancelBooking = async (bookingId: number, className: string) => {
@@ -45,9 +67,36 @@ function BookingHistory() {
             try {
               await dispatch(cancelBooking(bookingId)).unwrap();
               Alert.alert('Success', 'Booking cancelled successfully');
-              loadBookings(); // Refresh the list
+              loadData(); // Refresh the list
             } catch (error) {
               Alert.alert('Error', error as string);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleCancelWaitlist = async (waitlistId: number, className: string) => {
+    Alert.alert(
+      'Leave Waitlist',
+      `Are you sure you want to leave the waitlist for "${className}"?`,
+      [
+        { text: 'Stay on Waitlist', style: 'cancel' },
+        { 
+          text: 'Leave Waitlist', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const result = await bookingService.leaveWaitlist(waitlistId);
+              if (result.success) {
+                Alert.alert('Success', 'You have left the waitlist');
+                loadData(); // Refresh all data
+              } else {
+                Alert.alert('Error', result.error || 'Failed to leave waitlist');
+              }
+            } catch (error) {
+              Alert.alert('Error', 'Failed to leave waitlist');
             }
           }
         }
@@ -168,6 +217,21 @@ function BookingHistory() {
   const safeBookings = Array.isArray(bookings) ? bookings : [];
   const upcomingBookings = safeBookings.filter(booking => booking && isUpcoming(booking));
   const pastBookings = safeBookings.filter(booking => booking && !isUpcoming(booking));
+  
+  // Process waitlist entries - filter for upcoming classes only
+  const safeWaitlistEntries = Array.isArray(waitlistEntries) ? waitlistEntries : [];
+  const upcomingWaitlistEntries = safeWaitlistEntries.filter(entry => {
+    try {
+      const classDate = entry.classes?.date;
+      const classTime = entry.classes?.time;
+      if (!classDate || !classTime) return false;
+      
+      const classDateTime = new Date(`${classDate} ${classTime}`);
+      return classDateTime > new Date();
+    } catch {
+      return false;
+    }
+  });
 
   // Theme colors
   const backgroundColor = useThemeColor({}, 'background');
@@ -203,10 +267,10 @@ function BookingHistory() {
           </View>
           <Button
             mode="contained"
-            icon="plus"
+            icon="add"
             onPress={() => {
-              // Navigate to class booking - this would need proper navigation setup
-              Alert.alert('Navigation', 'Go to Booking tab to book more classes');
+              // Navigate to Book tab
+              navigation.navigate('Book' as never);
             }}
             style={[styles.bookNewButton, { backgroundColor: accentColor }]}
             labelStyle={{ color: 'white' }}
@@ -223,13 +287,14 @@ function BookingHistory() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {safeBookings.length === 0 ? (
+        {safeBookings.length === 0 && safeWaitlistEntries.length === 0 ? (
           <Card style={[styles.emptyCard, { backgroundColor: cardColor }]}>
             <Card.Content>
               <H2 style={{ color: textColor }}>No Bookings Yet</H2>
               <Body style={{ color: secondaryTextColor }}>You haven&apos;t booked any classes yet. Start by booking your first class!</Body>
               <Button 
                 mode="contained" 
+                onPress={() => navigation.navigate('Book' as never)}
                 style={[styles.bookButton, { backgroundColor: accentColor }]} 
                 icon="calendar-today"
                 labelStyle={{ color: 'white' }}
@@ -292,6 +357,63 @@ function BookingHistory() {
                             Cancel Booking
                           </Button>
                         )}
+                      </Card.Content>
+                    </Card>
+                  );
+                })}
+              </>
+            )}
+            
+            {/* Waitlist Section */}
+            {upcomingWaitlistEntries.length > 0 && (
+              <>
+                <H2 style={{ ...styles.sectionTitle, color: textColor }}>On Waitlist</H2>
+                {upcomingWaitlistEntries.map((waitlistEntry) => {
+                  if (!waitlistEntry || !waitlistEntry.id) return null;
+                  
+                  const className = safeString(waitlistEntry.classes?.name, 'Unknown Class');
+                  const instructorName = safeString(waitlistEntry.classes?.users?.name, 'TBA');
+                  const classDate = safeString(waitlistEntry.classes?.date, '');
+                  const classTime = safeString(waitlistEntry.classes?.time, '');
+                  const equipmentType = safeString(waitlistEntry.classes?.equipment_type, '');
+                  const position = waitlistEntry.position || 0;
+                  
+                  return (
+                    <Card key={waitlistEntry.id} style={[styles.bookingCard, styles.waitlistCard, { backgroundColor: cardColor, borderColor: warningColor }]}>
+                      <Card.Content>
+                        <View style={styles.bookingHeader}>
+                          <H2 style={{ ...styles.className, color: textColor }}>{className}</H2>
+                          <Chip 
+                            style={[styles.statusChip, { backgroundColor: warningColor }]}
+                            textStyle={{ ...styles.chipText, color: 'white' }}
+                          >
+                            Position #{position}
+                          </Chip>
+                        </View>
+                        <Body style={{ ...styles.instructor, color: secondaryTextColor }}>with {instructorName}</Body>
+                        <Body style={{ ...styles.dateTime, color: textColor }}>
+                          {formatDate(classDate)} • {formatTime(classTime)}
+                        </Body>
+                        
+                        {equipmentType && equipmentType.length > 0 && (
+                          <Caption style={{ ...styles.equipment, color: secondaryTextColor }}>
+                            Equipment: {equipmentType.charAt(0).toUpperCase() + equipmentType.slice(1)}
+                          </Caption>
+                        )}
+                        
+                        <Caption style={{ ...styles.waitlistInfo, color: warningColor }}>
+                          📝 You're on the waitlist - we'll notify you if a spot opens up!
+                        </Caption>
+                        
+                        <Button 
+                          mode="outlined" 
+                          onPress={() => handleCancelWaitlist(waitlistEntry.id, className)}
+                          style={[styles.cancelButton, { borderColor: warningColor }]}
+                          textColor={warningColor}
+                          icon="close"
+                        >
+                          Leave Waitlist
+                        </Button>
                       </Card.Content>
                     </Card>
                   );
@@ -463,6 +585,14 @@ const styles = StyleSheet.create({
   },
   upcomingCard: { 
     borderWidth: 1,
+  },
+  waitlistCard: { 
+    borderWidth: 1,
+  },
+  waitlistInfo: { 
+    marginBottom: spacing.sm,
+    fontSize: 13,
+    fontStyle: 'italic',
   },
 });
 

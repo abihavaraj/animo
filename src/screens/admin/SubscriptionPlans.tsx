@@ -432,7 +432,7 @@ function SubscriptionPlans() {
       </ScrollView>
 
       <FAB
-        icon="plus"
+                      icon="add"
         style={styles.fab}
         onPress={handleCreatePlan}
         label="New Plan"

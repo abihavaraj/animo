@@ -1,52 +1,140 @@
-import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import React, { useEffect, useState } from 'react';
-import { Alert, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Platform, ScrollView, View } from 'react-native';
 import { Button, Card, Chip, Paragraph, Title } from 'react-native-paper';
+import { supabase } from '../../config/supabase.config';
 import { pushNotificationService } from '../../services/pushNotificationService';
 
 export default function NotificationTestScreen() {
-  const [permissionStatus, setPermissionStatus] = useState<string>('Unknown');
-  const [deviceInfo, setDeviceInfo] = useState<string>('');
-  const [projectId, setProjectId] = useState<string>('');
-  const [pushToken, setPushToken] = useState<string>('');
+  const [permissionStatus, setPermissionStatus] = useState<string>('undetermined');
+  const [deviceInfo, setDeviceInfo] = useState<string>('Unknown');
+  const [projectId, setProjectId] = useState<string>('Unknown');
+  const [pushToken, setPushToken] = useState<string>('No token available');
+  const [debugInfo, setDebugInfo] = useState<string>('Initializing...');
+  const [buildInfo, setBuildInfo] = useState<string>('Unknown');
+  const [environmentInfo, setEnvironmentInfo] = useState<string>('Unknown');
 
   useEffect(() => {
+    gatherDebugInfo();
     checkNotificationStatus();
+    setDeviceInfo(`${Device.modelName} (${Platform.OS})`);
+    
+    // Always use the hardcoded project ID for production reliability
+    const projectId = 'd4bdbfc4-ecbc-40d7-aabb-ad545c836ab3';
+    
+    setProjectId(projectId);
   }, []);
+
+  const gatherDebugInfo = async () => {
+    try {
+      // Environment detection
+      const isDev = __DEV__;
+      const platform = Platform.OS;
+      const isDevice = Device.isDevice;
+      const deviceType = Device.deviceType;
+      const brand = Device.brand;
+      const modelName = Device.modelName;
+      
+      // Build info
+      setBuildInfo(`Device: ${isDevice ? 'Physical' : 'Simulator'} | Type: ${deviceType} | Brand: ${brand}`);
+      setEnvironmentInfo(`Platform: ${platform} | Dev Mode: ${isDev} | Model: ${modelName}`);
+      
+      // Check app state
+      const appStateInfo = `Active`;
+      
+      // Check notification permissions in detail
+      const permissions = await Notifications.getPermissionsAsync();
+      
+      const debugDetails = [
+        `🔍 ENVIRONMENT: ${isDev ? 'Development' : 'Production'}`,
+        `📱 PLATFORM: ${platform}`,
+        `🖥️ DEVICE: ${isDevice ? 'Physical Device' : 'Simulator/Emulator'}`,
+        `📋 MODEL: ${modelName || 'Unknown'}`,
+        `🏷️ BRAND: ${brand || 'Unknown'}`,
+        `🎛️ DEVICE_TYPE: ${deviceType || 'Unknown'}`,
+        `🔔 PERMISSIONS: ${JSON.stringify(permissions, null, 2)}`,
+        `⚡ APP_STATE: ${appStateInfo}`,
+        `🎯 PROJECT_ID: d4bdbfc4-ecbc-40d7-aabb-ad545c836ab3`,
+      ].join('\n');
+      
+      setDebugInfo(debugDetails);
+      
+      console.log('🐛 FULL DEBUG INFO:');
+      console.log(debugDetails);
+      
+    } catch (error) {
+      console.error('Failed to gather debug info:', error);
+      setDebugInfo(`Error gathering debug info: ${error}`);
+    }
+  };
 
   const checkNotificationStatus = async () => {
     try {
-      // Check permissions
-      const permissions = await Notifications.getPermissionsAsync();
-      setPermissionStatus(permissions.status);
-
-      // Device info
-      setDeviceInfo(`${Platform.OS} ${Platform.Version} - ${Device.isDevice ? 'Physical Device' : 'Simulator'}`);
-
-      // Project ID
-      const projId = Constants.expoConfig?.extra?.eas?.projectId || 'Not found';
-      setProjectId(projId);
-
-      // Push token
-      const token = pushNotificationService.getPushTokenValue();
-      setPushToken(token || 'Not generated');
-
+      console.log('🔍 [checkNotificationStatus] Starting notification status check...');
+      
+      const { status } = await Notifications.getPermissionsAsync();
+      console.log('🔍 [checkNotificationStatus] Permission status:', status);
+      setPermissionStatus(status);
+      
+      // First, check if the push service already has a token
+      const serviceToken = pushNotificationService.getPushTokenValue();
+      if (serviceToken) {
+        console.log('✅ [checkNotificationStatus] Found existing push service token:', serviceToken.substring(0, 20) + '...');
+        setPushToken(serviceToken);
+        return;
+      }
+      
+      console.log('⚠️ [checkNotificationStatus] No existing service token found');
+      
+      if (status === 'granted') {
+        console.log('✅ [checkNotificationStatus] Permissions granted, attempting to get push token...');
+        
+        // Always use the hardcoded project ID for production reliability
+        const projectId = 'd4bdbfc4-ecbc-40d7-aabb-ad545c836ab3';
+        
+        console.log('🎯 [checkNotificationStatus] Using Project ID:', projectId);
+        console.log('📱 [checkNotificationStatus] Platform:', Platform.OS);
+        console.log('🖥️ [checkNotificationStatus] Is Device:', Device.isDevice);
+        console.log('🏗️ [checkNotificationStatus] Device Type:', Device.deviceType);
+        
+        try {
+          const token = await Notifications.getExpoPushTokenAsync({
+            projectId,
+          });
+          console.log('✅ [checkNotificationStatus] Successfully got push token:', token.data.substring(0, 20) + '...');
+          setPushToken(token.data);
+        } catch (tokenError) {
+          console.error('❌ [checkNotificationStatus] Failed to get push token:', tokenError);
+          console.error('❌ [checkNotificationStatus] Token error details:', JSON.stringify(tokenError, null, 2));
+          setPushToken(`Error: ${tokenError}`);
+        }
+      } else {
+        console.log('❌ [checkNotificationStatus] Permissions not granted:', status);
+        setPushToken(`Permission ${status} - cannot get token`);
+      }
     } catch (error) {
-      console.error('Error checking notification status:', error);
+      console.error('❌ [checkNotificationStatus] Error checking notification status:', error);
+      console.error('❌ [checkNotificationStatus] Error details:', JSON.stringify(error, null, 2));
+      setPushToken(`Check failed: ${error}`);
     }
   };
 
   const requestPermissions = async () => {
     try {
-      const result = await Notifications.requestPermissionsAsync();
-      setPermissionStatus(result.status);
-      Alert.alert('Permission Result', `Status: ${result.status}`);
+      const { status } = await Notifications.requestPermissionsAsync();
+      setPermissionStatus(status);
       
-      if (result.status === 'granted') {
-        // Try to initialize push service again
-        await pushNotificationService.initialize();
+      if (status === 'granted') {
+        // Always use the hardcoded project ID for production reliability
+        const projectId = 'd4bdbfc4-ecbc-40d7-aabb-ad545c836ab3';
+        
+        console.log('Project ID being used:', projectId);
+        
+        const token = await Notifications.getExpoPushTokenAsync({
+          projectId,
+        });
+        setPushToken(token.data);
         checkNotificationStatus();
       }
     } catch (error) {
@@ -56,15 +144,35 @@ export default function NotificationTestScreen() {
 
   const testImmediateNotification = async () => {
     try {
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: '🔔 Immediate Test',
-          body: 'This is an immediate local notification test',
-          data: { test: true },
+      if (!pushToken || pushToken === 'No token available') {
+        Alert.alert('Error', 'No push token available');
+        return;
+      }
+
+      // Send via Expo's push service
+      const response = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Accept-encoding': 'gzip, deflate',
+          'Content-Type': 'application/json',
         },
-        trigger: null, // Immediate
+        body: JSON.stringify({
+          to: pushToken,
+          title: '🔔 Immediate Test',
+          body: 'This is an immediate push notification test',
+          data: { test: true },
+          sound: 'default',
+          priority: 'high',
+          channelId: 'animo-notifications',
+        }),
       });
-      Alert.alert('Success', 'Immediate notification sent!');
+
+      if (response.ok) {
+        Alert.alert('Success', 'Immediate push notification sent!');
+      } else {
+        Alert.alert('Error', 'Failed to send immediate push notification');
+      }
     } catch (error) {
       Alert.alert('Error', `Failed to send immediate notification: ${error}`);
     }
@@ -72,18 +180,34 @@ export default function NotificationTestScreen() {
 
   const testDelayedNotification = async () => {
     try {
-      await Notifications.scheduleNotificationAsync({
-        content: {
+      if (!pushToken || pushToken === 'No token available') {
+        Alert.alert('Error', 'No push token available');
+        return;
+      }
+
+      // For delayed notifications, we'll store in Supabase and let backend handle timing
+      const { error } = await supabase
+        .from('notifications')
+        .insert({
+          user_id: 'test-user',
           title: '⏰ Delayed Test',
-          body: 'This notification was scheduled 3 seconds ago',
-          data: { test: true },
-        },
-        trigger: { 
-          seconds: 3,
-          channelId: 'animo-notifications'
-        },
-      });
-      Alert.alert('Success', 'Delayed notification scheduled for 3 seconds!');
+          message: 'This notification was scheduled 3 seconds ago',
+          type: 'system',
+          scheduled_for: new Date(Date.now() + 3000).toISOString(), // 3 seconds from now
+          metadata: {
+            type: 'test',
+            test: true,
+            push_token: pushToken
+          },
+          is_read: false,
+          created_at: new Date().toISOString()
+        });
+
+      if (error) {
+        Alert.alert('Error', `Failed to schedule delayed notification: ${error.message}`);
+      } else {
+        Alert.alert('Success', 'Delayed push notification scheduled for 3 seconds!');
+      }
     } catch (error) {
       Alert.alert('Error', `Failed to schedule delayed notification: ${error}`);
     }
@@ -99,6 +223,25 @@ export default function NotificationTestScreen() {
       'Sarah Wilson',
       5
     );
+  };
+
+  const handleInitializePushService = async () => {
+    try {
+      console.log('🔄 Manually initializing push notification service...');
+      await pushNotificationService.initialize();
+      
+      // Wait a moment then check the token
+      setTimeout(() => {
+        const token = pushNotificationService.getPushTokenValue();
+        if (token) {
+          setPushToken(token);
+        }
+        checkNotificationStatus();
+      }, 1000);
+      
+    } catch (error) {
+      console.error('Failed to initialize push service:', error);
+    }
   };
 
   const getPermissionColor = () => {
@@ -127,8 +270,10 @@ export default function NotificationTestScreen() {
             </Chip>
             
             <Paragraph><strong>Device:</strong> {deviceInfo}</Paragraph>
+            <Paragraph><strong>Build Info:</strong> {buildInfo}</Paragraph>
+            <Paragraph><strong>Environment:</strong> {environmentInfo}</Paragraph>
             <Paragraph><strong>Project ID:</strong> {projectId}</Paragraph>
-            <Paragraph><strong>Push Token:</strong> {pushToken.substring(0, 50)}...</Paragraph>
+            <Paragraph><strong>Push Token:</strong> {pushToken.length > 50 ? pushToken.substring(0, 50) + '...' : pushToken}</Paragraph>
           </View>
 
           {permissionStatus !== 'granted' && (
@@ -141,85 +286,114 @@ export default function NotificationTestScreen() {
               Request Notification Permissions
             </Button>
           )}
+
+          <Button
+            mode="contained"
+            onPress={handleInitializePushService}
+            style={[styles.button, { backgroundColor: '#673AB7' }]}
+            icon="refresh"
+          >
+            Initialize Push Service & Get Token
+          </Button>
+        </Card.Content>
+      </Card>
+
+      <Card style={styles.card}>
+        <Card.Content>
+          <Title>🐛 Detailed Debug Information</Title>
+          <ScrollView style={{ maxHeight: 200, backgroundColor: '#f5f5f5', padding: 10, marginVertical: 10 }}>
+            <Paragraph style={{ fontFamily: 'monospace', fontSize: 12 }}>
+              {debugInfo}
+            </Paragraph>
+          </ScrollView>
+          
+          <Button
+            mode="outlined"
+            onPress={() => {
+              gatherDebugInfo();
+              checkNotificationStatus();
+            }}
+            style={[styles.button, { borderColor: '#FF5722' }]}
+            icon="refresh"
+          >
+            Refresh Debug Info
+          </Button>
         </Card.Content>
       </Card>
 
       <Card style={styles.card}>
         <Card.Content>
           <Title>🧪 Basic Notification Tests</Title>
-          <Paragraph style={styles.description}>
-            Test basic notification functionality step by step.
-          </Paragraph>
           
-          <View style={styles.buttonContainer}>
-            <Button
-              mode="contained"
-              onPress={testImmediateNotification}
-              style={styles.button}
-              icon="flash"
-            >
-              Test Immediate Notification
-            </Button>
-            
-            <Button
-              mode="contained"
-              onPress={testDelayedNotification}
-              style={styles.button}
-                              icon="access-time"
-            >
-              Test Delayed Notification (3s)
-            </Button>
-          </View>
+          <Button
+            mode="contained"
+            onPress={testImmediateNotification}
+            style={[styles.button, { backgroundColor: '#2196F3' }]}
+            icon="flash"
+          >
+            Test Immediate Push Notification
+          </Button>
+          
+          <Button
+            mode="contained"
+            onPress={testDelayedNotification}
+            style={[styles.button, { backgroundColor: '#FF9800' }]}
+            icon="clock"
+          >
+            Test Delayed Push Notification (3s)
+          </Button>
+          
+          <Button
+            mode="contained"
+            onPress={handleTestLocalNotification}
+            style={[styles.button, { backgroundColor: '#4CAF50' }]}
+            icon="bell"
+          >
+            Test Service Push Notification
+          </Button>
+          
+          <Button
+            mode="contained"
+            onPress={handleTestClassReminder}
+            style={[styles.button, { backgroundColor: '#9C27B0' }]}
+            icon="calendar"
+          >
+            Test Class Reminder Push Notification
+          </Button>
         </Card.Content>
       </Card>
 
       <Card style={styles.card}>
         <Card.Content>
-          <Title>📱 Service-Based Tests</Title>
-          <Paragraph style={styles.description}>
-            Test using the push notification service.
-          </Paragraph>
+          <Title>🚀 Advanced Tests</Title>
           
-          <View style={styles.buttonContainer}>
-            <Button
-              mode="contained"
-              onPress={handleTestLocalNotification}
-              style={styles.button}
-              icon="bell-ring"
-            >
-              Service Test Notification
-            </Button>
-            
-            <Button
-              mode="contained"
-              onPress={handleTestClassReminder}
-              style={styles.button}
-              icon="yoga"
-            >
-              Service Class Reminder
-            </Button>
-          </View>
-        </Card.Content>
-      </Card>
-
-      <Card style={styles.card}>
-        <Card.Content>
-          <Title>📋 Troubleshooting Guide</Title>
-          <Paragraph style={styles.note}>
-            <strong>If notifications aren't working:</strong>
-            {'\n\n'}1. <strong>Check Permission Status above</strong> - must be "granted"
-            {'\n'}2. <strong>For Expo Go:</strong> Only local notifications work, not push notifications
-            {'\n'}3. <strong>For iOS:</strong> Check iOS Settings → ANIMO Pilates Studio → Notifications
-            {'\n'}4. <strong>For Development Build:</strong> Push notifications should work
-            {'\n'}5. <strong>Device Required:</strong> Notifications don't work in simulators
-          </Paragraph>
+          <Button
+            mode="contained"
+            onPress={pushNotificationService.sendRemoteTestNotification}
+            style={[styles.button, { backgroundColor: '#E91E63' }]}
+            icon="rocket"
+          >
+            Test Remote Push Notification
+          </Button>
+          
+          <Button
+            mode="contained"
+            onPress={() => {
+              const command = pushNotificationService.getPowerShellCurlCommand();
+              Alert.alert('PowerShell Command', command);
+            }}
+            style={[styles.button, { backgroundColor: '#607D8B' }]}
+            icon="code"
+          >
+            Get PowerShell Test Command
+          </Button>
         </Card.Content>
       </Card>
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = {
   container: {
     flex: 1,
     padding: 16,
@@ -227,27 +401,15 @@ const styles = StyleSheet.create({
   },
   card: {
     marginBottom: 16,
-  },
-  description: {
-    marginBottom: 16,
+    elevation: 4,
   },
   debugInfo: {
-    marginBottom: 16,
+    marginVertical: 16,
   },
   chip: {
-    marginBottom: 8,
-    alignSelf: 'flex-start',
-  },
-  buttonContainer: {
-    gap: 12,
+    marginVertical: 8,
   },
   button: {
-    marginBottom: 8,
+    marginVertical: 8,
   },
-  note: {
-    fontStyle: 'italic',
-    color: '#666',
-    marginTop: 8,
-    lineHeight: 22,
-  },
-}); 
+}; 

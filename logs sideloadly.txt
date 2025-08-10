@@ -1,0 +1,466 @@
+Aug  6 12:31:21 Argjends-iPhone backboardd[72] <Notice>: touchstats 100000987-<main> events starting 12.4567s ago: [
+    down: 3,
+    up: 3,
+    rangeIn: 3,
+    rangeOut: 3,
+    pathsSeen: 2 3,
+    destinations: {
+        ANIMO.8107 contextID AB3768FA: {
+            touchIDs: 60A7-60A8;
+        };
+        ANIMO.8107 contextID D815C5DB: {
+            touchIDs: 60A9;
+        };
+    },
+    averageProcessingTime (\M-B\M-5s): 628.68
+]
+Aug  6 12:31:22 Argjends-iPhone SpringBoard(KeyboardArbiter)[5332] <Notice>: RX com.animo.pilatesstudio(8107) focusApplicationWithPID:8107 stealKeyboard:Y
+    context:<contextID:3923105512 sceneID:com.animo.pilatesstudio-default>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: TX focusApplication (peekAppEvent) stealKB:Y scene:com.animo.pilatesstudio-default
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Evaluating dispatch of UIEvent: 0x105dbc300; type: 0; subtype: 0; backing type: 11; shouldSend: 1; ignoreInteractionEvents: 0, systemGestureStateChange: 0
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Sending UIEvent type: 0; subtype: 0; to windows: 1
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Sending UIEvent type: 0; subtype: 0; to window: <UIWindow: 0x104ee4fe0>; contextId: 0xE9D5D6E8
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Evaluating dispatch of UIEvent: 0x105dbc300; type: 0; subtype: 0; backing type: 11; shouldSend: 0; ignoreInteractionEvents: 0, systemGestureStateChange: 0
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Evaluating dispatch of UIEvent: 0x105dbc300; type: 0; subtype: 0; backing type: 11; shouldSend: 1; ignoreInteractionEvents: 0, systemGestureStateChange: 0
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Sending UIEvent type: 0; subtype: 0; to windows: 1
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Sending UIEvent type: 0; subtype: 0; to window: <UIWindow: 0x104ee4fe0>; contextId: 0xE9D5D6E8
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Evaluating dispatch of UIEvent: 0x105dbc300; type: 0; subtype: 0; backing type: 11; shouldSend: 0; ignoreInteractionEvents: 0, systemGestureStateChange: 0
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UserNotifications)[8107] <Notice>: [com.animo.pilatesstudio] Getting notification settings (async)
+Aug  6 12:31:22 Argjends-iPhone SpringBoard(UserNotificationsServer)[5332] <Notice>: [com.animo.pilatesstudio] Getting notification settings
+Aug  6 12:31:22 Argjends-iPhone SpringBoard(UserNotificationsServer)[5332] <Notice>: Getting effectiveSectionInfo for section identifier: com.animo.pilatesstudio
+Aug  6 12:31:22 Argjends-iPhone SpringBoard(UserNotificationsServer)[5332] <Notice>: [com.animo.pilatesstudio] Getting effective section info
+Aug  6 12:31:22 Argjends-iPhone SpringBoard(UserNotificationsServer)[5332] <Notice>: [com.animo.pilatesstudio] Got effective section info [ hasResult: 1 ]
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UserNotifications)[8107] <Notice>: [com.animo.pilatesstudio] Got notification settings [ hasResult: 1 hasCompletionHandler: 1 ]
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: UIWindowScene: 0x104ee3f50: Window became key in scene: UIWindow: 0x136cd4400; contextId: 0xF028185D: reason: UIWindowScene: 0x104ee3f50: Window requested to become key in scene: 0x136cd4400
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Key window needs update: 1; currentKeyWindowScene: 0x104ee3f50; evaluatedKeyWindowScene: 0x104ee3f50; currentApplicationKeyWindow: 0x104ee4fe0; evaluatedApplicationKeyWindow: 0x136cd4400; reason: UIWindowScene: 0x104ee3f50: Window requested to become key in scene: 0x136cd4400
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Window did become application key: UIWindow: 0x136cd4400; contextId: 0xF028185D; scene identity: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: [0x105e40000] Beginning and ending local event deferring requested for token: 0x12a69a6a0; environments: 1; reason: UIWindowScene: 0x104ee3f50: Begin event deferring in keyboardFocus for window: 0x136cd4400
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: [0x105e40000] Begin local event deferring requested for token: 0x12a69bf60; environments: 1; reason: UIWindowScene: 0x104ee3f50: Begin event deferring in keyboardFocus for window: 0x136cd4400
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Window resigning application key: UIWindow: 0x104ee4fe0; contextId: 0xE9D5D6E8; scene identity: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default
+Aug  6 12:31:22 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: new deferring rules for pid:8107: [[8107-A]; <keyboardFocus; builtin; \M-b\M^@\M-&ces/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default>; () -> <token: 0xF028185D; pid: 8107>; reason: \M-b\M^@\M-&gin event deferring in keyboardFocus for window: 0x136cd4400]
+Aug  6 12:31:22 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: [keyboardFocus 0xcac1779d0] setRules:forPID(8107): [[8107-A]; <keyboardFocus; builtin; com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default>; () -> <token: 0xF028185D; pid: 8107>; reason: UIWindowScene: 0x104ee3f50: Begin event deferring in keyboardFocus for window: 0x136cd4400]
+Aug  6 12:31:22 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: [keyboardFocus 0xcaad19a90] setRules:forPID(8107): [[8107-A]; <keyboardFocus; builtin; com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default>; () -> <token: 0xF028185D; pid: 8107>; reason: UIWindowScene: 0x104ee3f50: Begin event deferring in keyboardFocus for window: 0x136cd4400]
+Aug  6 12:31:22 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: chain did update (setDeferringRules) <keyboardFocus; display: null; compatibilityDisplay: builtin> containsEndOfChain: YES; [
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:com.apple.springboard; pid: 5332>,
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default; pid: 8107>,
+    <token: 0xF028185D; pid: 8107>
+]
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Reloading input views for key-window scene responder: <(null): 0x0; > force:N
+Aug  6 12:31:22 Argjends-iPhone SpringBoard(KeyboardArbiter)[5332] <Notice>: RX com.animo.pilatesstudio(8107) setClientFocusContext
+    focusContext:<contextID:4029159517 sceneID:com.animo.pilatesstudio-default>
+Aug  6 12:31:22 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: chain did update (setDeferringRules) <keyboardFocus; display: builtin> containsEndOfChain: YES; [
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:com.apple.springboard; pid: 5332>,
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default; pid: 8107>,
+    <token: 0xF028185D; pid: 8107>
+]
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Evaluating dispatch of UIEvent: 0x105dbc300; type: 0; subtype: 0; backing type: 11; shouldSend: 0; ignoreInteractionEvents: 1, systemGestureStateChange: 1
+Aug  6 12:31:22 Argjends-iPhone backboardd[72] <Notice>: new scene host settings: contextID:F028185D <sceneID:com.animo.pilatesstudio-default> unspecified -> foreground
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Override focusSystemState: (ENABLED) for reason(s): {(
+    "<_UIAlertControllerPhoneTVMacView 0x136ea4a00>"
+)}
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Not push traits update to screen for new style 1, <UIWindowScene: 0x104ee3f50> (A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _willShowAlertController: <RCTAlertController: 0x105f4ea00>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _addAlertControllerToStack: Adding Alert to stack : <RCTAlertController: 0x105f4ea00>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Reloading input views for key-window scene responder: <RCTAlertController: 0x105f4ea00; > force:N
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _reloadInputViewsForKeyWindowSceneResponder: 1 force: 0, fromBecomeFirstResponder: 1 (automaticKeyboard: 1, reloadIdentifier: 2D8E5844-BB1A-4D07-B49E-0DD0B158A26A)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder: <RCTAlertController: 0x105f4ea00; >, automaticKeyboard: 1, force: 0
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, found custom inputView: <(null): 0x0>, customInputViewController: <(null): 0x0>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, found inputAccessoryView: <(null): 0x0>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, responderRequiresKeyboard 0 (automaticKeyboardEnabled: 1, activeInstance: <UIKeyboardAutomatic: 0x116a65e00; frame = {{0, 0}, {428, 243}}; alpha = 1.000000; isHidden = 0; tAMIC = 0>, self.isOnScreen: 0, requiresKBWhenFirstResponder: 0)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, useKeyboard 0 (allowsSystemInputView: 1, !inputView <(null): 0x0>, responderRequiresKeyboard 0)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, configuring _responderWithoutAutomaticAppearanceEnabled: <(null): 0x0> (_automaticAppearEnabled: 1)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, needsIVPlaceholder: 0, needsIAVPlaceholder: 0, needsInputSetWithPlaceholder: 0
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder returning: <<UIInputViewSet: 0x116b7fc00>; (empty)>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(BackBoardServices)[8107] <Notice>: currently observing: YES
+Aug  6 12:31:22 Argjends-iPhone ANIMO(BackBoardServices)[8107] <Notice>: currently observing: NO
+Aug  6 12:31:22 Argjends-iPhone ANIMO(RemoteTextInput)[8107] <Error>: -[RTIInputSystemClient remoteTextInputSessionWithID:performInputOperation:]  perform input operation requires a valid sessionID. inputModality = Keyboard, inputOperation = <null selector>, customInfoType = UIEmojiSearchOperations
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: endPlacementForInputViewSet: <<UIInputViewSet: 0x116b7fc00>; (empty)> windowScene: <UIWindowScene: 0x104ee3f50; role: UIWindowSceneSessionRoleApplication; persistentIdentifier: A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB; activationState: UISceneActivationStateForegroundActive>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: -[_UIRemoteKeyboards prepareToMoveKeyboard:withIAV:isIAVRelevant:showing:notifyRemote:forScene:] position: {{0, 0}, {0, 0}} visible: 0; notifyRemote: 1; isMinimized: NO
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Show keyboard with visual mode windowed (0)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Setting tracking element input views: <<UIInputViewSet: 0x116b7eac0>; (empty)>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: endPlacementForInputViewSet: <<UIInputViewSet: 0x116b7eac0>; (empty)> windowScene: <UIWindowScene: 0x104ee3f50; role: UIWindowSceneSessionRoleApplication; persistentIdentifier: A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB; activationState: UISceneActivationStateForegroundActive>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Moving from placement: <UIInputViewSetPlacementOffScreenDown> to placement: <UIInputViewSetPlacementOffScreenDown> (currentPlacement: <UIInputViewSetPlacementOffScreenDown>)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Change from input view set: <<UIInputViewSet: 0x12a752a00>; (empty)>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Change to input view set: <<UIInputViewSet: 0x116b7eac0>; (empty)>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: endPlacementForInputViewSet: <<UIInputViewSet: 0x116b7eac0>; (empty)> windowScene: <UIWindowScene: 0x104ee3f50; role: UIWindowSceneSessionRoleApplication; persistentIdentifier: A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB; activationState: UISceneActivationStateForegroundActive>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: updatePlacementWithPlacement: <UIInputViewSetPlacementOffScreenDown>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <C9DCE08B-FE21-4E0A-B5DD-7EE397B3B278>.<36> resuming, timeouts(0.0, 604800.0) qos(0x19) voucher((null)) activity(00000000-0000-0000-0000-000000000000)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <55DE0F11-3CC2-468C-AC66-BB7B8E882603>.<37> resuming, timeouts(0.0, 604800.0) qos(0x19) voucher((null)) activity(00000000-0000-0000-0000-000000000000)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(Network)[8107] <Notice>: [C3] event: client:connection_reused @48.040s
+Aug  6 12:31:22 Argjends-iPhone ANIMO(libusrtcp.dylib)[8107] <Notice>: nw_protocol_tcp_notify [C3.1.1.1:3] nw_protocol_notification_type_connection_idle is false
+Aug  6 12:31:22 Argjends-iPhone ANIMO(libusrtcp.dylib)[8107] <Notice>: nw_protocol_tcp_set_connection_idle [C3.1.1.1:3] os_nexus_flow_set_connection_idle returned 0
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <C9DCE08B-FE21-4E0A-B5DD-7EE397B3B278>.<36> now using Connection 3
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <55DE0F11-3CC2-468C-AC66-BB7B8E882603>.<37> now using Connection 3
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <C9DCE08B-FE21-4E0A-B5DD-7EE397B3B278>.<36> sent request, body S 250
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <55DE0F11-3CC2-468C-AC66-BB7B8E882603>.<37> sent request, body S 199
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <55DE0F11-3CC2-468C-AC66-BB7B8E882603>.<37> received response, status 200 content K
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <55DE0F11-3CC2-468C-AC66-BB7B8E882603>.<37> done using Connection 3
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <55DE0F11-3CC2-468C-AC66-BB7B8E882603>.<37> response ended
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <C9DCE08B-FE21-4E0A-B5DD-7EE397B3B278>.<36> received response, status 200 content K
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <C9DCE08B-FE21-4E0A-B5DD-7EE397B3B278>.<36> done using Connection 3
+Aug  6 12:31:22 Argjends-iPhone ANIMO(Network)[8107] <Notice>: [C3] event: client:connection_idle @48.201s
+Aug  6 12:31:22 Argjends-iPhone ANIMO(libusrtcp.dylib)[8107] <Notice>: nw_protocol_tcp_notify [C3.1.1.1:3] nw_protocol_notification_type_connection_idle is true
+Aug  6 12:31:22 Argjends-iPhone ANIMO(libusrtcp.dylib)[8107] <Notice>: nw_protocol_tcp_set_connection_idle [C3.1.1.1:3] os_nexus_flow_set_connection_idle returned 0
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <C9DCE08B-FE21-4E0A-B5DD-7EE397B3B278>.<36> response ended
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <55DE0F11-3CC2-468C-AC66-BB7B8E882603>.<37> summary for task success {transaction_duration_ms=161, response_status=200, connection=3, reused=1, reused_after_ms=0, request_start_ms=1, request_duration_ms=0, response_start_ms=159, response_duration_ms=1, request_bytes=258, request_throughput_kbps=2564, response_bytes=56, response_throughput_kbps=347, cache_hit=true}
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <55DE0F11-3CC2-468C-AC66-BB7B8E882603>.<37> finished successfully
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <C9DCE08B-FE21-4E0A-B5DD-7EE397B3B278>.<36> summary for task success {transaction_duration_ms=163, response_status=200, connection=3, reused=1, reused_after_ms=42806, request_start_ms=1, request_duration_ms=0, response_start_ms=161, response_duration_ms=1, request_bytes=308, request_throughput_kbps=3455, response_bytes=124, response_throughput_kbps=741, cache_hit=true}
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <C9DCE08B-FE21-4E0A-B5DD-7EE397B3B278>.<36> finished successfully
+Aug  6 12:31:22 Argjends-iPhone runningboardd(RunningBoard)[34] <Notice>: Acquiring assertion targeting [app<com.animo.pilatesstudio(846C0EF2-8BF7-40DB-B454-E4FDB94AA020)>:8107] from originator [app<com.animo.pilatesstudio(846C0EF2-8BF7-40DB-B454-E4FDB94AA020)>:8107] with description <RBSAssertionDescriptor| "com.apple.CFNetwork.StorageDB" ID:34-8107-135387 target:8107 attributes:[
+	<RBSDomainAttribute| domain:"com.apple.common" name:"FinishTaskUninterruptable" sourceEnvironment:"(null)">,
+	<RBSAcquisitionCompletionAttribute| policy:AfterApplication>
+	]>
+Aug  6 12:31:22 Argjends-iPhone runningboardd(RunningBoard)[34] <Notice>: Assertion 34-8107-135387 (target:[app<com.animo.pilatesstudio(846C0EF2-8BF7-40DB-B454-E4FDB94AA020)>:8107]) will be created as inactive as start-time-defining assertions exist
+Aug  6 12:31:22 Argjends-iPhone ANIMO(Security)[8107] <Notice>: SecSecurityClientGet new thread!
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <F3EF42AB-FB35-4F96-90F5-DB997E7DB9DE>.<38> resuming, timeouts(0.0, 604800.0) qos(0x19) voucher((null)) activity(00000000-0000-0000-0000-000000000000)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(Network)[8107] <Notice>: [C3] event: client:connection_reused @48.242s
+Aug  6 12:31:22 Argjends-iPhone ANIMO(libusrtcp.dylib)[8107] <Notice>: nw_protocol_tcp_notify [C3.1.1.1:3] nw_protocol_notification_type_connection_idle is false
+Aug  6 12:31:22 Argjends-iPhone ANIMO(libusrtcp.dylib)[8107] <Notice>: nw_protocol_tcp_set_connection_idle [C3.1.1.1:3] os_nexus_flow_set_connection_idle returned 0
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <F3EF42AB-FB35-4F96-90F5-DB997E7DB9DE>.<38> now using Connection 3
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <F3EF42AB-FB35-4F96-90F5-DB997E7DB9DE>.<38> sent request, body S 253
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <F3EF42AB-FB35-4F96-90F5-DB997E7DB9DE>.<38> received response, status 200 content K
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <F3EF42AB-FB35-4F96-90F5-DB997E7DB9DE>.<38> done using Connection 3
+Aug  6 12:31:22 Argjends-iPhone ANIMO(Network)[8107] <Notice>: [C3] event: client:connection_idle @48.424s
+Aug  6 12:31:22 Argjends-iPhone ANIMO(libusrtcp.dylib)[8107] <Notice>: nw_protocol_tcp_notify [C3.1.1.1:3] nw_protocol_notification_type_connection_idle is true
+Aug  6 12:31:22 Argjends-iPhone ANIMO(libusrtcp.dylib)[8107] <Notice>: nw_protocol_tcp_set_connection_idle [C3.1.1.1:3] os_nexus_flow_set_connection_idle returned 0
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <F3EF42AB-FB35-4F96-90F5-DB997E7DB9DE>.<38> response ended
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <F3EF42AB-FB35-4F96-90F5-DB997E7DB9DE>.<38> summary for task success {transaction_duration_ms=182, response_status=200, connection=3, reused=1, reused_after_ms=40, request_start_ms=0, request_duration_ms=0, response_start_ms=181, response_duration_ms=1, request_bytes=303, request_throughput_kbps=6104, response_bytes=150, response_throughput_kbps=965, cache_hit=true}
+Aug  6 12:31:22 Argjends-iPhone ANIMO(CFNetwork)[8107] <Notice>: Task <F3EF42AB-FB35-4F96-90F5-DB997E7DB9DE>.<38> finished successfully
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: UIWindowScene: 0x104ee3f50: Window became key in scene: UIWindow: 0x136cd4800; contextId: 0xEF2EAD74: reason: UIWindowScene: 0x104ee3f50: Window requested to become key in scene: 0x136cd4800
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Key window needs update: 1; currentKeyWindowScene: 0x104ee3f50; evaluatedKeyWindowScene: 0x104ee3f50; currentApplicationKeyWindow: 0x136cd4400; evaluatedApplicationKeyWindow: 0x136cd4800; reason: UIWindowScene: 0x104ee3f50: Window requested to become key in scene: 0x136cd4800
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Window did become application key: UIWindow: 0x136cd4800; contextId: 0xEF2EAD74; scene identity: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: [0x105e40000] Beginning and ending local event deferring requested for token: 0x12a69bf60; environments: 1; reason: UIWindowScene: 0x104ee3f50: Begin event deferring in keyboardFocus for window: 0x136cd4800
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: [0x105e40000] Begin local event deferring requested for token: 0x12a699800; environments: 1; reason: UIWindowScene: 0x104ee3f50: Begin event deferring in keyboardFocus for window: 0x136cd4800
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Window resigning application key: UIWindow: 0x136cd4400; contextId: 0xF028185D; scene identity: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default
+Aug  6 12:31:22 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: new deferring rules for pid:8107: [[8107-B]; <keyboardFocus; builtin; \M-b\M^@\M-&ces/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default>; () -> <token: 0xEF2EAD74; pid: 8107>; reason: \M-b\M^@\M-&gin event deferring in keyboardFocus for window: 0x136cd4800]
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Reloading input views for key-window scene responder: <(null): 0x0; > force:N
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _reloadInputViewsForKeyWindowSceneResponder: 0 force: 0, fromBecomeFirstResponder: 0 (automaticKeyboard: 0, reloadIdentifier: DE88BA0F-B50D-426A-AC86-5DB896A43A91)
+Aug  6 12:31:22 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: [keyboardFocus 0xcac1779d0] setRules:forPID(8107): [[8107-B]; <keyboardFocus; builtin; com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default>; () -> <token: 0xEF2EAD74; pid: 8107>; reason: UIWindowScene: 0x104ee3f50: Begin event deferring in keyboardFocus for window: 0x136cd4800]
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder: <(null): 0x0; >, automaticKeyboard: 0, force: 0
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, found custom inputView: <(null): 0x0>, customInputViewController: <(null): 0x0>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, found inputAccessoryView: <(null): 0x0>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, responderRequiresKeyboard 0 (automaticKeyboardEnabled: 0, activeInstance: <UIKeyboardAutomatic: 0x116a65e00; frame = {{0, 0}, {428, 243}}; alpha = 1.000000; isHidden = 0; tAMIC = 0>, self.isOnScreen: 0, requiresKBWhenFirstResponder: 0)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, useKeyboard 0 (allowsSystemInputView: 1, !inputView <(null): 0x0>, responderRequiresKeyboard 0)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, configuring _responderWithoutAutomaticAppearanceEnabled: <(null): 0x0> (_automaticAppearEnabled: 1)
+Aug  6 12:31:22 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: [keyboardFocus 0xcaad19a90] setRules:forPID(8107): [[8107-B]; <keyboardFocus; builtin; com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default>; () -> <token: 0xEF2EAD74; pid: 8107>; reason: UIWindowScene: 0x104ee3f50: Begin event deferring in keyboardFocus for window: 0x136cd4800]
+Aug  6 12:31:22 Argjends-iPhone SpringBoard(KeyboardArbiter)[5332] <Notice>: RX com.animo.pilatesstudio(8107) setClientFocusContext
+    focusContext:<contextID:4012813684 sceneID:com.animo.pilatesstudio-default>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, needsIVPlaceholder: 0, needsIAVPlaceholder: 0, needsInputSetWithPlaceholder: 0
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder returning: <<UIInputViewSet: 0x116b7ea00>; (empty)>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(BackBoardServices)[8107] <Notice>: currently observing: YES
+Aug  6 12:31:22 Argjends-iPhone ANIMO(BackBoardServices)[8107] <Notice>: currently observing: NO
+Aug  6 12:31:22 Argjends-iPhone ANIMO(RemoteTextInput)[8107] <Error>: -[RTIInputSystemClient remoteTextInputSessionWithID:performInputOperation:]  perform input operation requires a valid sessionID. inputModality = Keyboard, inputOperation = <null selector>, customInfoType = UIEmojiSearchOperations
+Aug  6 12:31:22 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: chain did update (setDeferringRules) <keyboardFocus; display: null; compatibilityDisplay: builtin> containsEndOfChain: YES; [
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:com.apple.springboard; pid: 5332>,
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default; pid: 8107>,
+    <token: 0xEF2EAD74; pid: 8107>
+]
+Aug  6 12:31:22 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: chain did update (setDeferringRules) <keyboardFocus; display: builtin> containsEndOfChain: YES; [
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:com.apple.springboard; pid: 5332>,
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default; pid: 8107>,
+    <token: 0xEF2EAD74; pid: 8107>
+]
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: endPlacementForInputViewSet: <<UIInputViewSet: 0x116b7ea00>; (empty)> windowScene: <UIWindowScene: 0x104ee3f50; role: UIWindowSceneSessionRoleApplication; persistentIdentifier: A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB; activationState: UISceneActivationStateForegroundActive>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: -[_UIRemoteKeyboards prepareToMoveKeyboard:withIAV:isIAVRelevant:showing:notifyRemote:forScene:] position: {{0, 0}, {0, 0}} visible: 0; notifyRemote: 1; isMinimized: NO
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Show keyboard with visual mode windowed (0)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Setting tracking element input views: <<UIInputViewSet: 0x116b7f0c0>; (empty)>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: endPlacementForInputViewSet: <<UIInputViewSet: 0x116b7f0c0>; (empty)> windowScene: <UIWindowScene: 0x104ee3f50; role: UIWindowSceneSessionRoleApplication; persistentIdentifier: A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB; activationState: UISceneActivationStateForegroundActive>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Moving from placement: <UIInputViewSetPlacementOffScreenDown> to placement: <UIInputViewSetPlacementOffScreenDown> (currentPlacement: <UIInputViewSetPlacementOffScreenDown>)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Change from input view set: <<UIInputViewSet: 0x116b7eac0>; (empty)>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Change to input view set: <<UIInputViewSet: 0x116b7f0c0>; (empty)>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: endPlacementForInputViewSet: <<UIInputViewSet: 0x116b7f0c0>; (empty)> windowScene: <UIWindowScene: 0x104ee3f50; role: UIWindowSceneSessionRoleApplication; persistentIdentifier: A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB; activationState: UISceneActivationStateForegroundActive>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: updatePlacementWithPlacement: <UIInputViewSetPlacementOffScreenDown>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(RemoteTextInput)[8107] <Notice>: -[RTIInputSystemClient remoteTextInputSessionWithID:textSuggestionsChanged:]  Text input session suggestions changed. sessionID = (null)
+Aug  6 12:31:22 Argjends-iPhone backboardd[72] <Notice>: new scene host settings: contextID:EF2EAD74 <sceneID:com.animo.pilatesstudio-default> unspecified -> foreground
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _willShowAlertController: <RCTAlertController: 0x105f4f000>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _addAlertControllerToStack: Adding Alert to stack : <RCTAlertController: 0x105f4f000>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Reloading input views for key-window scene responder: <RCTAlertController: 0x105f4f000; > force:N
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _reloadInputViewsForKeyWindowSceneResponder: 1 force: 0, fromBecomeFirstResponder: 1 (automaticKeyboard: 1, reloadIdentifier: D7F86012-9D30-41A1-AC99-28DC0F9FF8E6)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder: <RCTAlertController: 0x105f4f000; >, automaticKeyboard: 1, force: 0
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, found custom inputView: <(null): 0x0>, customInputViewController: <(null): 0x0>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, found inputAccessoryView: <(null): 0x0>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, responderRequiresKeyboard 0 (automaticKeyboardEnabled: 1, activeInstance: <UIKeyboardAutomatic: 0x116a65e00; frame = {{0, 0}, {428, 243}}; alpha = 1.000000; isHidden = 0; tAMIC = 0>, self.isOnScreen: 0, requiresKBWhenFirstResponder: 0)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, useKeyboard 0 (allowsSystemInputView: 1, !inputView <(null): 0x0>, responderRequiresKeyboard 0)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, configuring _responderWithoutAutomaticAppearanceEnabled: <(null): 0x0> (_automaticAppearEnabled: 1)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, needsIVPlaceholder: 0, needsIAVPlaceholder: 0, needsInputSetWithPlaceholder: 0
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder returning: <<UIInputViewSet: 0x116b7e880>; (empty)>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(BackBoardServices)[8107] <Notice>: currently observing: YES
+Aug  6 12:31:22 Argjends-iPhone ANIMO(BackBoardServices)[8107] <Notice>: currently observing: NO
+Aug  6 12:31:22 Argjends-iPhone ANIMO(RemoteTextInput)[8107] <Error>: -[RTIInputSystemClient remoteTextInputSessionWithID:performInputOperation:]  perform input operation requires a valid sessionID. inputModality = Keyboard, inputOperation = <null selector>, customInfoType = UIEmojiSearchOperations
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: endPlacementForInputViewSet: <<UIInputViewSet: 0x116b7e880>; (empty)> windowScene: <UIWindowScene: 0x104ee3f50; role: UIWindowSceneSessionRoleApplication; persistentIdentifier: A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB; activationState: UISceneActivationStateForegroundActive>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: -[_UIRemoteKeyboards prepareToMoveKeyboard:withIAV:isIAVRelevant:showing:notifyRemote:forScene:] position: {{0, 0}, {0, 0}} visible: 0; notifyRemote: 1; isMinimized: NO
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Show keyboard with visual mode windowed (0)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Setting tracking element input views: <<UIInputViewSet: 0x116b7fb40>; (empty)>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: endPlacementForInputViewSet: <<UIInputViewSet: 0x116b7fb40>; (empty)> windowScene: <UIWindowScene: 0x104ee3f50; role: UIWindowSceneSessionRoleApplication; persistentIdentifier: A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB; activationState: UISceneActivationStateForegroundActive>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Moving from placement: <UIInputViewSetPlacementOffScreenDown> to placement: <UIInputViewSetPlacementOffScreenDown> (currentPlacement: <UIInputViewSetPlacementOffScreenDown>)
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Change from input view set: <<UIInputViewSet: 0x116b7f0c0>; (empty)>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Change to input view set: <<UIInputViewSet: 0x116b7fb40>; (empty)>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: endPlacementForInputViewSet: <<UIInputViewSet: 0x116b7fb40>; (empty)> windowScene: <UIWindowScene: 0x104ee3f50; role: UIWindowSceneSessionRoleApplication; persistentIdentifier: A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB; activationState: UISceneActivationStateForegroundActive>
+Aug  6 12:31:22 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: updatePlacementWithPlacement: <UIInputViewSetPlacementOffScreenDown>
+Aug  6 12:31:23 Argjends-iPhone runningboardd(RunningBoard)[34] <Notice>: Invalidating assertion 34-8107-135387 (target:[app<com.animo.pilatesstudio(846C0EF2-8BF7-40DB-B454-E4FDB94AA020)>:8107]) from originator [app<com.animo.pilatesstudio(846C0EF2-8BF7-40DB-B454-E4FDB94AA020)>:8107]
+Aug  6 12:31:24 Argjends-iPhone SpringBoard(KeyboardArbiter)[5332] <Notice>: RX com.animo.pilatesstudio(8107) focusApplicationWithPID:8107 stealKeyboard:Y
+    context:<contextID:4012813684 sceneID:com.animo.pilatesstudio-default>
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: TX focusApplication (peekAppEvent) stealKB:Y scene:com.animo.pilatesstudio-default
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Evaluating dispatch of UIEvent: 0x105dbc300; type: 0; subtype: 0; backing type: 11; shouldSend: 1; ignoreInteractionEvents: 0, systemGestureStateChange: 0
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Sending UIEvent type: 0; subtype: 0; to windows: 1
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Sending UIEvent type: 0; subtype: 0; to window: <UIWindow: 0x136cd4800>; contextId: 0xEF2EAD74
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: activate generator with style: TurnOn; activationCount: 0 -> 1; styleActivationCount: 0 -> 1; <UISelectionFeedbackGenerator: 0x116b7f540>
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: activate engine <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>, clientCount: 0 -> 1
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: activating engine <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: engine <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900> state changed: Inactive -> Activating
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: starting core haptics engine for <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>
+Aug  6 12:31:24 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         CHHapticEngine.mm:1281  -[CHHapticEngine startWithCompletionHandler:]: Called on engine 0x136c4e140
+Aug  6 12:31:24 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         CHHapticEngine.mm:1231  -[CHHapticEngine doStartWithCompletionHandler:]: Starting underlying Haptic Player
+Aug  6 12:31:24 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         CHHapticEngine.mm:871   -[CHHapticEngine updateEngineBehaviorWithError:]: Setting player's behavior to 0x5
+Aug  6 12:31:24 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticPlayer.mm:323   -[AVHapticPlayer setBehavior:error:]: clientID: 0x1001fab behavior: 5
+Aug  6 12:31:24 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticPlayer.mm:675   -[AVHapticPlayer startRunningWithCompletionHandler:]: start running: clientID: 0x1001fab
+Aug  6 12:31:24 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:363   -[AVHapticClient startRunning:]: Client 0x1001fab starting
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: core haptics engine STARTED for <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: engine <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900> state changed: Activating -> Running
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Evaluating dispatch of UIEvent: 0x105dbc300; type: 0; subtype: 0; backing type: 11; shouldSend: 0; ignoreInteractionEvents: 0, systemGestureStateChange: 0
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Evaluating dispatch of UIEvent: 0x105dbc300; type: 0; subtype: 0; backing type: 11; shouldSend: 1; ignoreInteractionEvents: 0, systemGestureStateChange: 0
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Sending UIEvent type: 0; subtype: 0; to windows: 1
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Sending UIEvent type: 0; subtype: 0; to window: <UIWindow: 0x136cd4800>; contextId: 0xEF2EAD74
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: deactivate generator with style: TurnOn; activationCount: 1 -> 0; styleActivationCount: 1 -> 0; <UISelectionFeedbackGenerator: 0x116b7f540>
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: deactivate engine <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>, clientCount: 1 -> 0
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _internal_deactivateEngineIfPossible <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>, clientCount: 0, suspended: 0
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _internal_teardownUnderlyingPlayerIfPossible <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: engine <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900> state changed: Running -> Deactivating
+Aug  6 12:31:24 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         CHHapticEngine.mm:1440  -[CHHapticEngine notifyWhenPlayersFinished:]: Called on engine 0x136c4e140 with finishedHandler 0x13a05ec80
+Aug  6 12:31:24 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticPlayer.mm:762   -[AVHapticPlayer finishWithCompletionHandler:]: finish with comp handler: clientID: 0x1001fab
+Aug  6 12:31:24 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:421   -[AVHapticClient finish:]: Client 0x1001fab finishing
+Aug  6 12:31:24 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:426   -[AVHapticClient finish:]_block_invoke: completionCallback set to 0x13a0faaf0
+Aug  6 12:31:24 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:453   -[AVHapticClient finish:]: Client 0x1001fab done with finish
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _alertControllerWillDisappear: will hide alert : <UIAlertControllerStackManager: 0x105d18700>
+Aug  6 12:31:24 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _removeAlertControllerFromStack: Removing Alert from stack : <RCTAlertController: 0x105f4f000>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Evaluating dispatch of UIEvent: 0x105dbc300; type: 0; subtype: 0; backing type: 11; shouldSend: 0; ignoreInteractionEvents: 1, systemGestureStateChange: 1
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Evaluating dispatch of UIEvent: 0x105dbc300; type: 0; subtype: 0; backing type: 11; shouldSend: 0; ignoreInteractionEvents: 1, systemGestureStateChange: 0
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:1472  -[AVHapticClient clientCompletedWithError:]: Client-side (async) finish completion callback for client 0x1001fab called from server
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:1477  -[AVHapticClient clientCompletedWithError:]_block_invoke: Async dispatch: preparing to call completionCallback for client 0x1001fab
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:1479  -[AVHapticClient clientCompletedWithError:]_block_invoke: Calling completionCallback 0x13a0faaf0 and then setting to nil
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: core haptics engine finished for <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: stopping core haptics engine for <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         CHHapticEngine.mm:1418  -[CHHapticEngine stopWithCompletionHandler:]: Called on engine 0x136c4e140
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         CHHapticEngine.mm:1382  -[CHHapticEngine doStopWithCompletionHandler:]: Stopping underlying Haptic Player
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _internal_deactivateEngineIfPossible <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900> tearedDown: 1
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticPlayer.mm:739   -[AVHapticPlayer stopRunningWithCompletionHandler:]: stop running: clientID: 0x1001fab
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: engine <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900> state changed: Deactivating -> Inactive
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:398   -[AVHapticClient stopRunning:]: Client 0x1001fab stopping
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:1472  -[AVHapticClient clientCompletedWithError:]: Client-side (async) finish completion callback for client 0x1001fab called from server
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:1477  -[AVHapticClient clientCompletedWithError:]_block_invoke: Async dispatch: preparing to call completionCallback for client 0x1001fab
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:1484  -[AVHapticClient clientCompletedWithError:]_block_invoke: strongSelf.completionCallback is nil
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: core haptics engine STOPPED for <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Reloading input views for key-window scene responder: <(null): 0x0; > force:N
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _reloadInputViewsForKeyWindowSceneResponder: 0 force: 0, fromBecomeFirstResponder: 0 (automaticKeyboard: 0, reloadIdentifier: A302E90D-6D9F-4BFE-AFCE-A010CA9339B4)
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder: <(null): 0x0; >, automaticKeyboard: 0, force: 0
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, found custom inputView: <(null): 0x0>, customInputViewController: <(null): 0x0>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, found inputAccessoryView: <(null): 0x0>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, responderRequiresKeyboard 0 (automaticKeyboardEnabled: 0, activeInstance: <UIKeyboardAutomatic: 0x116a65e00; frame = {{0, 0}, {428, 243}}; alpha = 1.000000; isHidden = 0; tAMIC = 0>, self.isOnScreen: 0, requiresKBWhenFirstResponder: 0)
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, useKeyboard 0 (allowsSystemInputView: 1, !inputView <(null): 0x0>, responderRequiresKeyboard 0)
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, configuring _responderWithoutAutomaticAppearanceEnabled: <(null): 0x0> (_automaticAppearEnabled: 1)
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, needsIVPlaceholder: 0, needsIAVPlaceholder: 0, needsInputSetWithPlaceholder: 0
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder returning: <<UIInputViewSet: 0x116b7e880>; (empty)>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(BackBoardServices)[8107] <Notice>: currently observing: YES
+Aug  6 12:31:25 Argjends-iPhone ANIMO(BackBoardServices)[8107] <Notice>: currently observing: NO
+Aug  6 12:31:25 Argjends-iPhone ANIMO(RemoteTextInput)[8107] <Error>: -[RTIInputSystemClient remoteTextInputSessionWithID:performInputOperation:]  perform input operation requires a valid sessionID. inputModality = Keyboard, inputOperation = <null selector>, customInfoType = UIEmojiSearchOperations
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: endPlacementForInputViewSet: <<UIInputViewSet: 0x116b7e880>; (empty)> windowScene: <UIWindowScene: 0x104ee3f50; role: UIWindowSceneSessionRoleApplication; persistentIdentifier: A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB; activationState: UISceneActivationStateForegroundActive>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: -[_UIRemoteKeyboards prepareToMoveKeyboard:withIAV:isIAVRelevant:showing:notifyRemote:forScene:] position: {{0, 0}, {0, 0}} visible: 0; notifyRemote: 1; isMinimized: NO
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Show keyboard with visual mode windowed (0)
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Setting tracking element input views: <<UIInputViewSet: 0x116b7f0c0>; (empty)>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: endPlacementForInputViewSet: <<UIInputViewSet: 0x116b7f0c0>; (empty)> windowScene: <UIWindowScene: 0x104ee3f50; role: UIWindowSceneSessionRoleApplication; persistentIdentifier: A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB; activationState: UISceneActivationStateForegroundActive>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Moving from placement: <UIInputViewSetPlacementOffScreenDown> to placement: <UIInputViewSetPlacementOffScreenDown> (currentPlacement: <UIInputViewSetPlacementOffScreenDown>)
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Change from input view set: <<UIInputViewSet: 0x116b7fb40>; (empty)>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Change to input view set: <<UIInputViewSet: 0x116b7f0c0>; (empty)>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: endPlacementForInputViewSet: <<UIInputViewSet: 0x116b7f0c0>; (empty)> windowScene: <UIWindowScene: 0x104ee3f50; role: UIWindowSceneSessionRoleApplication; persistentIdentifier: A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB; activationState: UISceneActivationStateForegroundActive>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: updatePlacementWithPlacement: <UIInputViewSetPlacementOffScreenDown>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(RemoteTextInput)[8107] <Notice>: -[RTIInputSystemClient remoteTextInputSessionWithID:textSuggestionsChanged:]  Text input session suggestions changed. sessionID = (null)
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _didHideAlertController: <RCTAlertController: 0x105f4f000>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: [0x105e40000] End local event deferring requested for token: 0x12a699800; environments: 1; reason: UIWindowScene: 0x104ee3f50: end key window deferring for window hiding: 0x136cd4800
+Aug  6 12:31:25 Argjends-iPhone runningboardd(RunningBoard)[34] <Notice>: Acquiring assertion targeting [app<com.animo.pilatesstudio(846C0EF2-8BF7-40DB-B454-E4FDB94AA020)>:8107] from originator [app<com.animo.pilatesstudio(846C0EF2-8BF7-40DB-B454-E4FDB94AA020)>:8107] with description <RBSAssertionDescriptor| "systemAnimationFence" ID:34-8107-135388 target:8107 attributes:[
+	<RBSLegacyAttribute| requestedReason:FinishTask reason:FinishTask flags:( AllowIdleSleep PreventTaskSuspend PreventTaskThrottleDown )>,
+	<RBSAcquisitionCompletionAttribute| policy:AfterValidation>
+	]>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: UIWindowScene: 0x104ee3f50: Window became key in scene: UIWindow: 0x136cd4400; contextId: 0xF028185D: reason: <UIWindowScene: 0x104ee3f50>: Key window changed visibility: 0x136cd4800
+Aug  6 12:31:25 Argjends-iPhone runningboardd(RunningBoard)[34] <Notice>: Assertion 34-8107-135388 (target:[app<com.animo.pilatesstudio(846C0EF2-8BF7-40DB-B454-E4FDB94AA020)>:8107]) will be created as inactive as start-time-defining assertions exist
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Key window needs update: 1; currentKeyWindowScene: 0x104ee3f50; evaluatedKeyWindowScene: 0x104ee3f50; currentApplicationKeyWindow: 0x136cd4800; evaluatedApplicationKeyWindow: 0x136cd4400; reason: <UIWindowScene: 0x104ee3f50>: Key window changed visibility: 0x136cd4800
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Window did become application key: UIWindow: 0x136cd4400; contextId: 0xF028185D; scene identity: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: [0x105e40000] Begin local event deferring requested for token: 0x12a69b2a0; environments: 1; reason: UIWindowScene: 0x104ee3f50: Begin event deferring in keyboardFocus for window: 0x136cd4400
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Window resigning application key: UIWindow: 0x136cd4800; contextId: 0xEF2EAD74; scene identity: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Reloading input views for key-window scene responder: <RCTAlertController: 0x105f4ea00; > force:N
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _reloadInputViewsForKeyWindowSceneResponder: 1 force: 0, fromBecomeFirstResponder: 0 (automaticKeyboard: 1, reloadIdentifier: F5ED1165-0807-4C34-801D-05B1943134F0)
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder: <RCTAlertController: 0x105f4ea00; >, automaticKeyboard: 1, force: 0
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, found custom inputView: <(null): 0x0>, customInputViewController: <(null): 0x0>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, found inputAccessoryView: <(null): 0x0>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, responderRequiresKeyboard 0 (automaticKeyboardEnabled: 1, activeInstance: <UIKeyboardAutomatic: 0x116a65e00; frame = {{0, 0}, {428, 243}}; alpha = 1.000000; isHidden = 0; tAMIC = 0>, self.isOnScreen: 0, requiresKBWhenFirstResponder: 0)
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, useKeyboard 0 (allowsSystemInputView: 1, !inputView <(null): 0x0>, responderRequiresKeyboard 0)
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, configuring _responderWithoutAutomaticAppearanceEnabled: <(null): 0x0> (_automaticAppearEnabled: 1)
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, needsIVPlaceholder: 0, needsIAVPlaceholder: 0, needsInputSetWithPlaceholder: 0
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder returning: <<UIInputViewSet: 0x116b7e880>; (empty)>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(BackBoardServices)[8107] <Notice>: currently observing: YES
+Aug  6 12:31:25 Argjends-iPhone ANIMO(BackBoardServices)[8107] <Notice>: currently observing: NO
+Aug  6 12:31:25 Argjends-iPhone ANIMO(RemoteTextInput)[8107] <Error>: -[RTIInputSystemClient remoteTextInputSessionWithID:performInputOperation:]  perform input operation requires a valid sessionID. inputModality = Keyboard, inputOperation = <null selector>, customInfoType = UIEmojiSearchOperations
+Aug  6 12:31:25 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: chain did update (setDeferringRules) <keyboardFocus; display: null> containsEndOfChain: YES; [
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:com.apple.springboard; pid: 5332>,
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default; pid: 8107>
+]
+Aug  6 12:31:25 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: chain did update (setDeferringRules) <keyboardFocus; display: builtin> containsEndOfChain: YES; [
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:com.apple.springboard; pid: 5332>,
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default; pid: 8107>
+]
+Aug  6 12:31:25 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: new deferring rules for pid:8107: [[8107-C]; <keyboardFocus; builtin; \M-b\M^@\M-&ces/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default>; () -> <token: 0xF028185D; pid: 8107>; reason: \M-b\M^@\M-&gin event deferring in keyboardFocus for window: 0x136cd4400]
+Aug  6 12:31:25 Argjends-iPhone SpringBoard(KeyboardArbiter)[5332] <Notice>: RX com.animo.pilatesstudio(8107) setClientFocusContext
+    focusContext:<contextID:4029159517 sceneID:com.animo.pilatesstudio-default>
+Aug  6 12:31:25 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: [keyboardFocus 0xcac1779d0] setRules:forPID(8107): [[8107-C]; <keyboardFocus; builtin; com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default>; () -> <token: 0xF028185D; pid: 8107>; reason: UIWindowScene: 0x104ee3f50: Begin event deferring in keyboardFocus for window: 0x136cd4400]
+Aug  6 12:31:25 Argjends-iPhone ANIMO(BackBoardServices)[8107] <Notice>: policyStatus:<BKSHIDEventDeliveryPolicyObserver: 0x105c6ed60; token: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default; status: target> was:ancestor
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: endPlacementForInputViewSet: <<UIInputViewSet: 0x116b7e880>; (empty)> windowScene: <UIWindowScene: 0x104ee3f50; role: UIWindowSceneSessionRoleApplication; persistentIdentifier: A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB; activationState: UISceneActivationStateForegroundActive>
+Aug  6 12:31:25 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: [keyboardFocus 0xcaad19a90] setRules:forPID(8107): [[8107-C]; <keyboardFocus; builtin; com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default>; () -> <token: 0xF028185D; pid: 8107>; reason: UIWindowScene: 0x104ee3f50: Begin event deferring in keyboardFocus for window: 0x136cd4400]
+Aug  6 12:31:25 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: chain did update (setDeferringRules) <keyboardFocus; display: null; compatibilityDisplay: builtin> containsEndOfChain: YES; [
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:com.apple.springboard; pid: 5332>,
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default; pid: 8107>,
+    <token: 0xF028185D; pid: 8107>
+]
+Aug  6 12:31:25 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: chain did update (setDeferringRules) <keyboardFocus; display: builtin> containsEndOfChain: YES; [
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:com.apple.springboard; pid: 5332>,
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default; pid: 8107>,
+    <token: 0xF028185D; pid: 8107>
+]
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: -[_UIRemoteKeyboards prepareToMoveKeyboard:withIAV:isIAVRelevant:showing:notifyRemote:forScene:] position: {{0, 0}, {0, 0}} visible: 0; notifyRemote: 1; isMinimized: NO
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Show keyboard with visual mode windowed (0)
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Setting tracking element input views: <<UIInputViewSet: 0x12a752a00>; (empty)>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: endPlacementForInputViewSet: <<UIInputViewSet: 0x12a752a00>; (empty)> windowScene: <UIWindowScene: 0x104ee3f50; role: UIWindowSceneSessionRoleApplication; persistentIdentifier: A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB; activationState: UISceneActivationStateForegroundActive>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Moving from placement: <UIInputViewSetPlacementOffScreenDown> to placement: <UIInputViewSetPlacementOffScreenDown> (currentPlacement: <UIInputViewSetPlacementOffScreenDown>)
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Change from input view set: <<UIInputViewSet: 0x116b7f0c0>; (empty)>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Change to input view set: <<UIInputViewSet: 0x12a752a00>; (empty)>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: endPlacementForInputViewSet: <<UIInputViewSet: 0x12a752a00>; (empty)> windowScene: <UIWindowScene: 0x104ee3f50; role: UIWindowSceneSessionRoleApplication; persistentIdentifier: A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB; activationState: UISceneActivationStateForegroundActive>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(BackBoardServices)[8107] <Notice>: policyStatus:<BKSHIDEventDeliveryPolicyObserver: 0x105c6ed60; token: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default; status: ancestor> was:target
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: updatePlacementWithPlacement: <UIInputViewSetPlacementOffScreenDown>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(RemoteTextInput)[8107] <Notice>: -[RTIInputSystemClient remoteTextInputSessionWithID:textSuggestionsChanged:]  Text input session suggestions changed. sessionID = (null)
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Enqueuing clear events of window: <UIWindow: 0x136cd4800>; contextId: 0xEF2EAD74
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: [0x105e40000] Scene target of event deferring environments did update: scene: 0x104ee3f50; current systemShellManagesKeyboardFocus: 1; systemShellManagesKeyboardFocusForScene: 0; eligibleForRecordRemoval: 1;
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Scene became target of keyboard event deferring environment: UIWindowScene: 0x104ee3f50; scene identity: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: [0x105e40000] Scene target of event deferring environments did update: scene: 0x104ee3f50; current systemShellManagesKeyboardFocus: 1; systemShellManagesKeyboardFocusForScene: 0; eligibleForRecordRemoval: 1;
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Scene became target of keyboard event deferring environment: UIWindowScene: 0x104ee3f50; scene identity: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Performing clear events of window: <UIWindow: 0x136cd4800>; contextId: 0x0
+Aug  6 12:31:25 Argjends-iPhone runningboardd(RunningBoard)[34] <Notice>: Invalidating assertion 34-8107-135388 (target:[app<com.animo.pilatesstudio(846C0EF2-8BF7-40DB-B454-E4FDB94AA020)>:8107]) from originator [app<com.animo.pilatesstudio(846C0EF2-8BF7-40DB-B454-E4FDB94AA020)>:8107]
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: TX focusApplication (peekAppEvent) stealKB:Y scene:com.animo.pilatesstudio-default
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Evaluating dispatch of UIEvent: 0x105dbc300; type: 0; subtype: 0; backing type: 11; shouldSend: 1; ignoreInteractionEvents: 0, systemGestureStateChange: 0
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Sending UIEvent type: 0; subtype: 0; to windows: 1
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Sending UIEvent type: 0; subtype: 0; to window: <UIWindow: 0x136cd4400>; contextId: 0xF028185D
+Aug  6 12:31:25 Argjends-iPhone SpringBoard(KeyboardArbiter)[5332] <Notice>: RX com.animo.pilatesstudio(8107) focusApplicationWithPID:8107 stealKeyboard:Y
+    context:<contextID:4029159517 sceneID:com.animo.pilatesstudio-default>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: activate generator with style: TurnOn; activationCount: 0 -> 1; styleActivationCount: 0 -> 1; <UISelectionFeedbackGenerator: 0x12a7530c0>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: activate engine <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>, clientCount: 0 -> 1
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: activating engine <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: engine <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900> state changed: Inactive -> Activating
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: starting core haptics engine for <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         CHHapticEngine.mm:1281  -[CHHapticEngine startWithCompletionHandler:]: Called on engine 0x136c4e140
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         CHHapticEngine.mm:1231  -[CHHapticEngine doStartWithCompletionHandler:]: Starting underlying Haptic Player
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         CHHapticEngine.mm:871   -[CHHapticEngine updateEngineBehaviorWithError:]: Setting player's behavior to 0x5
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticPlayer.mm:323   -[AVHapticPlayer setBehavior:error:]: clientID: 0x1001fab behavior: 5
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticPlayer.mm:675   -[AVHapticPlayer startRunningWithCompletionHandler:]: start running: clientID: 0x1001fab
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:363   -[AVHapticClient startRunning:]: Client 0x1001fab starting
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: core haptics engine STARTED for <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: engine <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900> state changed: Activating -> Running
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Evaluating dispatch of UIEvent: 0x105dbc300; type: 0; subtype: 0; backing type: 11; shouldSend: 0; ignoreInteractionEvents: 0, systemGestureStateChange: 0
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Evaluating dispatch of UIEvent: 0x105dbc300; type: 0; subtype: 0; backing type: 11; shouldSend: 1; ignoreInteractionEvents: 0, systemGestureStateChange: 0
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Sending UIEvent type: 0; subtype: 0; to windows: 1
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Sending UIEvent type: 0; subtype: 0; to window: <UIWindow: 0x136cd4400>; contextId: 0xF028185D
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: deactivate generator with style: TurnOn; activationCount: 1 -> 0; styleActivationCount: 1 -> 0; <UISelectionFeedbackGenerator: 0x12a7530c0>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: deactivate engine <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>, clientCount: 1 -> 0
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _internal_deactivateEngineIfPossible <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>, clientCount: 0, suspended: 0
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _internal_teardownUnderlyingPlayerIfPossible <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: engine <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900> state changed: Running -> Deactivating
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         CHHapticEngine.mm:1440  -[CHHapticEngine notifyWhenPlayersFinished:]: Called on engine 0x136c4e140 with finishedHandler 0x13a05d780
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticPlayer.mm:762   -[AVHapticPlayer finishWithCompletionHandler:]: finish with comp handler: clientID: 0x1001fab
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:421   -[AVHapticClient finish:]: Client 0x1001fab finishing
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:426   -[AVHapticClient finish:]_block_invoke: completionCallback set to 0x13a0fb120
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:453   -[AVHapticClient finish:]: Client 0x1001fab done with finish
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _alertControllerWillDisappear: will hide alert : <UIAlertControllerStackManager: 0x105d18700>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _removeAlertControllerFromStack: Removing Alert from stack : <RCTAlertController: 0x105f4ea00>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:1472  -[AVHapticClient clientCompletedWithError:]: Client-side (async) finish completion callback for client 0x1001fab called from server
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:1477  -[AVHapticClient clientCompletedWithError:]_block_invoke: Async dispatch: preparing to call completionCallback for client 0x1001fab
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:1479  -[AVHapticClient clientCompletedWithError:]_block_invoke: Calling completionCallback 0x13a0fb120 and then setting to nil
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: core haptics engine finished for <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: stopping core haptics engine for <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         CHHapticEngine.mm:1418  -[CHHapticEngine stopWithCompletionHandler:]: Called on engine 0x136c4e140
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _internal_deactivateEngineIfPossible <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900> tearedDown: 1
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         CHHapticEngine.mm:1382  -[CHHapticEngine doStopWithCompletionHandler:]: Stopping underlying Haptic Player
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: engine <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900> state changed: Deactivating -> Inactive
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticPlayer.mm:739   -[AVHapticPlayer stopRunningWithCompletionHandler:]: stop running: clientID: 0x1001fab
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:398   -[AVHapticClient stopRunning:]: Client 0x1001fab stopping
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Evaluating dispatch of UIEvent: 0x105dbc300; type: 0; subtype: 0; backing type: 11; shouldSend: 0; ignoreInteractionEvents: 1, systemGestureStateChange: 1
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:1472  -[AVHapticClient clientCompletedWithError:]: Client-side (async) finish completion callback for client 0x1001fab called from server
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:1477  -[AVHapticClient clientCompletedWithError:]_block_invoke: Async dispatch: preparing to call completionCallback for client 0x1001fab
+Aug  6 12:31:25 Argjends-iPhone ANIMO(CoreHaptics)[8107] <Notice>:         AVHapticClient.mm:1484  -[AVHapticClient clientCompletedWithError:]_block_invoke: strongSelf.completionCallback is nil
+Aug  6 12:31:25 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: core haptics engine STOPPED for <_UIFeedbackCoreHapticsHapticsOnlyEngine: 0x13a0d4900>
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Reloading input views for key-window scene responder: <(null): 0x0; > force:N
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _reloadInputViewsForKeyWindowSceneResponder: 0 force: 0, fromBecomeFirstResponder: 0 (automaticKeyboard: 0, reloadIdentifier: 70F0B881-C999-4ACF-BFC5-943C2E602FF6)
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder: <(null): 0x0; >, automaticKeyboard: 0, force: 0
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, found custom inputView: <(null): 0x0>, customInputViewController: <(null): 0x0>
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, found inputAccessoryView: <(null): 0x0>
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, responderRequiresKeyboard 0 (automaticKeyboardEnabled: 0, activeInstance: <UIKeyboardAutomatic: 0x116a65e00; frame = {{0, 0}, {428, 243}}; alpha = 1.000000; isHidden = 0; tAMIC = 0>, self.isOnScreen: 0, requiresKBWhenFirstResponder: 0)
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, useKeyboard 0 (allowsSystemInputView: 1, !inputView <(null): 0x0>, responderRequiresKeyboard 0)
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, configuring _responderWithoutAutomaticAppearanceEnabled: <(null): 0x0> (_automaticAppearEnabled: 1)
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder, needsIVPlaceholder: 0, needsIAVPlaceholder: 0, needsInputSetWithPlaceholder: 0
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _inputViewsForResponder returning: <<UIInputViewSet: 0x116b7d440>; (empty)>
+Aug  6 12:31:26 Argjends-iPhone ANIMO(BackBoardServices)[8107] <Notice>: currently observing: YES
+Aug  6 12:31:26 Argjends-iPhone ANIMO(BackBoardServices)[8107] <Notice>: currently observing: NO
+Aug  6 12:31:26 Argjends-iPhone ANIMO(RemoteTextInput)[8107] <Error>: -[RTIInputSystemClient remoteTextInputSessionWithID:performInputOperation:]  perform input operation requires a valid sessionID. inputModality = Keyboard, inputOperation = <null selector>, customInfoType = UIEmojiSearchOperations
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: endPlacementForInputViewSet: <<UIInputViewSet: 0x116b7d440>; (empty)> windowScene: <UIWindowScene: 0x104ee3f50; role: UIWindowSceneSessionRoleApplication; persistentIdentifier: A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB; activationState: UISceneActivationStateForegroundActive>
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: -[_UIRemoteKeyboards prepareToMoveKeyboard:withIAV:isIAVRelevant:showing:notifyRemote:forScene:] position: {{0, 0}, {0, 0}} visible: 0; notifyRemote: 1; isMinimized: NO
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Show keyboard with visual mode windowed (0)
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Setting tracking element input views: <<UIInputViewSet: 0x116b7d380>; (empty)>
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: endPlacementForInputViewSet: <<UIInputViewSet: 0x116b7d380>; (empty)> windowScene: <UIWindowScene: 0x104ee3f50; role: UIWindowSceneSessionRoleApplication; persistentIdentifier: A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB; activationState: UISceneActivationStateForegroundActive>
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Moving from placement: <UIInputViewSetPlacementOffScreenDown> to placement: <UIInputViewSetPlacementOffScreenDown> (currentPlacement: <UIInputViewSetPlacementOffScreenDown>)
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Change from input view set: <<UIInputViewSet: 0x12a752a00>; (empty)>
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Change to input view set: <<UIInputViewSet: 0x116b7d380>; (empty)>
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: endPlacementForInputViewSet: <<UIInputViewSet: 0x116b7d380>; (empty)> windowScene: <UIWindowScene: 0x104ee3f50; role: UIWindowSceneSessionRoleApplication; persistentIdentifier: A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB; activationState: UISceneActivationStateForegroundActive>
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: updatePlacementWithPlacement: <UIInputViewSetPlacementOffScreenDown>
+Aug  6 12:31:26 Argjends-iPhone ANIMO(RemoteTextInput)[8107] <Notice>: -[RTIInputSystemClient remoteTextInputSessionWithID:textSuggestionsChanged:]  Text input session suggestions changed. sessionID = (null)
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Override focusSystemState: (DISABLED) for reason(s): <_UIAlertControllerPhoneTVMacView: 0x136ea4a00; frame = (79 391.333; 270 156.333); layer = <CALayer: 0x13a181050>>
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Not push traits update to screen for new style 1, <UIWindowScene: 0x104ee3f50> (A2D64DB7-C3CF-46D9-AD67-093F0B5B67DB)
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: _didHideAlertController: <RCTAlertController: 0x105f4ea00>
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: [0x105e40000] End local event deferring requested for token: 0x12a69b2a0; environments: 1; reason: UIWindowScene: 0x104ee3f50: end key window deferring for window hiding: 0x136cd4400
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: UIWindowScene: 0x104ee3f50: Window became key in scene: UIWindow: 0x104ee4fe0; contextId: 0xE9D5D6E8: reason: <UIWindowScene: 0x104ee3f50>: Key window changed visibility: 0x136cd4400
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Key window needs update: 1; currentKeyWindowScene: 0x104ee3f50; evaluatedKeyWindowScene: 0x104ee3f50; currentApplicationKeyWindow: 0x136cd4400; evaluatedApplicationKeyWindow: 0x104ee4fe0; reason: <UIWindowScene: 0x104ee3f50>: Key window changed visibility: 0x136cd4400
+Aug  6 12:31:26 Argjends-iPhone runningboardd(RunningBoard)[34] <Notice>: Acquiring assertion targeting [app<com.animo.pilatesstudio(846C0EF2-8BF7-40DB-B454-E4FDB94AA020)>:8107] from originator [app<com.animo.pilatesstudio(846C0EF2-8BF7-40DB-B454-E4FDB94AA020)>:8107] with description <RBSAssertionDescriptor| "systemAnimationFence" ID:34-8107-135389 target:8107 attributes:[
+	<RBSLegacyAttribute| requestedReason:FinishTask reason:FinishTask flags:( AllowIdleSleep PreventTaskSuspend PreventTaskThrottleDown )>,
+	<RBSAcquisitionCompletionAttribute| policy:AfterValidation>
+	]>
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Window did become application key: UIWindow: 0x104ee4fe0; contextId: 0xE9D5D6E8; scene identity: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: [0x105e40000] Begin local event deferring requested for token: 0x12a69b8a0; environments: 1; reason: UIWindowScene: 0x104ee3f50: Begin event deferring in keyboardFocus for window: 0x104ee4fe0
+Aug  6 12:31:26 Argjends-iPhone runningboardd(RunningBoard)[34] <Notice>: Assertion 34-8107-135389 (target:[app<com.animo.pilatesstudio(846C0EF2-8BF7-40DB-B454-E4FDB94AA020)>:8107]) will be created as inactive as start-time-defining assertions exist
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Window resigning application key: UIWindow: 0x136cd4400; contextId: 0xF028185D; scene identity: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Reloading input views for key-window scene responder: <(null): 0x0; > force:N
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Enqueuing clear events of window: <UIWindow: 0x136cd4400>; contextId: 0xF028185D
+Aug  6 12:31:26 Argjends-iPhone SpringBoard(KeyboardArbiter)[5332] <Notice>: RX com.animo.pilatesstudio(8107) setClientFocusContext
+    focusContext:<contextID:3923105512 sceneID:com.animo.pilatesstudio-default>
+Aug  6 12:31:26 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: chain did update (setDeferringRules) <keyboardFocus; display: null> containsEndOfChain: YES; [
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:com.apple.springboard; pid: 5332>,
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default; pid: 8107>
+]
+Aug  6 12:31:26 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: chain did update (setDeferringRules) <keyboardFocus; display: builtin> containsEndOfChain: YES; [
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:com.apple.springboard; pid: 5332>,
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default; pid: 8107>
+]
+Aug  6 12:31:26 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: new deferring rules for pid:8107: [[8107-D]; <keyboardFocus; builtin; \M-b\M^@\M-&ces/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default>; () -> <token: 0xE9D5D6E8; pid: 8107>; reason: \M-b\M^@\M-&gin event deferring in keyboardFocus for window: 0x104ee4fe0]
+Aug  6 12:31:26 Argjends-iPhone ANIMO(BackBoardServices)[8107] <Notice>: policyStatus:<BKSHIDEventDeliveryPolicyObserver: 0x105c6ed60; token: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default; status: target> was:ancestor
+Aug  6 12:31:26 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: [keyboardFocus 0xcac1779d0] setRules:forPID(8107): [[8107-D]; <keyboardFocus; builtin; com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default>; () -> <token: 0xE9D5D6E8; pid: 8107>; reason: UIWindowScene: 0x104ee3f50: Begin event deferring in keyboardFocus for window: 0x104ee4fe0]
+Aug  6 12:31:26 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: [keyboardFocus 0xcaad19a90] setRules:forPID(8107): [[8107-D]; <keyboardFocus; builtin; com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default>; () -> <token: 0xE9D5D6E8; pid: 8107>; reason: UIWindowScene: 0x104ee3f50: Begin event deferring in keyboardFocus for window: 0x104ee4fe0]
+Aug  6 12:31:26 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: chain did update (setDeferringRules) <keyboardFocus; display: null; compatibilityDisplay: builtin> containsEndOfChain: YES; [
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:com.apple.springboard; pid: 5332>,
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default; pid: 8107>,
+    <token: 0xE9D5D6E8; pid: 8107>
+]
+Aug  6 12:31:26 Argjends-iPhone backboardd(BackBoardHIDEventFoundation)[72] <Notice>: chain did update (setDeferringRules) <keyboardFocus; display: builtin> containsEndOfChain: YES; [
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:com.apple.springboard; pid: 5332>,
+    <token: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default; pid: 8107>,
+    <token: 0xE9D5D6E8; pid: 8107>
+]
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Performing clear events of window: <UIWindow: 0x136cd4400>; contextId: 0x0
+Aug  6 12:31:26 Argjends-iPhone ANIMO(BackBoardServices)[8107] <Notice>: policyStatus:<BKSHIDEventDeliveryPolicyObserver: 0x105c6ed60; token: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default; status: ancestor> was:target
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: [0x105e40000] Scene target of event deferring environments did update: scene: 0x104ee3f50; current systemShellManagesKeyboardFocus: 1; systemShellManagesKeyboardFocusForScene: 0; eligibleForRecordRemoval: 1;
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Scene became target of keyboard event deferring environment: UIWindowScene: 0x104ee3f50; scene identity: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: [0x105e40000] Scene target of event deferring environments did update: scene: 0x104ee3f50; current systemShellManagesKeyboardFocus: 1; systemShellManagesKeyboardFocusForScene: 0; eligibleForRecordRemoval: 1;
+Aug  6 12:31:26 Argjends-iPhone ANIMO(UIKitCore)[8107] <Notice>: Scene became target of keyboard event deferring environment: UIWindowScene: 0x104ee3f50; scene identity: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Acom.animo.pilatesstudio-default
+Aug  6 12:31:26 Argjends-iPhone runningboardd(RunningBoard)[34] <Notice>: Invalidating assertion 34-8107-135389 (target:[app<com.animo.pilatesstudio(846C0EF2-8BF7-40DB-B454-E4FDB94AA020)>:8107]) from originator [app<com.animo.pilatesstudio(846C0EF2-8BF7-40DB-B454-E4FDB94AA020)>:8107]

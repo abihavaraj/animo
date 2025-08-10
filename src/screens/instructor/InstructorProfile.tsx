@@ -16,6 +16,8 @@ import WebCompatibleIcon from '../../components/WebCompatibleIcon';
 import { supabase } from '../../config/supabase.config';
 import { bookingService } from '../../services/bookingService';
 import { classService } from '../../services/classService';
+import { notificationService } from '../../services/notificationService';
+import { pushNotificationService } from '../../services/pushNotificationService';
 import { RootState, useAppDispatch } from '../../store';
 import { logoutUser } from '../../store/authSlice';
 import { shadows } from '../../utils/shadows';
@@ -52,6 +54,26 @@ function InstructorProfile() {
   useEffect(() => {
     loadInstructorStats();
     loadNotificationPreferences();
+    
+    // Initialize notification services for IPA build support
+    const initializeNotifications = async () => {
+      try {
+        console.log('📱 [InstructorProfile] Initializing notification services...');
+        
+        // Initialize both notification services for production builds
+        await Promise.all([
+          notificationService.initialize(),
+          pushNotificationService.initialize()
+        ]);
+        
+        console.log('✅ [InstructorProfile] Notification services initialized successfully');
+      } catch (error) {
+        console.error('⚠️ [InstructorProfile] Failed to initialize notification services:', error);
+        // Don't block profile loading if notification initialization fails
+      }
+    };
+    
+    initializeNotifications();
   }, []);
 
   const loadInstructorStats = async () => {
@@ -62,6 +84,7 @@ function InstructorProfile() {
       const classResponse = await classService.getClasses({
         instructor: user?.id?.toString(),
         status: 'active'
+        // Removed upcoming: true filter so instructor can see all classes including past ones
       });
 
       if (classResponse.success && classResponse.data) {
@@ -121,29 +144,68 @@ function InstructorProfile() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadInstructorStats();
-    await loadNotificationPreferences();
-    setRefreshing(false);
+    try {
+      console.log('🚀 InstructorProfile: Starting optimized parallel refresh...');
+      
+      // Use parallel loading for better performance
+      const [statsResult, preferencesResult] = await Promise.allSettled([
+        loadInstructorStats(),
+        loadNotificationPreferences()
+      ]);
+      
+      if (statsResult.status === 'rejected') {
+        console.error('❌ Failed to refresh stats:', statsResult.reason);
+      }
+      if (preferencesResult.status === 'rejected') {
+        console.error('❌ Failed to refresh preferences:', preferencesResult.reason);
+      }
+      
+      console.log('✅ Optimized instructor refresh completed');
+    } catch (error) {
+      console.error('❌ Error refreshing instructor data:', error);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const loadNotificationPreferences = async () => {
     try {
       if (!user?.id) return;
       
-      // Load preferences from user table
+      // Load preferences from notification_settings table
       const { data, error } = await supabase
-        .from('users')
+        .from('notification_settings')
         .select('*')
-        .eq('id', user.id.toString())
+        .eq('user_id', user.id.toString())
         .single();
 
       if (!error && data) {
         setNotificationPreferences({
-          classFullNotifications: data.notification_class_full_notifications ?? true,
-          newEnrollmentNotifications: data.notification_new_enrollment_notifications ?? false,
-          classCancellationNotifications: data.notification_class_cancellation_notifications ?? true,
-          generalReminders: data.notification_general_reminders ?? true,
+          classFullNotifications: data.class_full_notifications ?? true,
+          newEnrollmentNotifications: data.new_enrollment_notifications ?? false,
+          classCancellationNotifications: data.class_cancellation_notifications ?? true,
+          generalReminders: data.general_reminders ?? true,
         });
+      } else if (error?.code === 'PGRST116') {
+        // No settings found, create default settings
+        const { error: insertError } = await supabase
+          .from('notification_settings')
+          .insert({
+            user_id: user.id.toString(),
+            class_full_notifications: true,
+            new_enrollment_notifications: false,
+            class_cancellation_notifications: true,
+            general_reminders: true,
+          });
+
+        if (!insertError) {
+          setNotificationPreferences({
+            classFullNotifications: true,
+            newEnrollmentNotifications: false,
+            classCancellationNotifications: true,
+            generalReminders: true,
+          });
+        }
       }
     } catch (error) {
       console.error('Failed to load notification preferences:', error);
@@ -165,14 +227,16 @@ function InstructorProfile() {
       
       console.log('Updating notification preference:', { key, dbKey, value, userId: user.id });
       
-      // Update in Supabase - use a simpler approach for better compatibility
+      // Update in notification_settings table
       const { error } = await supabase
-        .from('users')
-        .update({
-          [`notification_${dbKey}`]: value,
+        .from('notification_settings')
+        .upsert({
+          user_id: user.id.toString(),
+          [dbKey]: value,
           updated_at: new Date().toISOString()
-        })
-        .eq('id', user.id.toString());
+        }, {
+          onConflict: 'user_id'
+        });
 
       if (error) {
         console.error('Failed to update notification preference:', error);

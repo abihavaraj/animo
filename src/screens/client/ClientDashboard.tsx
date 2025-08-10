@@ -1,7 +1,8 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import * as Notifications from 'expo-notifications';
 import moment from 'moment';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Dimensions, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { ActivityIndicator, Button, Card, Surface } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
@@ -16,6 +17,26 @@ import { AppDispatch, RootState } from '../../store';
 import { createBooking } from '../../store/bookingSlice';
 import { fetchCurrentSubscription } from '../../store/subscriptionSlice';
 import { shadows } from '../../utils/shadows';
+
+// Helper function to check equipment access validation
+const isEquipmentAccessAllowed = (userAccess: string, classEquipment: string): boolean => {
+  // 'both' access allows everything
+  if (userAccess === 'both') {
+    return true;
+  }
+  
+  // For specific access, user can only book classes that match their access level
+  if (userAccess === classEquipment) {
+    return true;
+  }
+  
+  // Special case: if class requires 'both' equipment, user needs 'both' access
+  if (classEquipment === 'both' && userAccess !== 'both') {
+    return false;
+  }
+  
+  return false;
+};
 
 const { width } = Dimensions.get('window');
 
@@ -81,228 +102,256 @@ function ClientDashboard() {
         loadDashboardData();
         // Also refresh Redux store to keep it in sync
         dispatch(fetchCurrentSubscription());
-      }, 500); // 500ms delay to allow session restoration
+      }, 0); // 🚀 OPTIMIZATION: Removed artificial delay
     }, [dispatch])
   );
 
-  const loadDashboardData = async () => {
+  // Add notification listener for automatic dashboard refresh on waitlist updates
+  useEffect(() => {
+    const notificationListener = Notifications.addNotificationReceivedListener(notification => {
+      const data = notification.request.content.data;
+      
+      // Refresh dashboard when waitlist-related notifications are received
+      if (data?.type === 'class_notification' && user?.id === data?.userId) {
+        console.log('🔄 [Dashboard] Auto-refreshing due to waitlist notification for user:', user?.id);
+        console.log('🔄 [Dashboard] Notification data:', data);
+        setTimeout(() => {
+          console.log('🔄 [Dashboard] Starting delayed refresh for waitlist update...');
+          loadDashboardData().then(() => {
+            console.log('🔄 [Dashboard] Refresh completed, checking waitlist positions...');
+          });
+        }, 3000); // Further increased delay for database consistency
+      }
+    });
+
+    return () => {
+      notificationListener.remove();
+    };
+  }, [user?.id, loadDashboardData]);
+
+  // 🚀 OPTIMIZED: Memoize date calculations to avoid recalculation
+  const dateHelpers = useMemo(() => {
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const futureDate = new Date();
+    futureDate.setDate(now.getDate() + 30); // Only next 30 days
+    const futureDateStr = futureDate.toISOString().split('T')[0];
+    
+    return { now, todayStr, futureDateStr };
+  }, []);
+
+  // 🚀 OPTIMIZED: Parallel data loading with date filters
+  const loadDashboardData = useCallback(async () => {
     if (!user) {
       setLoading(false);
       return;
     }
+
     try {
       setLoading(true);
 
-      // Load user's booked classes first
-      let bookedClasses: Booking[] = [];
-      let bookedClassIds: number[] = [];
-      
-      try {
-        console.log('🔄 Dashboard: Loading user bookings...');
-        const bookingsResponse = await bookingService.getBookings();
+
+
+      // 🔄 UPDATE: Automatically update completed class statuses before loading
+      await classService.updateCompletedClassStatus();
+
+      // 🚀 OPTIMIZATION 1: Parallel API calls
+      const [
+        bookingsResponse,
+        waitlistResponse,
+        classesResponse,
+        subscriptionResponse,
+        notificationsResponse
+      ] = await Promise.allSettled([
+        // Load only upcoming bookings with date filter
+        bookingService.getBookings({
+          from: dateHelpers.todayStr
+        }),
         
-        if (bookingsResponse.success && bookingsResponse.data) {
-  
+        // Load user waitlist
+        bookingService.getUserWaitlist(user.id),
+        
+        // Load only upcoming classes with enrollment counts
+        classService.getClasses({
+          upcoming: true,
+          date_from: dateHelpers.todayStr,
+          date_to: dateHelpers.futureDateStr
+        }),
+        
+        // Load subscription
+        subscriptionService.getCurrentSubscription(),
+        
+        // Load recent notifications only
+        notificationService.getUserNotifications(user.id, { limit: 3 })
+      ]);
+
+      // 🚀 OPTIMIZATION 2: Optimized data processing with early filtering
+      let bookedClasses: Booking[] = [];
+      let bookedClassIds: Set<string> = new Set(); // Changed to string to support UUIDs
+      
+      if (bookingsResponse.status === 'fulfilled' && bookingsResponse.value.success) {
+        // First pass: collect booked class IDs and filter valid bookings
+        const validBookings = bookingsResponse.value.data.filter(booking => {
+          // Quick status check first
+          const activeStatuses = ['confirmed', 'booked', 'active'];
+          if (!activeStatuses.includes(booking.status)) return false;
           
-          // Filter for upcoming bookings only
-          const now = new Date();
-          console.log('📅 Dashboard: Current time:', now.toISOString());
+          // Only process if status is valid
+          const classData = booking.classes || booking;
+          const classDate = classData.class_date || classData.date;
+          const classTime = classData.class_time || classData.time;
           
-          // Transform and filter booking data
-          const upcomingBookings = bookingsResponse.data.filter((booking: any) => {
-            // Check if booking is active (confirmed, or other active statuses)
-            const activeStatuses = ['confirmed', 'booked', 'active'];
-            if (!activeStatuses.includes(booking.status)) {
-              console.log(`❌ Dashboard: Booking ${booking.id} excluded - status: ${booking.status}`);
+          if (!classDate || !classTime) return false;
+          
+          // Optimized date comparison
+          const classDateTime = new Date(`${classDate} ${classTime}`);
+          const isFutureClass = classDateTime > dateHelpers.now;
+          
+          // Add to bookedClassIds if this is a valid future booking
+          if (isFutureClass) {
+            const classId = booking.class_id || booking.classId;
+            if (classId) {
+              const classIdStr = classId.toString();
+              bookedClassIds.add(classIdStr);
+
+            }
+          }
+          
+          return isFutureClass;
+        });
+        
+        // Second pass: map the data structure
+        bookedClasses = validBookings.map(booking => {
+          const classData = booking.classes || {};
+          
+          // Flatten data structure
+          return {
+            ...booking,
+            class_name: classData.name || booking.class_name,
+            instructor_name: classData.instructor_name || booking.instructor_name,
+            class_date: classData.date || booking.class_date,
+            class_time: classData.time || booking.class_time,
+            equipment_type: classData.equipment_type || booking.equipment_type,
+            room: classData.room || booking.room,
+            level: classData.level || booking.level,
+          };
+        });
+      }
+
+      // Process waitlist efficiently
+      let waitlistClasses: any[] = [];
+      let waitlistedClassIds: Set<string> = new Set();
+      
+      if (waitlistResponse.status === 'fulfilled' && waitlistResponse.value.success) {
+        console.log('📋 [Dashboard] Raw waitlist data:', waitlistResponse.value.data);
+        waitlistClasses = waitlistResponse.value.data
+          .filter(waitlistEntry => {
+            const classData = waitlistEntry.classes || {};
+            const classDate = classData.date || waitlistEntry.class_date;
+            const classTime = classData.time || waitlistEntry.class_time;
+            
+            if (!classDate || !classTime) return false;
+            
+            const classDateTime = new Date(`${classDate} ${classTime}`);
+            const hoursUntilClass = (classDateTime.getTime() - dateHelpers.now.getTime()) / (1000 * 60 * 60);
+            
+            // Auto-remove from waitlist if within 2 hours (don't wait for response)
+            if (hoursUntilClass <= 2 && hoursUntilClass > 0) {
+              bookingService.leaveWaitlist(waitlistEntry.id).catch(console.error);
               return false;
             }
             
-            // Handle both direct class data and nested class data
-            const classData = booking.classes || booking;
-            const classDate = classData.class_date || classData.date;
-            const classTime = classData.class_time || classData.time;
+            return classDateTime > dateHelpers.now;
+          })
+          .map(waitlistEntry => {
+            const classData = waitlistEntry.classes || {};
+            const classId = waitlistEntry.class_id;
+            if (classId) waitlistedClassIds.add(classId.toString());
             
-            if (classDate && classTime) {
-              const classDateTime = new Date(`${classDate} ${classTime}`);
-              const isUpcoming = classDateTime > now;
-              
-              if (!isUpcoming) {
-                console.log(`⏰ Dashboard: Booking ${booking.id} excluded - class time: ${classDateTime.toISOString()} (past)`);
-              } else {
-                console.log(`✅ Dashboard: Booking ${booking.id} included - class time: ${classDateTime.toISOString()} (upcoming)`);
-              }
-              
-              return isUpcoming;
-            }
-            
-            console.log(`❓ Dashboard: Booking ${booking.id} excluded - missing date/time data`);
-            return false;
-          }).map((booking: any) => {
-            // Transform nested Supabase data to flat structure expected by dashboard
-            const classData = booking.classes || {};
+            console.log(`📋 [Dashboard] Processing waitlist entry - Class: ${classData.name}, Position: ${waitlistEntry.position}, User: ${waitlistEntry.user_id}`);
             
             return {
-              ...booking,
-              // Flatten class data for dashboard compatibility
-              class_name: classData.name || booking.class_name,
-              instructor_name: classData.instructor_name || booking.instructor_name,
-              class_date: classData.date || booking.class_date,
-              class_time: classData.time || booking.class_time,
-              equipment_type: classData.equipment_type || booking.equipment_type,
-              room: classData.room || booking.room,
-              level: classData.level || booking.level,
-              capacity: classData.capacity || booking.capacity,
-              enrolled: classData.enrolled || booking.enrolled
+              ...waitlistEntry,
+              class_name: classData.name || waitlistEntry.class_name,
+              instructor_name: classData.users?.name || waitlistEntry.instructor_name,
+              class_date: classData.date || waitlistEntry.class_date,
+              class_time: classData.time || waitlistEntry.class_time,
+              equipment_type: classData.equipment_type || waitlistEntry.equipment_type,
+              room: classData.room || waitlistEntry.room,
+              level: classData.level || waitlistEntry.level
             };
           });
-          
-          bookedClasses = upcomingBookings;
-          
-          console.log(`📋 Dashboard: Filtered to ${bookedClasses.length} upcoming bookings`);
-          
-          // Get IDs of booked classes to filter from upcoming
-          bookedClassIds = bookedClasses.map(booking => {
-            const classId = booking.class_id || booking.classId;
-            return classId;
-          }).filter(id => id !== undefined) as number[];
-          
-          console.log('📋 Dashboard: Booked class IDs:', bookedClassIds);
-        } else {
-          console.log('❌ Dashboard: Failed to load bookings:', bookingsResponse.error);
-        }
-      } catch (error) {
-        console.error('❌ Dashboard: Error loading bookings:', error);
-        Alert.alert('Error', 'Failed to load your bookings.');
+        console.log('📋 [Dashboard] Processed waitlist classes:', waitlistClasses);
       }
 
-      // Load user's waitlist first to get waitlisted class IDs
-      let waitlistClasses: any[] = [];
-      let waitlistedClassIds: string[] = [];
-      
-      try {
-        console.log('🔄 Dashboard: Loading user waitlist...');
-        const waitlistResponse = await bookingService.getUserWaitlist(user.id);
-        if (waitlistResponse.success && waitlistResponse.data) {
-          // Process waitlist data and implement 2-hour rule
-          const now = new Date();
-          
-          waitlistClasses = waitlistResponse.data
-            .filter((waitlistEntry: any) => {
-              const classData = waitlistEntry.classes || {};
-              const classDate = classData.date || waitlistEntry.class_date;
-              const classTime = classData.time || waitlistEntry.class_time;
-              
-              if (!classDate || !classTime) return false;
-              
-              // Check 2-hour rule: remove from waitlist if class starts within 2 hours
-              const classDateTime = new Date(`${classDate} ${classTime}`);
-              const hoursUntilClass = (classDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
-              
-              if (hoursUntilClass <= 2 && hoursUntilClass > 0) {
-                // Remove from waitlist automatically
-                console.log(`⏰ Dashboard: Removing user from waitlist for class ${waitlistEntry.class_id} - within 2-hour rule`);
-                bookingService.leaveWaitlist(waitlistEntry.id).catch(err => 
-                  console.error('Failed to auto-remove from waitlist:', err)
-                );
-                return false;
-              }
-              
-              // Only include future waitlist entries
-              return classDateTime > now;
-            })
-            .map((waitlistEntry: any) => {
-              const classData = waitlistEntry.classes || {};
-              
-              return {
-                ...waitlistEntry,
-                // Flatten class data for dashboard compatibility
-                class_name: classData.name || waitlistEntry.class_name,
-                instructor_name: classData.users?.name || waitlistEntry.instructor_name,
-                class_date: classData.date || waitlistEntry.class_date,
-                class_time: classData.time || waitlistEntry.class_time,
-                equipment_type: classData.equipment_type || waitlistEntry.equipment_type,
-                room: classData.room || waitlistEntry.room,
-                level: classData.level || waitlistEntry.level
-              };
-            });
-          
-          // Get waitlisted class IDs to exclude from upcoming classes
-          waitlistedClassIds = waitlistClasses.map(w => w.class_id).filter(id => id !== undefined).map(id => id.toString());
-          
-          console.log(`📋 Dashboard: Found ${waitlistClasses.length} active waitlist entries`);
-          console.log('📋 Dashboard: Waitlisted class IDs:', waitlistedClassIds);
-          
-          if (waitlistClasses.length > 0) {
-            console.log('📋 Dashboard: Sample waitlist entry:', waitlistClasses[0]);
-          }
-        } else {
-          console.log('❌ Dashboard: Failed to load waitlist:', waitlistResponse.error);
-        }
-      } catch (error) {
-        console.error('❌ Dashboard: Error loading waitlist:', error);
-      }
-
-      // Load upcoming classes and filter out already booked ones AND waitlisted ones
-      const classesResponse = await classService.getClasses();
+      // Process upcoming classes efficiently
       let upcomingClasses: BackendClass[] = [];
-      
-      if (classesResponse.success && classesResponse.data) {
-        const now = new Date();
-        upcomingClasses = classesResponse.data
-          .filter((cls: BackendClass) => {
-            const classDateTime = new Date(`${cls.date} ${cls.time}`);
-            // Filter out past classes, classes already booked by user, AND classes user is waitlisted for
-            return classDateTime > now && 
-                   !bookedClassIds.includes(cls.id) && 
-                   !waitlistedClassIds.includes(cls.id.toString());
+      if (classesResponse.status === 'fulfilled' && classesResponse.value.success) {
+
+
+        
+        let debugCount = 0;
+        upcomingClasses = classesResponse.value.data
+          .filter(cls => {
+            // Use string ID comparison to support both UUIDs and integers
+            const classIdStr = cls.id.toString();
+            
+            const isBooked = bookedClassIds.has(classIdStr);
+            const isWaitlisted = waitlistedClassIds.has(classIdStr);
+            
+            // Debug logging for first few classes
+            if (debugCount < 3) {
+              const classDateTime = new Date(`${cls.date}T${cls.time}`);
+              const classEndTime = new Date(classDateTime.getTime() + (cls.duration || 60) * 60000); // Add duration
+              const isPastClass = classEndTime < dateHelpers.now; // Class is past if it has ended
+
+              debugCount++;
+            }
+            
+            // Additional safety check: exclude classes that have ENDED (not just started)
+            const classDateTime = new Date(`${cls.date}T${cls.time}`);
+            const classEndTime = new Date(classDateTime.getTime() + (cls.duration || 60) * 60000);
+            const isFutureClass = classEndTime > dateHelpers.now; // Use end time, not start time
+            
+            if (!isFutureClass) {
+
+            }
+            
+            // Quick exclusion checks
+            return !isBooked && !isWaitlisted && isFutureClass;
           })
-          .sort((a: BackendClass, b: BackendClass) => {
+          .sort((a, b) => {
+            // Optimized sorting
             const dateA = new Date(`${a.date} ${a.time}`);
             const dateB = new Date(`${b.date} ${b.time}`);
             return dateA.getTime() - dateB.getTime();
           })
-          .slice(0, 5);
+          .slice(0, 5); // Limit to 5 upcoming classes
       }
 
-      // Load subscription data with retry logic for production IPA
+      // Process subscription
       let subscriptionData = null;
-      try {
-        const subResponse = await subscriptionService.getCurrentSubscription();
-        if (subResponse.success && subResponse.data) {
-          // Check if subscription is expired before using it
-          const subscription = subResponse.data;
-          if (subscription.end_date) {
-            const daysUntilEnd = Math.max(0, Math.ceil((new Date(subscription.end_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)));
-            // Day 0 means expires today and should still be valid
-            if (daysUntilEnd >= 0) {
-              subscriptionData = subscription;
-            } else {
-              console.log('🚫 Dashboard: Subscription expired, not showing');
-            }
-          } else {
+      if (subscriptionResponse.status === 'fulfilled' && subscriptionResponse.value.success) {
+        const subscription = subscriptionResponse.value.data;
+        if (subscription?.end_date) {
+          const daysUntilEnd = Math.ceil((new Date(subscription.end_date).getTime() - dateHelpers.now.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysUntilEnd >= 0) {
             subscriptionData = subscription;
           }
+        } else {
+          subscriptionData = subscription;
         }
-      } catch (error) {
-        console.log('No active subscription found');
       }
 
-      // Load recent notifications
+      // Process notifications
       let notifications: Notification[] = [];
-      try {
-        const notificationsResponse = await notificationService.getUserNotifications(parseInt(user.id));
-        if (notificationsResponse.success && notificationsResponse.data) {
-          // Get recent subscription-related notifications
-          notifications = (notificationsResponse.data as any[])
-            .filter(n => n.type === 'subscription_expiring' || n.type === 'subscription_changed')
-            .slice(0, 3); // Show only last 3 subscription notifications
-        }
-      } catch (error) {
-        console.error('Error loading notifications:', error);
+      if (notificationsResponse.status === 'fulfilled' && notificationsResponse.value.success) {
+        notifications = notificationsResponse.value.data
+          .filter(n => n.type === 'subscription_expiring' || n.type === 'subscription_changed')
+          .slice(0, 3);
       }
 
-
-
+      // 🚀 OPTIMIZATION 3: Single state update
       setDashboardData({
         upcomingClasses,
         bookedClasses,
@@ -311,6 +360,8 @@ function ClientDashboard() {
         subscription: subscriptionData,
       });
 
+
+
     } catch (error) {
       console.error('Error loading dashboard data:', error);
       Alert.alert('Error', 'Failed to load dashboard data');
@@ -318,31 +369,32 @@ function ClientDashboard() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [user, dateHelpers]);
 
-  const onRefresh = () => {
+  const onRefresh = useCallback(() => {
     setRefreshing(true);
     dispatch(fetchCurrentSubscription());
     loadDashboardData();
-  };
+  }, [dispatch, loadDashboardData]);
 
-  const getEquipmentIcon = (equipment: string) => {
+  // 🚀 OPTIMIZATION 5: Memoized helper functions
+  const getEquipmentIcon = useCallback((equipment: string) => {
     switch (equipment) {
       case 'mat': return 'self-improvement';
       case 'reformer': return 'fitness-center';
       case 'both': return 'fitness-center';
       default: return 'help-outline';
     }
-  };
+  }, []);
 
-  const getEquipmentColor = (equipment: string) => {
+  const getEquipmentColor = useCallback((equipment: string) => {
     switch (equipment) {
       case 'mat': return successColor;
       case 'reformer': return warningColor;
       case 'both': return accentColor;
       default: return textSecondaryColor;
     }
-  };
+  }, [successColor, warningColor, accentColor, textSecondaryColor]);
 
   const getLevelColor = (level: string) => {
     switch (level.toLowerCase()) {
@@ -528,13 +580,18 @@ function ClientDashboard() {
 
     // Check equipment access
     const planEquipment = currentSubscription.equipment_access;
-    if (class_.equipment_type === 'reformer' && planEquipment === 'mat') {
-      Alert.alert('Equipment Access Required', 'Your subscription does not include Reformer access. Please upgrade your plan.');
-      return;
-    }
-
-    if (class_.equipment_type === 'both' && planEquipment !== 'both') {
-      Alert.alert('Full Equipment Access Required', 'This class requires full equipment access. Please upgrade your plan.');
+    
+    if (!isEquipmentAccessAllowed(planEquipment, class_.equipment_type)) {
+      const accessMap = {
+        'mat': 'Mat-only',
+        'reformer': 'Reformer-only',
+        'both': 'Full equipment'
+      };
+      
+      Alert.alert(
+        'Equipment Access Required',
+        `This class requires ${accessMap[class_.equipment_type] || class_.equipment_type} access. Your subscription only includes ${accessMap[planEquipment] || planEquipment} access. Please upgrade your plan.`
+      );
       return;
     }
 
@@ -712,6 +769,58 @@ function ClientDashboard() {
                 Show Token
               </Button>
             )}
+            
+            {/* Test Push Notification Button - Works in both DEV and IPA */}
+            <Button 
+              mode="contained" 
+              onPress={async () => {
+                try {
+                  // First, get and show the push token
+                  const token = pushNotificationService.getPushTokenValue();
+                  if (!token) {
+                    Alert.alert('No Token', 'No push token available. The app may not be registered for notifications.');
+                    return;
+                  }
+                  
+                  // Show the token so user can copy it
+                  Alert.alert(
+                    'IPA Push Token', 
+                    `Token: ${token}\n\nUse this token to test notifications with curl command.`,
+                    [
+                      { text: 'Copy Full Token', onPress: () => {
+                        // Show full token in another alert for easier copying
+                        Alert.alert('Full Token', token);
+                      }},
+                      { text: 'Re-register Token', onPress: async () => {
+                        try {
+                          await pushNotificationService.forceTokenReregistration();
+                          Alert.alert('Success', 'Token re-registered! Try the test again.');
+                        } catch (error) {
+                          Alert.alert('Error', `Re-registration failed: ${(error as Error).message || error}`);
+                        }
+                      }},
+                      { text: 'Send Test', onPress: async () => {
+                        try {
+                          const result = await pushNotificationService.sendTestNotification();
+                          Alert.alert('Success', 'Test notification sent! Check if you received it.');
+                        } catch (error) {
+                          Alert.alert('Error', `Failed: ${(error as Error).message || error}`);
+                        }
+                      }},
+                      { text: 'Cancel', style: 'cancel' }
+                    ]
+                  );
+                } catch (error) {
+                  Alert.alert('Error', `Failed to get token: ${(error as Error).message || error}`);
+                }
+              }}
+              style={{ marginLeft: 8 }}
+              buttonColor="#FF5722"
+              textColor="white"
+              icon="bell-ring"
+            >
+              Test Push
+            </Button>
           </View>
         </View>
       </Surface>
@@ -857,7 +966,7 @@ function ClientDashboard() {
                         Alert.alert(
                           'PowerShell Command',
                           command,
-                          [{ text: 'Copy', onPress: () => console.log('Copy command to clipboard') }, { text: 'OK' }]
+                          [{ text: 'Copy', onPress: () => {} }, { text: 'OK' }]
                         );
                       }}
                       style={styles.debugButton}
@@ -979,15 +1088,17 @@ function ClientDashboard() {
                     </View>
 
                     <Button 
-                      mode="outlined" 
+                      mode={canCancel ? "outlined" : "contained"}
                       style={[
                         styles.bookButton, 
                         { 
-                          borderColor: canCancel ? errorColor : textMutedColor,
-                          opacity: canCancel ? 1 : 0.5
+                          borderColor: canCancel ? errorColor : textSecondaryColor,
+                          backgroundColor: canCancel ? 'transparent' : textSecondaryColor,
+                          opacity: canCancel ? 1 : 0.8
                         }
                       ]}
-                      textColor={canCancel ? errorColor : textMutedColor}
+                      textColor={canCancel ? errorColor : backgroundColor}
+                      labelStyle={canCancel ? {} : { color: backgroundColor }}
                       icon={canCancel ? "cancel" : "do-not-disturb-off"}
                       disabled={!canCancel}
                       onPress={() => handleCancelBooking(booking)}
@@ -1042,12 +1153,18 @@ function ClientDashboard() {
                     <View style={styles.classDetails}>
                       <View style={styles.classDetailItem}>
                         <MaterialIcons name="calendar-today" size={16} color={textSecondaryColor} />
-                        <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>{formatDate(waitlistEntry.date || '')}</Caption>
+                        <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>{formatDate(waitlistEntry.class_date || '')}</Caption>
                       </View>
                       <View style={styles.classDetailItem}>
                         <MaterialIcons name="access-time" size={16} color={textSecondaryColor} />
-                        <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>{formatTime(waitlistEntry.time || '')}</Caption>
+                        <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>{formatTime(waitlistEntry.class_time || '')}</Caption>
                       </View>
+                      {waitlistEntry.room && (
+                        <View style={styles.classDetailItem}>
+                          <MaterialIcons name="room" size={16} color={textSecondaryColor} />
+                          <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>{waitlistEntry.room}</Caption>
+                        </View>
+                      )}
                       <View style={styles.classDetailItem}>
                         <MaterialIcons name="queue" size={16} color={warningColor} />
                         <Caption style={{ ...styles.classDetailText, color: warningColor }}>Position #{waitlistEntry.position}</Caption>
@@ -1102,7 +1219,7 @@ function ClientDashboard() {
             <H2 style={{ ...styles.sectionTitle, color: textColor }}>Upcoming Classes</H2>
             <Button 
               mode="text" 
-              onPress={() => (navigation as any).navigate('ClassesView')}
+              onPress={() => (navigation as any).navigate('Book')}
               icon="arrow-right"
               textColor={accentColor}
             >
@@ -1175,27 +1292,66 @@ function ClientDashboard() {
                        </Caption>
                      </View>
 
-                     {cls.enrolled >= cls.capacity ? (
-                       <Button 
-                         mode="outlined" 
-                         style={[styles.bookButton, { borderColor: warningColor }]}
-                         textColor={warningColor}
-                         icon="queue"
-                         onPress={() => handleJoinWaitlist(cls.id)}
-                       >
-                         Join Waitlist
-                       </Button>
-                     ) : (
-                       <Button 
-                         mode="outlined" 
-                         style={[styles.bookButton, { borderColor: accentColor }]}
-                         textColor={accentColor}
-                         icon="event"
-                         onPress={() => handleBookClass(cls.id)}
-                       >
-                         Book
-                       </Button>
-                     )}
+                                         {(() => {
+                      // Check if user has already booked this class
+                      const isUserBooked = dashboardData.bookedClasses.some(bookedClass => 
+                        bookedClass.class_id?.toString() === cls.id?.toString()
+                      );
+                      const isFull = cls.enrolled >= cls.capacity;
+                      
+                      // Debug button logic (only log first few classes)
+                      if (cls.name && cls.name === 'Reformer') {
+
+                      }
+                      const hoursUntilClass = getHoursUntilClass(cls.date, cls.time);
+                      const canJoinWaitlist = hoursUntilClass >= 2; // 2-hour rule applies to waitlist too
+                      
+                      if (isUserBooked) {
+                        return (
+                          <Button 
+                            mode="contained" 
+                            style={[styles.bookButton, { backgroundColor: successColor }]}
+                            textColor="white"
+                            icon="check-circle"
+                            disabled
+                          >
+                            Booked
+                          </Button>
+                        );
+                      }
+                      
+                      if (isFull) {
+                        return (
+                          <Button 
+                            mode={canJoinWaitlist ? "outlined" : "contained"}
+                            style={[styles.bookButton, { 
+                              borderColor: canJoinWaitlist ? warningColor : textSecondaryColor,
+                              backgroundColor: canJoinWaitlist ? 'transparent' : textSecondaryColor,
+                              opacity: canJoinWaitlist ? 1 : 0.8
+                            }]}
+                            textColor={canJoinWaitlist ? warningColor : backgroundColor}
+                            labelStyle={canJoinWaitlist ? {} : { color: backgroundColor }}
+                            icon="queue"
+                            onPress={() => handleJoinWaitlist(cls.id)}
+                            disabled={!canJoinWaitlist}
+                          >
+                            {canJoinWaitlist ? 'Join Waitlist' : 'Waitlist Closed'}
+                          </Button>
+                        );
+                      }
+                      
+                      return (
+                        <Button 
+                          mode="outlined" 
+                          style={[styles.bookButton, { borderColor: accentColor }]}
+                          textColor={accentColor}
+                          icon="event"
+                          onPress={() => handleBookClass(cls.id)}
+                        >
+                          Book
+                        </Button>
+                      );
+                    })()}
                    </Card.Content>
                  </Card>
                  );
@@ -1229,7 +1385,7 @@ function ClientDashboard() {
                style={[styles.actionButton, styles.primaryAction, { backgroundColor: accentColor }]}
                labelStyle={{ color: backgroundColor }}
                icon="event"
-               onPress={() => (navigation as any).navigate('ClassesView')}
+               onPress={() => (navigation as any).navigate('Book')}
              >
                Book Class
              </Button>

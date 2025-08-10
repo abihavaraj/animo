@@ -10,10 +10,11 @@ try {
   if (!notificationHandlerSet) {
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
-        shouldShowBanner: true, // For showing a banner at the top of the screen
-        shouldShowList: true,   // For showing the notification in the notification list
+        shouldShowAlert: true,
         shouldPlaySound: true,
-        shouldSetBadge: false,
+        shouldSetBadge: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
       }),
     });
     notificationHandlerSet = true;
@@ -31,59 +32,74 @@ class PushNotificationService {
   async initialize(): Promise<void> {
     // Prevent multiple initialization attempts
     if (this.isInitialized || this.initializationAttempted) {
-      console.log('📱 Push notifications already initialized or attempted');
+
       return;
     }
 
     this.initializationAttempted = true;
 
     try {
-      console.log('📱 Starting safe push notification initialization...');
 
-      // Early platform checks
+      
+      // Enhanced platform checks for production
       if (Platform.OS !== 'ios' && Platform.OS !== 'android') {
-        console.log('⚠️ Push notifications not supported on this platform');
+
         return;
       }
 
-      // Check if device supports notifications
+      // For production IPA builds, we need more robust device checking
       if (!Device.isDevice) {
-        console.log('⚠️ Push notifications only work on physical devices');
-        return;
+        // In production, this should never happen, but let's be safe
+        if (__DEV__) {
+          //console.log('⚠️ Push notifications only work on physical devices (running in simulator/emulator)');
+          return;
+        } else {
+          // In production, Device.isDevice might sometimes give false negatives
+          //console.log('⚠️ Device.isDevice returned false, but continuing for production build');
+        }
       }
 
       // Wrap all native calls in individual try-catch blocks
+      //console.log('🔍 [initialize] Checking notification permissions...');
       let permissionsResult;
       try {
         permissionsResult = await Notifications.getPermissionsAsync();
+        //console.log('🔍 [initialize] Current permissions:', JSON.stringify(permissionsResult, null, 2));
       } catch (permError) {
-        console.error('❌ Failed to get permissions:', permError);
+        console.error('❌ [initialize] Failed to get permissions:', permError);
         return;
       }
 
       let finalStatus = permissionsResult.status;
+      //console.log('🔍 [initialize] Current permission status:', finalStatus);
 
       if (finalStatus !== 'granted') {
+        //console.log('🔍 [initialize] Requesting notification permissions...');
         try {
           const requestResult = await Notifications.requestPermissionsAsync();
           finalStatus = requestResult.status;
+          //console.log('🔍 [initialize] Permission request result:', JSON.stringify(requestResult, null, 2));
+          //console.log('🔍 [initialize] Final permission status:', finalStatus);
         } catch (requestError) {
-          console.error('❌ Failed to request permissions:', requestError);
+          console.error('❌ [initialize] Failed to request permissions:', requestError);
           return;
         }
       }
 
       if (finalStatus !== 'granted') {
-        console.log('⚠️ Permission not granted for push notifications');
+        console.error('❌ [initialize] Permission not granted for push notifications. Status:', finalStatus);
+        //console.log('🔍 [initialize] User denied notification permissions or system restriction');
         return;
       }
+
+      //console.log('✅ [initialize] Notification permissions granted');
 
       // Get push token with maximum safety
       const token = await this.getPushTokenSafely();
       if (token) {
         this.pushToken = token;
         await this.registerTokenWithServerSafely(token);
-        console.log('✅ Push notifications initialized successfully');
+        //console.log('✅ Push notifications initialized successfully');
       }
 
       this.isInitialized = true;
@@ -96,51 +112,86 @@ class PushNotificationService {
 
   private async getPushTokenSafely(): Promise<string | null> {
     try {
-      // THE ROBUST FIX: Get projectId directly from the app's configuration.
-      // This removes the dependency on the .env file.
-      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+      // Enhanced logging for production debugging
+      //console.log('🔍 [getPushTokenSafely] Starting push token generation...');
+      //console.log('🔍 [getPushTokenSafely] Platform:', Platform.OS);
+      //console.log('🔍 [getPushTokenSafely] Device type:', Device.deviceType);
+      //console.log('🔍 [getPushTokenSafely] Is device?', Device.isDevice);
+      
+      // Enhanced project ID detection for production builds
+      const projectId = (Constants as any).expoConfig?.extra?.eas?.projectId || 
+                       (Constants as any).manifest?.extra?.eas?.projectId ||
+                       ((Constants as any).manifest2?.extra ? (Constants as any).manifest2.extra.eas?.projectId : undefined) ||
+                       'd4bdbfc4-ecbc-40d7-aabb-ad545c836ab3'; // Fallback to your project ID
+      
+      //console.log('🔍 [getPushTokenSafely] Project ID from config:', projectId);
 
       if (!projectId) {
-        console.log('⚠️ Could not find Expo project ID in app config (extra.eas.projectId). Push notifications disabled.');
+        console.error('❌ [getPushTokenSafely] Could not find Expo project ID. Push notifications disabled.');
+        //console.log('🔍 [getPushTokenSafely] Constants.expoConfig:', JSON.stringify((Constants as any).expoConfig, null, 2));
+        //console.log('🔍 [getPushTokenSafely] Constants.manifest:', JSON.stringify((Constants as any).manifest, null, 2));
         return null;
       }
 
+      //console.log('🔍 [getPushTokenSafely] Requesting Expo push token with project ID:', projectId);
       const token = await Notifications.getExpoPushTokenAsync({
         projectId,
       });
-      console.log('📱 Got push token successfully');
-      console.log('📱 Push Token:', token.data);
+      //console.log('✅ [getPushTokenSafely] Got push token successfully');
+      
+      // In production, only log partial token for security
+      if (__DEV__) {
+        //console.log('📱 [getPushTokenSafely] Push Token (DEV):', token.data);
+      } else {
+        //console.log('📱 [getPushTokenSafely] Push Token (PROD):', token.data.substring(0, 20) + '...');
+      }
+      
       return token.data;
     } catch (error) {
-      console.error('❌ Failed to get push token:', error);
+      console.error('❌ [getPushTokenSafely] Failed to get push token:', error);
+      console.error('❌ [getPushTokenSafely] Error details:', JSON.stringify(error, null, 2));
       return null;
     }
   }
 
   private async registerTokenWithServerSafely(token: string): Promise<void> {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      //console.log('🔍 [registerTokenWithServerSafely] Starting token registration...');
+      //console.log('📱 [registerTokenWithServerSafely] Token to register:', token);
+      
+      // Get current user ID from Supabase auth
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      //console.log('🔍 [registerTokenWithServerSafely] Auth result:', { user: user?.id, authError });
+      
+      if (authError) {
+        console.error('❌ [registerTokenWithServerSafely] Auth error:', authError);
+        return;
+      }
+      
       if (!user) {
-        console.log('⚠️ No authenticated user for push token registration');
+        console.error('❌ [registerTokenWithServerSafely] No authenticated user found, skipping token registration');
         return;
       }
 
+      //console.log('🔍 [registerTokenWithServerSafely] Updating push token for user:', user.id);
+
       // Update user's push token in Supabase
-      const { error } = await supabase
+      const { error, data: updateResult } = await supabase
         .from('users')
-        .update({ 
-          push_token: token,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', user.id);
+        .update({ push_token: token })
+        .eq('id', user.id)
+        .select('id, push_token');
 
       if (error) {
-        console.error('❌ Failed to register push token:', error.message);
+        console.error('❌ [registerTokenWithServerSafely] Failed to register push token:', error);
+        console.error('❌ [registerTokenWithServerSafely] Error details:', JSON.stringify(error, null, 2));
       } else {
-        console.log('✅ Push token registered with server');
+        //console.log('✅ [registerTokenWithServerSafely] Push token registered successfully');
+        //console.log('🔍 [registerTokenWithServerSafely] Update result:', updateResult);
       }
     } catch (error) {
-      console.error('❌ Failed to register push token:', error);
+      console.error('❌ [registerTokenWithServerSafely] Exception during token registration:', error);
+      console.error('❌ [registerTokenWithServerSafely] Error details:', JSON.stringify(error, null, 2));
     }
   }
 
@@ -148,37 +199,181 @@ class PushNotificationService {
     return this.pushToken;
   }
 
+  async forceTokenReregistration(): Promise<void> {
+    try {
+      //console.log('🔄 Force re-registering push token...');
+      
+      // Reset state
+      this.isInitialized = false;
+      this.initializationAttempted = false;
+      this.pushToken = null;
+      
+      // Re-initialize
+      await this.initialize();
+      
+      //console.log('✅ Token re-registration completed');
+    } catch (error) {
+      console.error('❌ Failed to re-register token:', error);
+    }
+  }
+
   async sendTestNotification(): Promise<void> {
     try {
-      console.log('📬 Scheduling a test notification...');
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: '📬 Test Notification',
-          body: 'If you see this, your local notifications are working!',
-          data: { testData: 'this is a test' },
+      //console.log('📬 Sending a test push notification...');
+      
+      // First, check notification registration status
+      await this.checkNotificationRegistration();
+      
+      if (!this.pushToken) {
+        //console.log('⚠️ No push token available for test notification');
+        return;
+      }
+
+      //console.log('📱 Push Token being used:', this.pushToken);
+      
+      // Try to validate the token first by sending a minimal test
+      //console.log('🔍 Validating token registration with Expo...');
+      try {
+        const validationResponse = await fetch('https://exp.host/--/api/v2/push/getReceipts', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ids: [] // Empty array just to test API access
+          })
+        });
+        //console.log('✅ Expo API accessible, validation response status:', validationResponse.status);
+      } catch (validationError) {
+        console.error('❌ Cannot reach Expo push API:', validationError);
+      }
+
+      // Check if we're running on web platform
+      const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
+      
+      if (isWeb) {
+        console.log('🌐 Web platform detected - cannot send push notifications directly');
+        //console.log('📱 Test notification would be sent to:', this.pushToken);
+        //console.log('📱 Message: 📬 Test Notification - If you see this, your push notifications are working!');
+        return;
+      }
+
+      // Send via Expo's push service (native platforms only)
+      const notificationPayload = {
+        to: this.pushToken,
+        title: '📬 Test Notification',
+        body: 'If you see this, your push notifications are working!',
+        data: { testData: 'this is a test' },
+        sound: 'default',
+        priority: 'high',
+        channelId: 'animo-notifications',
+        badge: 1,
+      };
+
+      console.log('📤 Sending notification payload:', JSON.stringify(notificationPayload, null, 2));
+
+      const response = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Accept-encoding': 'gzip, deflate',
+          'Content-Type': 'application/json',
         },
-        trigger: { 
-          seconds: 2,
-          channelId: 'animo-notifications', // Specify a channel for Android
-        },
+        body: JSON.stringify(notificationPayload),
       });
-      console.log('✅ Test notification scheduled.');
+
+      //console.log('📥 Response status:', response.status);
+      //console.log('📥 Response headers:', JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2));
+
+      const responseText = await response.text();
+      //console.log('📥 Response body:', responseText);
+
+      let responseData;
+      try {
+        responseData = JSON.parse(responseText);
+        //console.log('📥 Parsed response data:', JSON.stringify(responseData, null, 2));
+      } catch (parseError) {
+        console.error('❌ Failed to parse response as JSON:', parseError);
+        //console.log('📥 Raw response text:', responseText);
+      }
+
+      if (response.ok) {
+        //console.log('✅ Test push notification sent successfully to Expo');
+        //console.log('📱 Expo response indicates success, but notification may not be delivered to device');
+        //console.log('📱 This could be due to:');
+        console.log('   - Device not properly registered with APNs');
+        console.log('   - Provisioning profile issues');
+        console.log('   - Apple APNs configuration problems');
+        console.log('   - Device notification settings');
+      } else {
+        console.error('❌ Failed to send test push notification to Expo');
+        console.error('❌ Status:', response.status);
+        console.error('❌ Response:', responseData);
+      }
     } catch (error) {
-      console.error('❌ Failed to schedule test notification:', error);
+      console.error('❌ Failed to send test push notification:', error);
+      console.error('❌ Error details:', {
+        message: (error as Error).message,
+        stack: (error as Error).stack,
+        name: (error as Error).name
+      });
+    }
+  }
+
+  private async checkNotificationRegistration(): Promise<void> {
+    try {
+      //console.log('🔍 Checking notification registration status...');
+      
+      // Check permissions
+      const permissions = await Notifications.getPermissionsAsync();
+      //console.log('🔍 Notification permissions:', JSON.stringify(permissions, null, 2));
+      
+      // Check if we can get a token
+      try {
+        const token = await Notifications.getExpoPushTokenAsync({
+          projectId: 'd4bdbfc4-ecbc-40d7-aabb-ad545c836ab3', // Hardcoded from app.json
+        });
+        //console.log('🔍 Current Expo push token:', token.data);
+        //console.log('🔍 Token type:', token.type);
+      } catch (tokenError) {
+        console.error('❌ Failed to get current push token:', tokenError);
+      }
+      
+      // Check device info
+      // console.log('🔍 Device info:', {
+      //   isDevice: Device.isDevice,
+      //   deviceType: Device.deviceType,
+      //   platform: Platform.OS,
+      //   brand: Device.brand,
+      //   modelName: Device.modelName,
+      // });
+      
+    } catch (error) {
+      console.error('❌ Error checking notification registration:', error as Error);
     }
   }
 
   async sendRemoteTestNotification(): Promise<void> {
     try {
       if (!this.pushToken) {
-        console.log('⚠️ No push token available for remote test');
+        //console.log('⚠️ No push token available for remote test');
         return;
       }
 
-      console.log('📬 Sending remote test notification...');
-      console.log('📱 Push Token:', this.pushToken);
+      //console.log('📬 Sending remote test notification...');
+      //console.log('📱 Push Token:', this.pushToken);
 
-      // Send via Expo's push service
+      // Check if we're running on web platform
+      const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
+      
+      if (isWeb) {
+        console.log('🌐 Web platform detected - cannot send push notifications directly');
+        //console.log('📱 Remote test notification would be sent to:', this.pushToken);
+        //console.log('📱 Message: 🚀 Remote Test Notification - If you see this, your remote push notifications are working!');
+        return;
+      }
+
+      // Send via Expo's push service (native platforms only)
       const response = await fetch('https://exp.host/--/api/v2/push/send', {
         method: 'POST',
         headers: {
@@ -190,14 +385,15 @@ class PushNotificationService {
           body: 'If you see this, your remote push notifications are working!',
           data: { testData: 'remote test' },
           sound: 'default',
+          badge: 1,
         }),
       });
 
       const result = await response.json();
-      console.log('📬 Remote notification result:', result);
+      //console.log('📬 Remote notification result:', result);
 
       if (response.ok) {
-        console.log('✅ Remote test notification sent successfully');
+        //console.log('✅ Remote test notification sent successfully');
         // Show success alert
         if (typeof Alert !== 'undefined') {
           Alert.alert(
@@ -241,16 +437,48 @@ class PushNotificationService {
 
   async sendNotification(title: string, body: string, data?: any): Promise<void> {
     try {
-      await Notifications.scheduleNotificationAsync({
-        content: {
+      if (!this.pushToken) {
+        //console.log('⚠️ No push token available for notification');
+        return;
+      }
+
+      // Check if we're running on web platform
+      const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
+      
+      if (isWeb) {
+        console.log('🌐 Web platform detected - cannot send push notifications directly');
+        //console.log('📱 Notification would be sent to:', this.pushToken);
+        //console.log('📱 Message:', title, '-', body);
+        return;
+      }
+
+      // Send via Expo's push service (native platforms only)
+      const response = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Accept-encoding': 'gzip, deflate',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          to: this.pushToken,
           title,
           body,
           data,
-        },
-        trigger: null, // Send immediately
+          sound: 'default',
+          priority: 'high',
+          channelId: 'animo-notifications',
+          badge: 1,
+        }),
       });
+
+      if (response.ok) {
+        //console.log('✅ Push notification sent successfully');
+      } else {
+        console.error('❌ Failed to send push notification');
+      }
     } catch (error) {
-      console.error('❌ Failed to send local notification:', error);
+      console.error('❌ Failed to send push notification:', error);
     }
   }
 
@@ -280,13 +508,36 @@ class PushNotificationService {
         console.log(`✅ [pushNotificationService] User ${userId} will receive class reminder`);
       }
       
-      const title = 'Class Reminder';
+      const title = '⏰ Class Reminder';
       const body = `${className} with ${instructorName} starts in ${minutesBeforeClass} minutes!`;
       
       console.log(`📬 Sending class reminder: ${body}`);
       
-      await Notifications.scheduleNotificationAsync({
-        content: {
+      if (!this.pushToken) {
+        //console.log('⚠️ No push token available for class reminder');
+        return;
+      }
+
+      // Check if we're running on web platform
+      const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
+      
+      if (isWeb) {
+        console.log('🌐 Web platform detected - cannot send push notifications directly');
+        //console.log('📱 Class reminder would be sent to:', this.pushToken);
+        //console.log('📱 Message:', title, '-', body);
+        return;
+      }
+
+      // Send via Expo's push service (native platforms only)
+      const response = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Accept-encoding': 'gzip, deflate',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          to: this.pushToken,
           title,
           body,
           data: { 
@@ -296,11 +547,17 @@ class PushNotificationService {
             minutesBeforeClass,
             userId
           },
-        },
-        trigger: null, // Send immediately for testing
+          sound: 'default',
+          priority: 'high',
+          channelId: 'animo-notifications',
+        }),
       });
-      
-      console.log('✅ Class reminder notification sent');
+
+      if (response.ok) {
+        //console.log('✅ Class reminder push notification sent');
+      } else {
+        console.error('❌ Failed to send class reminder push notification');
+      }
     } catch (error) {
       console.error('❌ Failed to send class reminder:', error);
     }
@@ -355,6 +612,18 @@ class PushNotificationService {
       
       console.log(`📅 [pushNotificationService] Found ${bookings.length} upcoming classes for user ${userId}`);
       
+      // Get user's push token
+      const { data: userData } = await supabase
+        .from('users')
+        .select('push_token')
+        .eq('id', userId)
+        .single();
+
+      if (!userData?.push_token) {
+        console.log(`⚠️ No push token found for user ${userId} - cannot schedule reminders`);
+        return;
+      }
+
       for (const booking of bookings) {
         const classInfo = booking.classes as any;
         if (classInfo) {
@@ -364,25 +633,35 @@ class PushNotificationService {
           
           // Only schedule if reminder time is in the future
           if (reminderTime > now) {
-            const secondsUntilReminder = (reminderTime.getTime() - now.getTime()) / 1000;
+            console.log(`⏰ [pushNotificationService] Scheduling reminder for "${classInfo.name}" on ${classInfo.date} at ${classInfo.time} (${reminderMinutes} min before)`);
             
-            await Notifications.scheduleNotificationAsync({
-              content: {
-                title: 'Class Reminder',
-                body: `${classInfo.name} with ${classInfo.users?.name || 'your instructor'} starts in ${reminderMinutes} minutes!`,
-                data: { 
+            // Store notification in Supabase for Vercel cron job to process
+            const { error } = await supabase
+              .from('notifications')
+              .insert({
+                user_id: userId,
+                title: '🧘‍♀️ Class Reminder',
+                message: `${classInfo.name} with ${classInfo.users?.name || 'your instructor'} starts in ${reminderMinutes} minutes!`,
+                type: 'class_reminder',
+                scheduled_for: reminderTime.toISOString(),
+                metadata: {
                   type: 'class_reminder',
                   classId: classInfo.id,
                   bookingId: booking.id,
-                  userId
+                  userId,
+                  push_token: userData.push_token,
+                  className: classInfo.name,
+                  instructorName: classInfo.users?.name
                 },
-              },
-              trigger: {
-                seconds: secondsUntilReminder,
-              },
-            });
-            
-            console.log(`⏰ [pushNotificationService] Scheduled reminder for "${classInfo.name}" on ${classInfo.date} at ${classInfo.time} (${reminderMinutes} min before)`);
+                is_read: false
+                // sent_at and created_at will be handled by database defaults
+              });
+
+            if (error) {
+              console.error(`❌ Failed to schedule reminder for class ${classInfo.name}:`, error);
+            } else {
+              console.log(`✅ Reminder scheduled for "${classInfo.name}"`);
+            }
           }
         }
       }

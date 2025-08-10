@@ -64,6 +64,7 @@ function StudentRoster() {
       const classResponse = await classService.getClasses({
         instructor: user?.id?.toString(),
         status: 'active'
+        // Removed upcoming: true filter so instructor can see all classes including past ones
       });
 
       if (classResponse.success && classResponse.data) {

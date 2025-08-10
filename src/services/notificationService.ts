@@ -33,10 +33,49 @@ export interface NotificationRequest {
   type: 'reminder' | 'cancellation' | 'update';
   message: string;
   scheduledTime?: string;
-  targetUsers?: number[]; // If empty, sends to all enrolled users
+  targetUsers?: (number | string)[]; // If empty, sends to all enrolled users - supports both number IDs and UUID strings
 }
 
 class NotificationService {
+  private isInitialized: boolean = false;
+  
+  // Initialize notification service for the current platform
+  async initialize(): Promise<void> {
+    if (this.isInitialized) {
+      console.log('📱 [notificationService] Already initialized');
+      return;
+    }
+    
+    try {
+      console.log('📱 [notificationService] Initializing notification service...');
+      
+      // Enhanced platform detection
+      const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
+      const isReactNative = typeof navigator !== 'undefined' && navigator.product === 'ReactNative';
+      const isDevelopment = __DEV__;
+      
+      console.log(`📱 [notificationService] Platform - Web: ${isWeb}, React Native: ${isReactNative}, Development: ${isDevelopment}`);
+      
+      if (isWeb) {
+        console.log('🌐 [notificationService] Web platform: Push notifications will be handled via Supabase + cron jobs');
+      } else {
+        console.log('📱 [notificationService] Native platform: Direct push notifications enabled');
+        
+        // Enhanced development notification support
+        if (isDevelopment) {
+          console.log('🔧 [notificationService] Development mode: Enhanced logging and fallback notifications enabled');
+        }
+      }
+      
+      this.isInitialized = true;
+      console.log('✅ [notificationService] Notification service initialized successfully');
+      
+    } catch (error) {
+      console.error('❌ [notificationService] Failed to initialize:', error);
+      // Don't throw - notification failures shouldn't crash the app
+    }
+  }
+
   // Schedule notifications for a class
   async scheduleClassNotifications(
     classData: BackendClass, 
@@ -94,9 +133,9 @@ class NotificationService {
   // Send immediate notification
   async sendClassNotification(
     classId: number | string,
-    type: 'cancellation' | 'update',
+    type: 'cancellation' | 'update' | 'waitlist_promotion',
     message: string,
-    targetUsers?: number[]
+    targetUsers?: (number | string)[]
   ): Promise<ApiResponse<any>> {
     try {
       console.log(`📢 [notificationService] Sending ${type} notification for class ${classId}:`, message);
@@ -108,7 +147,7 @@ class NotificationService {
           .eq('class_id', classId)
           .eq('status', 'confirmed');
         
-        targetUsers = bookings?.map(b => Number(b.user_id)) || [];
+        targetUsers = bookings?.map(b => String(b.user_id)) || [];
       }
 
       if (targetUsers.length === 0) {
@@ -119,11 +158,14 @@ class NotificationService {
       const enabledUsers = [];
       
       for (const userId of targetUsers) {
+        // Ensure userId is a string for UUID queries
+        const userIdString = String(userId);
+        
         // Check user notification settings
         const { data: userSettings } = await supabase
           .from('notification_settings')
           .select('enable_notifications, enable_push_notifications')
-          .eq('user_id', userId)
+          .eq('user_id', userIdString)
           .single();
         
         // Default to enabled if no settings found, or if both general and push notifications are enabled
@@ -131,10 +173,10 @@ class NotificationService {
           (userSettings.enable_notifications && userSettings.enable_push_notifications);
         
         if (shouldSendNotification) {
-          enabledUsers.push(userId);
-          console.log(`✅ [notificationService] User ${userId} will receive notification (settings allow)`);
+          enabledUsers.push(userIdString);
+          console.log(`✅ [notificationService] User ${userIdString} will receive notification (settings allow)`);
         } else {
-          console.log(`❌ [notificationService] User ${userId} will NOT receive notification (settings disabled)`);
+          console.log(`❌ [notificationService] User ${userIdString} will NOT receive notification (settings disabled)`);
         }
       }
 
@@ -147,7 +189,7 @@ class NotificationService {
 
       // Create notification for each user with notifications enabled
       const notifications = enabledUsers.map(userId => ({
-        user_id: String(userId), // Ensure it's a string for Supabase
+        user_id: userId, // Already ensured to be string above
         type: `class_${type}`,
         title: type === 'update' ? 'Class Assignment' : 'Class Cancellation',
         message,
@@ -201,8 +243,10 @@ class NotificationService {
       // Return success if at least some notifications were created, or if main action completed
       return { 
         success: true, 
-        data: createdNotifications,
-        warning: failedNotifications.length > 0 ? `${failedNotifications.length} notifications failed due to permissions` : undefined
+        data: {
+          created: createdNotifications,
+          failedCount: failedNotifications.length
+        }
       };
     } catch (error) {
       console.error(`❌ [notificationService] Error in sendClassNotification:`, error);
@@ -211,7 +255,7 @@ class NotificationService {
   }
 
   // Send push notification to a specific user
-  private async sendPushNotificationToUser(userId: string, title: string, message: string): Promise<void> {
+  async sendPushNotificationToUser(userId: string, title: string, message: string): Promise<void> {
     try {
       // Get user's push token from the database
       const { data: user, error } = await supabase
@@ -222,38 +266,217 @@ class NotificationService {
 
       if (error || !user?.push_token) {
         console.log(`⚠️ [notificationService] No push token found for user ${userId}`);
+        
+        // Development fallback: Log notification details for debugging
+        if (__DEV__) {
+          console.log(`🔧 [notificationService] Development mode: Would send notification "${title}: ${message}" to user ${userId}`);
+          console.log(`🔧 [notificationService] Development mode: User has no push token, notification stored in database`);
+        }
         return;
       }
 
-      // Send push notification using Expo's API
+      // Enhanced platform detection for better cross-platform support
+      const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
+      const isReactNative = typeof navigator !== 'undefined' && navigator.product === 'ReactNative';
+      const isExpoGo = typeof window === 'undefined' && typeof global !== 'undefined';
+      
+      console.log(`🔍 [notificationService] Platform detection - Web: ${isWeb}, RN: ${isReactNative}, Expo: ${isExpoGo}`);
+      
+      if (isWeb) {
+        // On web, we can't send push notifications directly due to CORS restrictions
+        // The notification is already stored in Supabase for cron job processing
+        console.log(`🌐 [notificationService] Web platform detected - notification stored in Supabase for user ${userId}`);
+        console.log(`📱 [notificationService] Push notification will be sent via cron job`);
+        console.log(`📱 [notificationService] Message: ${title} - ${message}`);
+        return;
+      }
+
+      // Send push notification using Expo's API (native platforms only)
+      console.log(`📱 [notificationService] Sending push notification to user ${userId}`);
+      
       const pushMessage = {
         to: user.push_token,
         title: title,
         body: message,
         sound: 'default',
         badge: 1,
+        priority: 'high',
         data: {
           userId: userId,
-          type: 'class_notification'
+          type: 'class_notification',
+          timestamp: new Date().toISOString()
         }
       };
 
+      // Enhanced error handling for production
+      console.log(`📱 [notificationService] Sending push message:`, pushMessage);
+      
       const response = await fetch('https://exp.host/--/api/v2/push/send', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
         body: JSON.stringify(pushMessage),
       });
-
+      
       if (response.ok) {
-        console.log(`📱 [notificationService] Push notification sent to user ${userId}`);
+        const result = await response.json();
+        console.log(`✅ [notificationService] Push notification sent to user ${userId}`);
+        console.log(`📱 [notificationService] Response:`, result);
+        
+        // Log success for production debugging
+        if (result.data?.status === 'ok') {
+          console.log(`🎉 [notificationService] Push notification delivered successfully`);
+        } else if (result.data?.status === 'error') {
+          console.error(`❌ [notificationService] Push notification error:`, result.data?.message);
+        }
+        
+        // Log any warnings from Expo's push service
+        if (result.data && result.data[0] && result.data[0].status === 'error') {
+          console.warn(`⚠️ [notificationService] Push notification warning:`, result.data[0].message);
+        }
       } else {
         const errorText = await response.text();
-        console.error(`❌ [notificationService] Failed to send push notification:`, errorText);
+        console.error(`❌ [notificationService] Failed to send push notification (HTTP ${response.status}):`, errorText);
+        
+        // For production builds, don't throw errors that could crash the app
+        if (__DEV__) {
+          throw new Error(`Push notification failed: ${errorText}`);
+        }
       }
     } catch (error) {
       console.error(`❌ [notificationService] Error sending push notification to user ${userId}:`, error);
+    }
+  }
+
+  // Send bulk push notifications (for multiple users efficiently)
+  async sendBulkPushNotifications(tokens: string[], title: string, message: string, data?: any): Promise<boolean> {
+    try {
+      if (tokens.length === 0) {
+        console.log(`⚠️ [notificationService] No tokens provided for bulk notification`);
+        return false;
+      }
+
+      // Skip web platform for push notifications
+      const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
+      if (isWeb) {
+        console.log(`🌐 [notificationService] Web platform - skipping push notifications`);
+        return false;
+      }
+
+      // Split into batches of 100 (Expo's limit)
+      const batchSize = 100;
+      const batches = [];
+      for (let i = 0; i < tokens.length; i += batchSize) {
+        batches.push(tokens.slice(i, i + batchSize));
+      }
+
+      console.log(`📱 [notificationService] Sending ${tokens.length} notifications in ${batches.length} batches`);
+
+      let successCount = 0;
+      let failureCount = 0;
+
+      for (const [batchIndex, batch] of batches.entries()) {
+        try {
+          const messages = batch.map(token => ({
+            to: token,
+            title: title,
+            body: message,
+            sound: 'default',
+            badge: 1,
+            priority: 'high' as const,
+            data: {
+              ...data,
+              timestamp: new Date().toISOString()
+            }
+          }));
+
+          console.log(`📱 [notificationService] Sending batch ${batchIndex + 1}/${batches.length} with ${batch.length} notifications`);
+
+          const response = await fetch('https://exp.host/--/api/v2/push/send', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: JSON.stringify(messages),
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            console.log(`✅ [notificationService] Batch ${batchIndex + 1}/${batches.length} sent successfully`);
+            
+            // Count successes and failures
+            if (result.data && Array.isArray(result.data)) {
+              result.data.forEach((res: any) => {
+                if (res.status === 'ok') {
+                  successCount++;
+                } else {
+                  failureCount++;
+                  if (res.message) {
+                    console.warn(`⚠️ [notificationService] Token failed:`, res.message);
+                  }
+                }
+              });
+            } else {
+              successCount += batch.length;
+            }
+          } else {
+            failureCount += batch.length;
+            console.error(`❌ [notificationService] Batch ${batchIndex + 1} failed with status ${response.status}`);
+          }
+
+          // Small delay between batches to avoid rate limiting
+          if (batchIndex < batches.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        } catch (batchError) {
+          failureCount += batch.length;
+          console.error(`❌ [notificationService] Exception in batch ${batchIndex + 1}:`, batchError);
+        }
+      }
+
+      console.log(`📊 [notificationService] Bulk notification complete: ${successCount} success, ${failureCount} failed`);
+      return successCount > 0;
+
+    } catch (error) {
+      console.error(`❌ [notificationService] Exception in sendBulkPushNotifications:`, error);
+      return false;
+    }
+  }
+
+  // Send notification to multiple users at once (for 500+ users)
+  async sendNotificationToMultipleUsers(userIds: string[], title: string, message: string): Promise<void> {
+    try {
+      if (userIds.length === 0) return;
+
+      console.log(`📱 [notificationService] Sending notification to ${userIds.length} users`);
+
+      // Get all push tokens for these users
+      const { data: users, error } = await supabase
+        .from('users')
+        .select('push_token')
+        .in('id', userIds)
+        .not('push_token', 'is', null);
+
+      if (error) {
+        console.error(`❌ [notificationService] Failed to get user tokens:`, error);
+        return;
+      }
+
+      const tokens = users?.map(u => u.push_token).filter(Boolean) || [];
+      
+      if (tokens.length > 0) {
+        await this.sendBulkPushNotifications(tokens, title, message, {
+          type: 'bulk_notification',
+          userCount: userIds.length
+        });
+      } else {
+        console.log(`⚠️ [notificationService] No valid push tokens found for ${userIds.length} users`);
+      }
+    } catch (error) {
+      console.error(`❌ [notificationService] Exception in sendNotificationToMultipleUsers:`, error);
     }
   }
 
@@ -298,7 +521,7 @@ class NotificationService {
         if (error.code === 'PGRST116') {
             return { success: true, data: {
                 enableNotifications: true,
-                defaultReminderMinutes: 15,
+                defaultReminderMinutes: 5,
                 enablePushNotifications: true, // Assuming this maps to enable_notifications
                 enableEmailNotifications: true
             }};
@@ -364,23 +587,32 @@ class NotificationService {
   }
 
   // Get user notifications
-  async getUserNotifications(userId: number): Promise<ApiResponse<ClassNotification[]>> {
+  async getUserNotifications(userId: number | string, options?: { limit?: number }): Promise<ApiResponse<ClassNotification[]>> {
     try {
-      const { data, error } = await supabase
+      console.log(`📧 [notificationService] Loading notifications for user ${userId} with options:`, options);
+      
+      let query = supabase
         .from('notifications')
-        .select(`
-          *,
-          classes (name, date, time, instructor_name)
-        `)
+        .select('*')
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
+
+      // Apply limit if provided
+      if (options?.limit) {
+        query = query.limit(options.limit);
+      }
+      
+      const { data, error } = await query;
       
       if (error) {
+        console.error(`❌ [notificationService] Error loading notifications:`, error);
         return { success: false, error: error.message };
       }
       
+      console.log(`✅ [notificationService] Loaded ${data?.length || 0} notifications for user ${userId}`);
       return { success: true, data: data || [] };
     } catch (error) {
+      console.error(`❌ [notificationService] Exception in getUserNotifications:`, error);
       return { success: false, error: 'Failed to get user notifications' };
     }
   }
@@ -391,7 +623,7 @@ class NotificationService {
       const { error } = await supabase
         .from('notifications')
         .update({ 
-          read: true,
+          is_read: true,
           updated_at: new Date().toISOString()
         })
         .eq('id', notificationId);
@@ -445,7 +677,6 @@ class NotificationService {
           user_id: userId,
           type: 'test',
           message,
-          status: 'sent',
           sent_at: new Date().toISOString()
         })
         .select()
@@ -467,7 +698,16 @@ class NotificationService {
   }
 
   formatClassCancellationMessage(classData: BackendClass): string {
-    return `❌ Class Cancelled: "${classData.name}" scheduled for ${new Date(classData.date).toLocaleDateString()} at ${this.formatTime(classData.time)} has been cancelled. We apologize for any inconvenience.`;
+    // Check if class has passed to determine refund message
+    const classStartDateTime = new Date(`${classData.date}T${classData.time}`);
+    const now = new Date();
+    const classHasPassed = classStartDateTime <= now;
+    
+    const refundMessage = classHasPassed 
+      ? ' Since the class had already started, no credits will be refunded.'
+      : ' Your class credit has been automatically refunded to your account.';
+    
+    return `❌ Class Cancelled: "${classData.name}" scheduled for ${new Date(classData.date).toLocaleDateString()} at ${this.formatTime(classData.time)} has been cancelled.${refundMessage} We apologize for any inconvenience.`;
   }
 
   formatClassUpdateMessage(classData: BackendClass): string {
@@ -487,10 +727,27 @@ class NotificationService {
   }
 
   // Send notification when a class becomes full
-  async sendClassFullNotification(classId: number, instructorId?: string): Promise<ApiResponse<any>> {
+  async sendClassFullNotification(classId: number | string, instructorId?: string): Promise<ApiResponse<any>> {
     try {
       if (!instructorId) {
         return { success: false, error: 'Instructor ID required' };
+      }
+
+      // Respect instructor notification preferences
+      const { data: instructorPrefs } = await supabase
+        .from('notification_settings')
+        .select('class_full_notifications, enable_notifications, enable_push_notifications')
+        .eq('user_id', instructorId)
+        .maybeSingle();
+
+      const canNotifyInstructor = !instructorPrefs || (
+        instructorPrefs.enable_notifications !== false &&
+        instructorPrefs.enable_push_notifications !== false &&
+        instructorPrefs.class_full_notifications !== false
+      );
+
+      if (!canNotifyInstructor) {
+        return { success: true, data: { notificationSent: false } };
       }
 
       // Get class details

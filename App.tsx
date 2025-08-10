@@ -1,4 +1,5 @@
 import { NavigationContainer } from '@react-navigation/native';
+import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect, useState } from 'react';
 import { AppState, AppStateStatus, Platform } from 'react-native';
@@ -7,16 +8,54 @@ import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Provider, useSelector } from 'react-redux';
 
-import WebCompatibleIcon from '@/src/components/WebCompatibleIcon';
 import ErrorBoundary from './src/components/ErrorBoundary';
+import WebCompatibleIcon from './src/components/WebCompatibleIcon';
 import MainNavigator from './src/navigation/MainNavigator';
 import LoginScreen from './src/screens/LoginScreen';
+import { notificationService } from './src/services/notificationService';
 import { pushNotificationService } from './src/services/pushNotificationService';
 import { RootState, store } from './src/store';
 import { authReady, loadUserProfile, restoreSession } from './src/store/authSlice';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
+
+// Set up notification handler for when app is in background/closed
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
+// Handle background notification responses (when user taps notification while app is closed)
+Notifications.addNotificationResponseReceivedListener(response => {
+  console.log('📱 [Background] Notification response received:', response);
+  
+  // You can add navigation logic here if needed
+  const data = response.notification.request.content.data;
+  if (data?.type === 'class_cancellation') {
+    console.log('📱 [Background] User tapped cancellation notification');
+    // Navigate to relevant screen when app opens
+  }
+});
+
+// Handle notifications received while app is in foreground
+Notifications.addNotificationReceivedListener(notification => {
+  console.log('📱 [Foreground] Notification received:', notification);
+  
+  // This will show the notification banner even when app is open
+  const data = notification.request.content.data;
+  console.log('📱 [Foreground] Notification data:', data);
+});
+
+// Handle push notification registration
+Notifications.addPushTokenListener(token => {
+  console.log('📱 [Push Token] New push token received:', token.data);
+});
 
 // Configure React Native Paper theme
 const paperTheme = {
@@ -34,20 +73,26 @@ function AppContent() {
 
   useEffect(() => {
     if (isLoggedIn && user?.id) {
+      // Initialize notification service for all platforms (handles web vs native internally)
+      console.log('📢 [App] User is logged in, initializing notification services...');
+      notificationService.initialize().catch(error => {
+        console.error('❌ [App] Failed to initialize notification service:', error);
+      });
+
       // Only initialize push notifications on mobile platforms
       if (Platform.OS !== 'web') {
-        console.log('📱 [App] User is logged in, initializing push notifications...');
+
         pushNotificationService.initialize().catch(error => {
           console.error('❌ [App] Failed to initialize push notifications:', error);
         });
 
         // Schedule class reminders for user's upcoming bookings
-        console.log('🗓️ [App] Scheduling class reminders for user...');
+
         pushNotificationService.scheduleClassReminders(user.id).catch(error => {
           console.error('❌ [App] Failed to schedule class reminders:', error);
         });
       } else {
-        console.log('🌐 [App] Web platform detected, skipping push notifications');
+
       }
     }
   }, [isLoggedIn, user?.id]);
@@ -146,6 +191,11 @@ export default function App() {
           store.dispatch(loadUserProfile()).catch((error: any) => {
             console.warn('⚠️ [App] Profile refresh failed (non-critical):', error);
           });
+
+          // Clear app icon badge when app is opened
+          try {
+            Notifications.setBadgeCountAsync(0);
+          } catch {}
         }
       }
     };

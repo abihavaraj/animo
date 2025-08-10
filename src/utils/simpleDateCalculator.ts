@@ -104,8 +104,8 @@ export class SimpleDateCalculator {
       const diffTime = end.getTime() - now.getTime();
       const daysDiff = Math.round(diffTime / (1000 * 60 * 60 * 24));
       
-      // Add 1 to include today in the count
-      return daysDiff + 1;
+      // Return actual days difference (0 = expires today, 1 = expires tomorrow)
+      return daysDiff;
     } catch (error) {
       console.error('❌ SimpleDateCalculator.daysUntilExpiration error:', error);
       return 0;

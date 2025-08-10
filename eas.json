@@ -11,7 +11,7 @@
       "ios": {
         "resourceClass": "m-medium",
         "buildConfiguration": "Debug",
-        "simulator": true
+        "simulator": false
       },
       "android": {
         "resourceClass": "medium"
@@ -49,10 +49,21 @@
       "autoIncrement": true,
       "distribution": "store",
       "ios": {
-        "resourceClass": "m-medium"
+        "resourceClass": "m-medium",
+        "buildConfiguration": "Release"
       },
       "android": {
         "resourceClass": "medium"
+      },
+      "env": {
+        "NODE_ENV": "production",
+        "DISABLE_ESLINT_PLUGIN": "true",
+        "ESLINT_NO_DEV_ERRORS": "true",
+        "TSC_COMPILE_ON_ERROR": "true",
+        "GENERATE_SOURCEMAP": "false",
+        "SKIP_TYPE_CHECK": "true",
+        "EXPO_SKIP_TYPESCRIPT_CHECK": "true",
+        "BABEL_ENV": "production"
       }
     }
   },

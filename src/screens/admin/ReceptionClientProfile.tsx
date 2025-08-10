@@ -2,7 +2,7 @@ import { Body, Caption, H1, H2, H3 } from '@/components/ui/Typography';
 import { MaterialIcons } from '@expo/vector-icons';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import React, { useEffect, useState } from 'react';
-import { Alert, Dimensions, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Dimensions, Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import {
     ActivityIndicator,
     Avatar,
@@ -19,7 +19,14 @@ import {
 } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 import { useThemeColor } from '../../../hooks/useThemeColor';
+import WebCompatibleIcon from '../../components/WebCompatibleIcon';
 import { supabase } from '../../config/supabase.config';
+import {
+    ClientMedicalUpdate,
+    ClientProgressPhoto,
+    InstructorClientAssignment,
+    instructorClientService
+} from '../../services/instructorClientService';
 import { subscriptionService } from '../../services/subscriptionService';
 import { BackendUser, userService } from '../../services/userService';
 import { AppDispatch, RootState } from '../../store';
@@ -161,7 +168,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
   }
 
   // State management
-  const [activeTab, setActiveTab] = useState<'overview' | 'plans' | 'bookings' | 'payments' | 'notes' | 'documents' | 'activity' | 'timeline'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'plans' | 'bookings' | 'payments' | 'notes' | 'documents' | 'activity' | 'timeline' | 'instructor_progress'>('overview');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   
@@ -172,6 +179,11 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
   const [documents, setDocuments] = useState<ClientDocument[]>([]);
   const [activities, setActivities] = useState<ClientActivity[]>([]);
   const [lifecycle, setLifecycle] = useState<ClientLifecycle | null>(null);
+  
+  // Instructor progress states
+  const [instructorAssignments, setInstructorAssignments] = useState<InstructorClientAssignment[]>([]);
+  const [progressPhotos, setProgressPhotos] = useState<ClientProgressPhoto[]>([]);
+  const [medicalUpdates, setMedicalUpdates] = useState<ClientMedicalUpdate[]>([]);
   
   // UI states
   const [searchQuery, setSearchQuery] = useState('');
@@ -246,7 +258,10 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         loadDocuments(),
         loadActivities(),
         loadLifecycle(),
-        loadSubscriptionHistory()
+        loadSubscriptionHistory(),
+        loadInstructorAssignments(),
+        loadProgressPhotos(),
+        loadMedicalUpdates()
       ]);
       console.log('✅ All client data loaded successfully');
     } catch (error) {
@@ -687,6 +702,231 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
     }
   };
 
+  // Instructor progress loading functions
+  const loadInstructorAssignments = async () => {
+    try {
+      console.log('👥 Loading instructor assignments for userId:', userId);
+      
+      // Get assignments for this client
+      const { data: assignments, error: assignmentsError } = await supabase
+        .from('instructor_client_assignments')
+        .select('*')
+        .eq('client_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (assignmentsError) {
+        console.log('👥 Instructor assignments table not available:', assignmentsError);
+        setInstructorAssignments([]);
+        return;
+      }
+
+      if (!assignments || assignments.length === 0) {
+        console.log('👥 No instructor assignments found');
+        setInstructorAssignments([]);
+        return;
+      }
+
+      // Get instructor details for each assignment
+      const instructorIds = assignments.map(assignment => assignment.instructor_id);
+      const { data: instructors } = await supabase
+        .from('users')
+        .select('id, name')
+        .in('id', instructorIds);
+
+      // Get assigned_by user details
+      const assignedByIds = assignments
+        .map(assignment => assignment.assigned_by)
+        .filter(id => id && id !== 'system');
+      
+      let assignedByUsers: any[] = [];
+      if (assignedByIds.length > 0) {
+        const { data: users } = await supabase
+          .from('users')
+          .select('id, name')
+          .in('id', assignedByIds);
+        assignedByUsers = users || [];
+      }
+
+      // Create maps for easy lookup
+      const instructorMap = new Map(instructors?.map(instructor => [instructor.id, instructor]) || []);
+      const assignedByMap = new Map(assignedByUsers.map(user => [user.id, user]));
+
+      // Combine assignment data with user data
+      const formattedAssignments = assignments.map(assignment => {
+        const instructor = instructorMap.get(assignment.instructor_id);
+        const assignedBy = assignment.assigned_by === 'system' ? null : assignedByMap.get(assignment.assigned_by);
+        
+        return {
+          ...assignment,
+          instructor_name: instructor?.name || 'Unknown Instructor',
+          assigned_by_name: assignment.assigned_by === 'system' ? 'System' : (assignedBy?.name || 'Unknown')
+        };
+      });
+
+      setInstructorAssignments(formattedAssignments);
+      console.log('✅ Instructor assignments loaded:', formattedAssignments.length);
+    } catch (error) {
+      console.error('Failed to load instructor assignments:', error);
+      setInstructorAssignments([]);
+    }
+  };
+
+  const loadProgressPhotos = async () => {
+    try {
+      console.log('📸 Loading progress photos for userId:', userId);
+      
+      const { data: photos, error } = await supabase
+        .from('client_progress_photos')
+        .select('*')
+        .eq('client_id', userId)
+        .order('taken_date', { ascending: false });
+
+      if (error) {
+        console.log('📸 Progress photos table not available:', error);
+        setProgressPhotos([]);
+        return;
+      }
+
+      setProgressPhotos(photos || []);
+      console.log('✅ Progress photos loaded:', photos?.length || 0);
+    } catch (error) {
+      console.error('Failed to load progress photos:', error);
+      setProgressPhotos([]);
+    }
+  };
+
+  const handleDeletePhoto = async (photoId: number) => {
+    try {
+      console.log('🗑️ Deleting progress photo:', photoId);
+      
+      const response = await instructorClientService.deleteProgressPhoto(photoId);
+      
+      if (response.success) {
+        // Remove photo from local state
+        setProgressPhotos(prev => prev.filter(photo => photo.id !== photoId));
+        Alert.alert('Success', 'Photo deleted successfully');
+        console.log('✅ Photo deleted successfully');
+      } else {
+        Alert.alert('Error', response.error || 'Failed to delete photo');
+        console.error('❌ Failed to delete photo:', response.error);
+      }
+    } catch (error) {
+      console.error('❌ Exception while deleting photo:', error);
+      Alert.alert('Error', 'Failed to delete photo');
+    }
+  };
+
+  const confirmDeletePhoto = (photoId: number, photoDescription?: string) => {
+    Alert.alert(
+      'Delete Photo',
+      `Are you sure you want to delete this progress photo${photoDescription ? `: ${photoDescription}` : ''}?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => handleDeletePhoto(photoId),
+        },
+      ]
+    );
+  };
+
+  const loadMedicalUpdates = async () => {
+    try {
+      console.log('🏥 Loading medical updates for userId:', userId);
+      
+      const { data: updates, error } = await supabase
+        .from('client_medical_updates')
+        .select('*')
+        .eq('client_id', userId)
+        .order('effective_date', { ascending: false });
+
+      if (error) {
+        console.log('🏥 Medical updates table not available:', error);
+        setMedicalUpdates([]);
+        return;
+      }
+
+      if (!updates || updates.length === 0) {
+        console.log('🏥 No medical updates found');
+        setMedicalUpdates([]);
+        return;
+      }
+
+      // Get admin names for verified updates
+      const adminIds = updates
+        .filter(update => update.verified_by_admin)
+        .map(update => update.verified_by_admin);
+      
+      let adminUsers: any[] = [];
+      if (adminIds.length > 0) {
+        const { data: admins } = await supabase
+          .from('users')
+          .select('id, name')
+          .in('id', adminIds);
+        adminUsers = admins || [];
+      }
+
+      const adminMap = new Map(adminUsers.map(admin => [admin.id, admin]));
+
+      // Add admin names to updates
+      const formattedUpdates = updates.map(update => {
+        const admin = update.verified_by_admin ? adminMap.get(update.verified_by_admin) : null;
+        return {
+          ...update,
+          admin_name: admin?.name || undefined
+        };
+      });
+
+      setMedicalUpdates(formattedUpdates);
+      console.log('✅ Medical updates loaded:', formattedUpdates.length);
+    } catch (error) {
+      console.error('Failed to load medical updates:', error);
+      setMedicalUpdates([]);
+    }
+  };
+
+  // Handle medical update approval
+  const handleApproveMedicalUpdate = async (updateId: number) => {
+    try {
+      if (!user?.id) {
+        Alert.alert('Error', 'User not authenticated');
+        return;
+      }
+
+      const response = await instructorClientService.approveMedicalUpdate(
+        updateId,
+        user.id,
+        'Approved by reception'
+      );
+
+      if (response.success) {
+        Alert.alert(
+          'Success', 
+          'Medical update approved and applied to client profile',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Reload the data to show updated status
+                loadMedicalUpdates();
+                loadClientData(); // Refresh main profile to show updated medical conditions
+              }
+            }
+          ]
+        );
+      } else {
+        Alert.alert('Error', response.error || 'Failed to approve medical update');
+      }
+    } catch (error) {
+      console.error('Failed to approve medical update:', error);
+      Alert.alert('Error', 'Failed to approve medical update');
+    }
+  };
+
   const handleRefresh = async () => {
     setRefreshing(true);
     await loadAllData();
@@ -1063,6 +1303,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
     { key: 'documents', label: 'Documents', icon: 'folder' },
     { key: 'activity', label: 'Activity', icon: 'timeline' },
     { key: 'timeline', label: 'Timeline', icon: 'history' },
+    { key: 'instructor_progress', label: 'Instructor Progress', icon: 'group' },
   ];
 
   const renderTabContent = () => {
@@ -1083,6 +1324,8 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         return renderActivityTab();
       case 'timeline':
         return renderTimelineTab();
+      case 'instructor_progress':
+        return renderInstructorProgressTab();
       default:
         return renderOverviewTab();
     }
@@ -1403,7 +1646,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
                 <Button
                   mode="contained"
                   onPress={handleAddClass}
-                  icon="plus"
+                  icon="add"
                   style={[styles.actionButtonModern, { backgroundColor: successColor }]}
                   loading={subscriptionLoading}
                   disabled={subscriptionLoading}
@@ -1982,6 +2225,238 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
     </View>
   );
 
+  const renderInstructorProgressTab = () => (
+    <View style={styles.tabContent}>
+      <H2 style={{ ...styles.sectionTitleModern, color: textColor, marginBottom: 16 }}>
+        Instructor Progress Tracking
+      </H2>
+      
+      {/* Instructor Assignments */}
+      <Card style={[styles.modernCard, { backgroundColor: surfaceColor, marginBottom: 16 }]}>
+        <Card.Content style={styles.cardContentModern}>
+          <H3 style={{ ...styles.subsectionTitleModern, color: textColor, marginBottom: 12 }}>
+            Assigned Instructors
+          </H3>
+          
+          {instructorAssignments.length > 0 ? (
+            instructorAssignments.map((assignment, index) => (
+              <Card key={assignment.id} style={[styles.nestedCard, { marginBottom: 8 }]}>
+                <Card.Content>
+                  <View style={styles.assignmentHeader}>
+                    <View style={styles.assignmentInfo}>
+                      <H3 style={{ ...styles.assignmentName, color: textColor }}>
+                        {assignment.instructor_name}
+                      </H3>
+                      <Chip 
+                        mode="outlined" 
+                        style={[styles.assignmentChip, { backgroundColor: assignment.status === 'active' ? successColor + '20' : warningColor + '20' }]}
+                      >
+                        {assignment.assignment_type}
+                      </Chip>
+                    </View>
+                    <Chip 
+                      style={[styles.statusChip, { backgroundColor: assignment.status === 'active' ? successColor : warningColor }]}
+                    >
+                      {assignment.status.toUpperCase()}
+                    </Chip>
+                  </View>
+                  <Body style={{ ...styles.assignmentDetails, color: textSecondaryColor }}>
+                    Assigned on {formatDate(assignment.start_date)}
+                    {assignment.assigned_by_name && ` by ${assignment.assigned_by_name}`}
+                  </Body>
+                  {assignment.notes && (
+                    <Body style={{ ...styles.assignmentNotes, color: textMutedColor }}>
+                      Notes: {assignment.notes}
+                    </Body>
+                  )}
+                </Card.Content>
+              </Card>
+            ))
+          ) : (
+            <Card style={styles.emptyCard}>
+              <Card.Content style={styles.emptyContent}>
+                <MaterialIcons name="person-outline" size={48} color={textMutedColor} />
+                <H3 style={{ ...styles.emptyTitle, color: textMutedColor }}>No Instructor Assignments</H3>
+                <Body style={{ ...styles.emptyText, color: textSecondaryColor }}>
+                  This client has not been assigned to any instructors yet.
+                </Body>
+              </Card.Content>
+            </Card>
+          )}
+        </Card.Content>
+      </Card>
+
+      {/* Progress Photos */}
+      <Card style={[styles.modernCard, { backgroundColor: surfaceColor, marginBottom: 16 }]}>
+        <Card.Content style={styles.cardContentModern}>
+          <H3 style={{ ...styles.subsectionTitleModern, color: textColor, marginBottom: 12 }}>
+            Progress Photos
+          </H3>
+          
+          {progressPhotos.length > 0 ? (
+            progressPhotos.map((photo, index) => (
+              <Card key={photo.id} style={[styles.nestedCard, { marginBottom: 8 }]}>
+                <Card.Content>
+                  <View style={styles.photoHeader}>
+                    <View style={styles.photoInfo}>
+                      <H3 style={{ ...styles.photoTitle, color: textColor }}>
+                        {photo.photo_type.charAt(0).toUpperCase() + photo.photo_type.slice(1)} Photo
+                      </H3>
+                      {photo.body_area && (
+                        <Chip 
+                          mode="outlined" 
+                          style={[styles.photoChip, { backgroundColor: primaryColor + '20' }]}
+                        >
+                          {photo.body_area}
+                        </Chip>
+                      )}
+                    </View>
+                    <View style={styles.photoActions}>
+                      <Body style={{ ...styles.photoDate, color: textMutedColor }}>
+                        {formatDate(photo.taken_date)}
+                      </Body>
+                      <Pressable
+                        style={styles.deletePhotoButton}
+                        onPress={() => confirmDeletePhoto(photo.id, photo.description)}
+                      >
+                        <WebCompatibleIcon name="delete" size={20} color="#ff4444" />
+                      </Pressable>
+                    </View>
+                  </View>
+                  {/* Display the actual photo */}
+                  {photo.file_url && (
+                    <View style={styles.photoImageContainer}>
+                      <Image
+                        source={{ uri: photo.file_url }}
+                        style={styles.photoImage}
+                        resizeMode="cover"
+                      />
+                    </View>
+                  )}
+                  
+                  {photo.description && (
+                    <Body style={{ ...styles.photoDescription, color: textSecondaryColor }}>
+                      Description: {photo.description}
+                    </Body>
+                  )}
+                  {photo.session_notes && (
+                    <Body style={{ ...styles.photoNotes, color: textMutedColor }}>
+                      Session Notes: {photo.session_notes}
+                    </Body>
+                  )}
+                  <Body style={{ ...styles.photoDetails, color: textMutedColor }}>
+                    File: {photo.original_name} ({Math.round(photo.file_size / 1024)}KB)
+                  </Body>
+                </Card.Content>
+              </Card>
+            ))
+          ) : (
+            <Card style={styles.emptyCard}>
+              <Card.Content style={styles.emptyContent}>
+                <MaterialIcons name="photo-camera" size={48} color={textMutedColor} />
+                <H3 style={{ ...styles.emptyTitle, color: textMutedColor }}>No Progress Photos</H3>
+                <Body style={{ ...styles.emptyText, color: textSecondaryColor }}>
+                  No progress photos have been uploaded by instructors yet.
+                </Body>
+              </Card.Content>
+            </Card>
+          )}
+        </Card.Content>
+      </Card>
+
+      {/* Medical Updates */}
+      <Card style={[styles.modernCard, { backgroundColor: surfaceColor }]}>
+        <Card.Content style={styles.cardContentModern}>
+          <H3 style={{ ...styles.subsectionTitleModern, color: textColor, marginBottom: 12 }}>
+            Medical Condition Updates
+          </H3>
+          
+          {medicalUpdates.length > 0 ? (
+            medicalUpdates.map((update, index) => (
+              <Card key={update.id} style={[styles.nestedCard, { marginBottom: 8 }]}>
+                <Card.Content>
+                  <View style={styles.medicalHeader}>
+                    <View style={styles.medicalInfo}>
+                      <H3 style={{ ...styles.medicalTitle, color: textColor }}>
+                        Medical Update
+                      </H3>
+                      <Chip 
+                        mode="outlined" 
+                        style={[
+                          styles.severityChip, 
+                          { 
+                            backgroundColor: update.severity_level === 'major' ? errorColor + '20' : 
+                                           update.severity_level === 'significant' ? warningColor + '20' :
+                                           update.severity_level === 'moderate' ? primaryColor + '20' : successColor + '20'
+                          }
+                        ]}
+                      >
+                        {update.severity_level}
+                      </Chip>
+                    </View>
+                    <Chip 
+                      style={[
+                        styles.statusChip, 
+                        { backgroundColor: update.requires_clearance ? warningColor : successColor }
+                      ]}
+                    >
+                      {update.requires_clearance ? 'Pending' : 'Applied'}
+                    </Chip>
+                  </View>
+                  <Body style={{ ...styles.medicalDate, color: textSecondaryColor }}>
+                    Updated on {formatDate(update.effective_date)}
+                    {update.requires_clearance && ' • Requires Admin Clearance'}
+                  </Body>
+                  <Body style={{ ...styles.medicalReason, color: textColor }}>
+                    Reason: {update.update_reason}
+                  </Body>
+                  <Body style={{ ...styles.medicalConditions, color: textColor }}>
+                    New Conditions: {update.updated_conditions}
+                  </Body>
+                  {update.verification_date && update.admin_name ? (
+                    <Body style={{ ...styles.medicalVerification, color: successColor }}>
+                      ✅ Verified by {update.admin_name} on {formatDate(update.verification_date)}
+                    </Body>
+                  ) : update.requires_clearance ? (
+                    <View style={styles.pendingApprovalSection}>
+                      <Body style={{ ...styles.pendingApprovalText, color: warningColor }}>
+                        ⏳ Pending admin approval
+                      </Body>
+                      <View style={styles.approvalButtons}>
+                        <Button
+                          mode="contained"
+                          onPress={() => handleApproveMedicalUpdate(update.id)}
+                          style={[styles.approveButton, { backgroundColor: successColor }]}
+                          compact
+                        >
+                          Approve
+                        </Button>
+                      </View>
+                    </View>
+                  ) : (
+                    <Body style={{ ...styles.medicalVerification, color: successColor }}>
+                      ✅ Applied to profile automatically
+                    </Body>
+                  )}
+                </Card.Content>
+              </Card>
+            ))
+          ) : (
+            <Card style={styles.emptyCard}>
+              <Card.Content style={styles.emptyContent}>
+                <MaterialIcons name="medical-services" size={48} color={textMutedColor} />
+                <H3 style={{ ...styles.emptyTitle, color: textMutedColor }}>No Medical Updates</H3>
+                <Body style={{ ...styles.emptyText, color: textSecondaryColor }}>
+                  No medical condition updates have been made by instructors yet.
+                </Body>
+              </Card.Content>
+            </Card>
+          )}
+        </Card.Content>
+      </Card>
+    </View>
+  );
+
   // Helper functions
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -2090,6 +2565,29 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
 
   return (
     <View style={[styles.container, { backgroundColor }]}>
+      {/* Simple Header with Back Button */}
+      <View style={[styles.headerSimple, { backgroundColor: surfaceColor }]}>
+        <IconButton
+          icon="arrow-left"
+          size={24}
+          onPress={() => {
+            // Try to go back using window history (web) or alert (mobile)
+            if (typeof window !== 'undefined' && window.history) {
+              window.history.back();
+            } else {
+              Alert.alert('Navigation', 'Please use your device back button or navigation menu to return');
+            }
+          }}
+          style={styles.backButton}
+        />
+        <View style={styles.headerContent}>
+          <H2 style={[styles.headerTitle, { color: textColor }]}>{client?.name || 'Client Profile'}</H2>
+          <Caption style={[styles.headerSubtitle, { color: textSecondaryColor }]}>
+            Client ID: {userId}
+          </Caption>
+        </View>
+      </View>
+
       {/* Modern Tab Navigation */}
       <View style={[styles.tabNavigationModern, { backgroundColor: surfaceColor }]}>
         <ScrollView 
@@ -3180,6 +3678,200 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
+  },
+
+  // Instructor Progress Tab Styles
+  nestedCard: {
+    borderRadius: 8,
+    elevation: 1,
+    backgroundColor: '#f8f9fa',
+  },
+  assignmentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  assignmentInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  assignmentName: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  assignmentChip: {
+    height: 28,
+  },
+  assignmentDetails: {
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  assignmentNotes: {
+    fontSize: 13,
+    fontStyle: 'italic',
+  },
+  
+  photoHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  photoInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  photoTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  photoChip: {
+    height: 28,
+  },
+  photoDate: {
+    fontSize: 12,
+  },
+  photoActions: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  deletePhotoButton: {
+    padding: 8,
+    borderRadius: 6,
+    backgroundColor: '#ffebee',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoDescription: {
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  photoNotes: {
+    fontSize: 13,
+    fontStyle: 'italic',
+    marginBottom: 4,
+  },
+  photoDetails: {
+    fontSize: 12,
+  },
+  photoImageContainer: {
+    marginVertical: 12,
+    alignItems: 'center',
+  },
+  photoImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+  },
+  
+  medicalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  medicalInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  medicalTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  severityChip: {
+    height: 28,
+  },
+  medicalDate: {
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  medicalReason: {
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  medicalConditions: {
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  medicalVerification: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  
+  emptyCard: {
+    borderRadius: 8,
+    backgroundColor: '#f8f9fa',
+  },
+  emptyContent: {
+    alignItems: 'center',
+    padding: 24,
+  },
+  emptyTitle: {
+    marginTop: 12,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptyText: {
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  
+  // Medical approval styles
+  pendingApprovalSection: {
+    marginTop: 8,
+    padding: 12,
+    backgroundColor: '#fff3cd',
+    borderRadius: 6,
+    borderLeftWidth: 4,
+    borderLeftColor: '#ffc107',
+  },
+  pendingApprovalText: {
+    fontWeight: '500',
+    marginBottom: 8,
+  },
+  approvalButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  approveButton: {
+    borderRadius: 6,
+  },
+  
+  // Simple header styles
+  headerSimple: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  backButton: {
+    margin: 0,
+    marginRight: 8,
+  },
+  headerContent: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontWeight: '600',
+    fontSize: 20,
+  },
+  headerSubtitle: {
+    marginTop: 2,
+    fontSize: 14,
   },
 });
 

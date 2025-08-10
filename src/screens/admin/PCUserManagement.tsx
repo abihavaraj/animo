@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useSelector } from 'react-redux';
 import { SubscriptionConflictDialog } from '../../components/SubscriptionConflictDialog';
 import WebCompatibleIcon from '../../components/WebCompatibleIcon';
+import { instructorClientService } from '../../services/instructorClientService';
 import { SubscriptionPlan, subscriptionService } from '../../services/subscriptionService';
 import { BackendUser, userService } from '../../services/userService';
+import { RootState } from '../../store';
 import { UserRole } from '../../store/authSlice';
 
 // Referral source options for PC user management
@@ -29,6 +32,7 @@ interface PCUserManagementProps {
 
 // PC-Optimized User Management Component
 function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) {
+  const { user: currentUser } = useSelector((state: RootState) => state.auth);
   const [users, setUsers] = useState<BackendUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -56,6 +60,13 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
   // Referral source modal state
   const [showReferralModal, setShowReferralModal] = useState(false);
   const [customReferralText, setCustomReferralText] = useState('');
+
+  // Instructor assignment modal state
+  const [showInstructorAssignmentModal, setShowInstructorAssignmentModal] = useState(false);
+  const [assigningInstructorUser, setAssigningInstructorUser] = useState<BackendUser | null>(null);
+  const [instructors, setInstructors] = useState<BackendUser[]>([]);
+  const [selectedInstructorId, setSelectedInstructorId] = useState<string | null>(null);
+  const [assignmentNotes, setAssignmentNotes] = useState('');
 
   // Form state
   const [formData, setFormData] = useState({
@@ -99,6 +110,17 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
       setSubscriptionPlans(plans);
     } catch (error) {
       console.error('Error loading subscription plans:', error);
+    }
+  };
+
+  const loadInstructors = async () => {
+    try {
+      const response = await userService.getUsers({ role: 'instructor' });
+      if (response.success && response.data) {
+        setInstructors(response.data);
+      }
+    } catch (error) {
+      console.error('Error loading instructors:', error);
     }
   };
 
@@ -227,17 +249,29 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
         
         const updateData = {
           name: formData.name,
-          email: formData.email,
           phone: formData.phone,
           role: formData.role,
-          emergencyContact: formData.emergencyContact || undefined,
-          medicalConditions: formData.medicalConditions || undefined,
-          referralSource: finalReferralSource || undefined
+          emergency_contact: formData.emergencyContact || undefined,
+          medical_conditions: formData.medicalConditions || undefined,
+          referral_source: finalReferralSource || undefined
         };
 
         const response = await userService.updateUser(String(editingUser.id), updateData);
         
         if (response.success) {
+          let warnings: string[] = [];
+          
+          // Update email separately if it changed
+          if (formData.email !== editingUser.email) {
+            const emailResponse = await userService.updateEmail(String(editingUser.id), {
+              newEmail: formData.email
+            });
+            
+            if (!emailResponse.success) {
+              warnings.push('email update failed');
+            }
+          }
+          
           // Update password if provided
           if (formData.password) {
             const passwordResponse = await userService.updatePassword(String(editingUser.id), {
@@ -245,13 +279,15 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
             });
             
             if (!passwordResponse.success) {
-              Alert.alert('Warning', `User updated but password update failed: ${passwordResponse.error || 'Unknown error'}`);
-            } else {
-              Alert.alert('Success', `User ${formData.name} has been updated with new password`);
+              warnings.push('password update failed');
             }
-          } else {
-            Alert.alert('Success', 'User updated successfully');
           }
+          
+          const warningText = warnings.length > 0 ? ` (${warnings.join(', ')})` : '';
+          const successMessage = `User ${formData.name} has been updated${formData.password ? ' with new password' : ''}${warningText}`;
+          
+          Alert.alert(warnings.length > 0 ? 'Partial Success' : 'Success', successMessage);
+          setShowCreateModal(false);
           await loadUsers();
         } else {
           Alert.alert('Error', response.error || 'Failed to update user');
@@ -457,6 +493,101 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
     setShowConflictDialog(false);
     setConflictData(null);
     setShowSubscriptionModal(true); // Return to subscription modal
+  };
+
+  // Instructor Assignment Functions
+  const handleAssignToInstructor = (user: BackendUser) => {
+    if (user.role !== 'client') {
+      Alert.alert('Error', 'Only clients can be assigned to instructors');
+      return;
+    }
+    setAssigningInstructorUser(user);
+    setSelectedInstructorId(null);
+    setAssignmentNotes('');
+    loadInstructors();
+    setShowInstructorAssignmentModal(true);
+  };
+
+  const handleSaveInstructorAssignment = async () => {
+    if (!assigningInstructorUser || !selectedInstructorId) {
+      Alert.alert('Error', 'Please select an instructor');
+      return;
+    }
+
+    if (!currentUser?.id) {
+      Alert.alert('Error', 'Current user not found');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      
+      const response = await instructorClientService.assignClientToInstructor(
+        assigningInstructorUser.id.toString(),
+        selectedInstructorId,
+        currentUser.id, // Use current user's UUID instead of 'reception'
+        'primary',
+        assignmentNotes || 'Assigned via reception user management'
+      );
+
+      if (response.success) {
+        Alert.alert('Success', 'Client assigned to instructor successfully!');
+        setShowInstructorAssignmentModal(false);
+        setAssigningInstructorUser(null);
+        setSelectedInstructorId(null);
+        setAssignmentNotes('');
+        await loadUsers(); // Refresh the user list
+      } else {
+        Alert.alert('Error', response.error || 'Failed to assign client to instructor');
+      }
+    } catch (error) {
+      console.error('Error assigning client to instructor:', error);
+      Alert.alert('Error', 'Failed to assign client to instructor');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUnassignFromInstructor = async (user: BackendUser) => {
+    if (user.role !== 'client') {
+      Alert.alert('Error', 'Only clients can be unassigned from instructors');
+      return;
+    }
+
+    // Show confirmation dialog
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm(`Are you sure you want to unassign ${user.name} from their current instructor?`);
+      if (!confirmed) return;
+    } else {
+      Alert.alert(
+        'Confirm Unassign',
+        `Are you sure you want to unassign ${user.name} from their current instructor?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Unassign', style: 'destructive', onPress: () => performUnassign(user) }
+        ]
+      );
+      return;
+    }
+
+    performUnassign(user);
+  };
+
+  const performUnassign = async (user: BackendUser) => {
+    try {
+      setSaving(true);
+      
+      // For now, we'll need to get the instructor assignment first
+      // This is a simplified approach - in a real implementation, you might want to 
+      // store the instructor assignment info or get it from the user object
+      Alert.alert('Info', 'Unassign functionality needs instructor assignment details. Please use the instructor\'s My Clients screen to unassign clients.');
+      
+    } catch (error) {
+      console.error('Error unassigning client from instructor:', error);
+      Alert.alert('Error', 'Failed to unassign client from instructor');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDeleteUser = (user: BackendUser) => {
@@ -944,9 +1075,14 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
                   
                   {/* Client-specific actions */}
                   {user.role === 'client' && (
-                    <button style={webStyles.actionButton} onClick={() => handleAssignSubscription(user)}>
-                      <WebCompatibleIcon name="card-membership" size={18} color="#6B8E7F" />
-                    </button>
+                    <>
+                      <button style={webStyles.actionButton} onClick={() => handleAssignSubscription(user)}>
+                        <WebCompatibleIcon name="card-membership" size={18} color="#6B8E7F" />
+                      </button>
+                      <button style={webStyles.actionButton} onClick={() => handleAssignToInstructor(user)}>
+                        <WebCompatibleIcon name="person-add" size={18} color="#9B8A7D" />
+                      </button>
+                    </>
                   )}
                   
                   {/* Status management buttons */}
@@ -1293,6 +1429,109 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
               >
                 <Text style={[styles.modalButtonText, styles.modalButtonTextPrimary]}>
                   {saving ? 'Assigning...' : 'Assign Subscription'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Instructor Assignment Modal */}
+      <Modal visible={showInstructorAssignmentModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                Assign {assigningInstructorUser?.name} to Instructor
+              </Text>
+              <TouchableOpacity 
+                style={styles.closeButton}
+                onPress={() => setShowInstructorAssignmentModal(false)}
+              >
+                <WebCompatibleIcon name="close" size={24} color="#666666" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalContent}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Select Instructor *</Text>
+                <ScrollView style={styles.plansList} nestedScrollEnabled={true}>
+                  {instructors.map((instructor) => (
+                    <TouchableOpacity
+                      key={instructor.id}
+                      style={[
+                        styles.planOption,
+                        selectedInstructorId === instructor.id.toString() && styles.planOptionActive
+                      ]}
+                      onPress={() => setSelectedInstructorId(instructor.id.toString())}
+                    >
+                      <View style={styles.planOptionRow}>
+                        <View style={styles.planOptionContent}>
+                          <View style={styles.planOptionHeader}>
+                            <Text style={[
+                              styles.planOptionName,
+                              selectedInstructorId === instructor.id.toString() && styles.planOptionNameActive
+                            ]}>
+                              {instructor.name}
+                            </Text>
+                            <Text style={[
+                              styles.planOptionPrice,
+                              selectedInstructorId === instructor.id.toString() && styles.planOptionPriceActive
+                            ]}>
+                              Instructor
+                            </Text>
+                          </View>
+                          <Text style={[
+                            styles.planOptionDescription,
+                            selectedInstructorId === instructor.id.toString() && styles.planOptionDescriptionActive
+                          ]}>
+                            📧 {instructor.email}
+                          </Text>
+                          {instructor.phone && (
+                            <Text style={[
+                              styles.planOptionDetail,
+                              selectedInstructorId === instructor.id.toString() && styles.planOptionDetailActive
+                            ]}>
+                              📞 {instructor.phone}
+                            </Text>
+                          )}
+                        </View>
+                        {selectedInstructorId === instructor.id.toString() && (
+                          <WebCompatibleIcon name="check-circle" size={24} color="#7DCEA0" />
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Assignment Notes (Optional)</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  placeholder="Enter any notes about this assignment..."
+                  value={assignmentNotes}
+                  onChangeText={setAssignmentNotes}
+                  multiline
+                  numberOfLines={3}
+                />
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonSecondary]}
+                onPress={() => setShowInstructorAssignmentModal(false)}
+              >
+                <Text style={styles.modalButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                onPress={handleSaveInstructorAssignment}
+                disabled={saving || !selectedInstructorId}
+              >
+                <Text style={[styles.modalButtonText, styles.modalButtonTextPrimary]}>
+                  {saving ? 'Assigning...' : 'Assign to Instructor'}
                 </Text>
               </TouchableOpacity>
             </View>

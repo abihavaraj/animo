@@ -6,16 +6,16 @@ import { Alert, Dimensions, Text, TouchableOpacity, View } from 'react-native';
 import AdminClassManagement from '../screens/admin/AdminClassManagement';
 import AdminDashboard from '../screens/admin/AdminDashboard';
 import AssignmentHistory from '../screens/admin/AssignmentHistory';
-import EnhancedClientProfile from '../screens/admin/EnhancedClientProfile';
 import NotificationTestScreen from '../screens/admin/NotificationTestScreen';
 import PCClassManagement from '../screens/admin/PCClassManagement';
 import PCSubscriptionPlans from '../screens/admin/PCSubscriptionPlans';
 import PCUserManagement from '../screens/admin/PCUserManagement';
+import ReceptionClientProfile from '../screens/admin/ReceptionClientProfile';
 import ReportsAnalytics from '../screens/admin/ReportsAnalytics';
 import SubscriptionPlans from '../screens/admin/SubscriptionPlans';
 import SystemSettings from '../screens/admin/SystemSettings';
 import UserManagement from '../screens/admin/UserManagement';
-import { apiService } from '../services/api';
+import { autoCleanupService } from '../services/autoCleanupService';
 import { useAppDispatch } from '../store';
 import { logoutUser } from '../store/authSlice';
 
@@ -30,7 +30,6 @@ function AdminSidebar({ activeScreen, onNavigate, stats }: any) {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
-  const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   const dispatch = useAppDispatch();
 
   useEffect(() => {
@@ -39,20 +38,9 @@ function AdminSidebar({ activeScreen, onNavigate, stats }: any) {
 
   const loadInitialNotifications = async () => {
     try {
-      console.log('🔔 Loading initial notifications...');
-      const userStatsResponse = await apiService.get('/api/notifications/recent');
-      console.log('🔔 Notifications API response:', userStatsResponse);
-      
-      if (userStatsResponse.success && userStatsResponse.data) {
-        console.log('🔔 Loaded real notifications:', userStatsResponse.data);
-        const notificationsData = Array.isArray(userStatsResponse.data) ? userStatsResponse.data : [];
-        console.log('🔔 Setting notifications:', notificationsData);
-        setNotifications(notificationsData);
-      } else {
-        console.log('🔔 API call failed, setting empty notifications');
-        console.log('🔔 Error:', userStatsResponse.error);
-        setNotifications([]);
-      }
+      console.log('🔔 Setting up initial notifications...');
+      // Since we don't have a backend notifications endpoint, use placeholder data
+      setNotifications([]);
     } catch (error) {
       console.error('🔔 Error loading initial notifications:', error);
       setNotifications([]);
@@ -61,19 +49,8 @@ function AdminSidebar({ activeScreen, onNavigate, stats }: any) {
 
   const handleNotificationPress = async () => {
     try {
-      console.log('🔔 Notification button pressed, loading notifications...');
-      
-      const userStatsResponse = await apiService.get('/api/notifications/recent');
-      console.log('🔔 Notification button - API response:', userStatsResponse);
-      
-      if (userStatsResponse.success && userStatsResponse.data) {
-        const notificationsData = Array.isArray(userStatsResponse.data) ? userStatsResponse.data : [];
-        console.log('🔔 Notification button - Setting notifications:', notificationsData);
-        setNotifications(notificationsData);
-      } else {
-        console.log('🔔 Notification button - API failed, keeping existing notifications');
-      }
-      
+      console.log('🔔 Notification button pressed...');
+      // Show notification modal without API call
       setNotificationModalVisible(true);
     } catch (error) {
       console.error('🔔 Error handling notification press:', error);
@@ -105,7 +82,13 @@ function AdminSidebar({ activeScreen, onNavigate, stats }: any) {
 
   const showLogoutConfirmation = () => {
     console.log('🚪 Showing logout confirmation...');
-    setLogoutModalVisible(true);
+    console.log('🔧 Dispatching logoutUser...');
+    try {
+      dispatch(logoutUser());
+      console.log('✅ Logout dispatch completed');
+    } catch (error) {
+      console.error('❌ Logout dispatch error:', error);
+    }
   };
 
   const menuItems = [
@@ -233,7 +216,7 @@ function AdminPCLayout({ navigation }: any) {
         return <SystemSettings />;
       case 'Dashboard':
       default:
-        return <AdminDashboard />;
+        return <AdminDashboard onNavigate={handleNavigate} />;
     }
   };
 
@@ -322,6 +305,18 @@ function AdminTabs() {
 }
 
 function AdminNavigator() {
+  // Initialize auto cleanup service when admin navigator loads
+  useEffect(() => {
+    console.log('🔧 Admin Navigator: Starting auto cleanup service...');
+    autoCleanupService.start();
+    
+    // Cleanup on unmount
+    return () => {
+      console.log('🔧 Admin Navigator: Stopping auto cleanup service...');
+      autoCleanupService.stop();
+    };
+  }, []);
+
   // Use PC layout for large screens, mobile tabs for small screens
   if (isLargeScreen) {
     return (
@@ -343,7 +338,7 @@ function AdminNavigator() {
         />
         <Stack.Screen 
           name="ClientProfile" 
-          component={EnhancedClientProfile}
+          component={ReceptionClientProfile}
           options={({ route }) => ({
             title: `${(route.params as any)?.userName || 'Client'} Profile`,
             presentation: 'modal',
@@ -381,7 +376,7 @@ function AdminNavigator() {
       />
       <Stack.Screen 
         name="ClientProfile" 
-        component={EnhancedClientProfile}
+        component={ReceptionClientProfile}
         options={({ route }) => ({
           title: `${(route.params as any)?.userName || 'Client'} Profile`,
           presentation: 'modal',

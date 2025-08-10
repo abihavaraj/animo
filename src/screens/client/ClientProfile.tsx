@@ -12,6 +12,7 @@ import { RootState, useAppDispatch } from '../../store';
 import { logoutUser } from '../../store/authSlice';
 import { fetchCurrentSubscription } from '../../store/subscriptionSlice';
 import { SimpleDateCalculator } from '../../utils/simpleDateCalculator';
+import { getFormattedAppVersion } from '../../utils/versionUtils';
 
 const { width } = Dimensions.get('window');
 
@@ -41,7 +42,7 @@ function ClientProfile({ navigation }: any) {
   
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
     enableNotifications: true,
-    defaultReminderMinutes: 15,
+    defaultReminderMinutes: 5,
     enablePushNotifications: true,
     enableEmailNotifications: true,
   });
@@ -72,10 +73,22 @@ function ClientProfile({ navigation }: any) {
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      console.log('🔄 Manual refresh triggered - fetching latest subscription data');
-      await dispatch(fetchCurrentSubscription()).unwrap();
-      await loadNotificationSettings();
-      console.log('✅ Data refreshed successfully');
+      console.log('🚀 ClientProfile: Starting optimized parallel refresh...');
+      
+      // Use parallel loading for better performance
+      const [subscriptionResult, notificationResult] = await Promise.allSettled([
+        dispatch(fetchCurrentSubscription()).unwrap(),
+        loadNotificationSettings()
+      ]);
+      
+      if (subscriptionResult.status === 'rejected') {
+        console.error('❌ Failed to refresh subscription:', subscriptionResult.reason);
+      }
+      if (notificationResult.status === 'rejected') {
+        console.error('❌ Failed to refresh notifications:', notificationResult.reason);
+      }
+      
+      console.log('✅ Optimized data refresh completed');
     } catch (error) {
       console.error('❌ Error refreshing data:', error);
     } finally {
@@ -342,9 +355,9 @@ function ClientProfile({ navigation }: any) {
                     <MaterialIcons name="schedule" size={16} color={textSecondaryColor} />
                     <Caption style={{ ...styles.billingText, color: textSecondaryColor }}>
                       {subscriptionData.isDayPass ? 
-                        (subscriptionData.daysUntilEnd <= 0 
+                        (subscriptionData.daysUntilEnd < 0 
                           ? 'Day pass expired'
-                          : subscriptionData.daysUntilEnd === 1 
+                          : subscriptionData.daysUntilEnd === 0 
                             ? 'Expires today'
                             : `Expires in ${subscriptionData.daysUntilEnd} ${subscriptionData.daysUntilEnd === 1 ? 'day' : 'days'}`
                         ) :
@@ -406,8 +419,8 @@ function ClientProfile({ navigation }: any) {
                 </Caption>
                 <Body style={{ ...styles.detailCardValue, color: textColor }}>
                   {subscriptionData.isDayPass ? 
-                    (subscriptionData.daysUntilEnd <= 0 ? 'Expired' : 
-                     subscriptionData.daysUntilEnd === 1 ? 'Today' : 
+                    (subscriptionData.daysUntilEnd < 0 ? 'Expired' : 
+                     subscriptionData.daysUntilEnd === 0 ? 'Today' : 
                      `${subscriptionData.daysUntilEnd} ${subscriptionData.daysUntilEnd === 1 ? 'day' : 'days'}`) :
                    (subscriptionData.daysUntilEnd <= 0 ? 'Expired' : `${subscriptionData.daysUntilEnd} ${subscriptionData.daysUntilEnd === 1 ? 'day' : 'days'}`)}
                 </Body>
@@ -513,53 +526,6 @@ function ClientProfile({ navigation }: any) {
         </Card>
       )}
 
-      <Card style={[styles.card, { backgroundColor: surfaceColor }]}>
-        <Card.Content>
-          <H2 style={{ color: textColor }}>Account Settings</H2>
-          <View style={styles.accountInfo}>
-            <View style={styles.infoItem}>
-              <Body style={{ ...styles.label, color: textSecondaryColor }}>Name:</Body>
-              <Body style={{ ...styles.value, color: textColor }}>{user?.name || 'Not set'}</Body>
-            </View>
-            <View style={styles.infoItem}>
-              <Body style={{ ...styles.label, color: textSecondaryColor }}>Email:</Body>
-              <Body style={{ ...styles.value, color: textColor }}>{user?.email || 'Not set'}</Body>
-            </View>
-            <View style={styles.infoItem}>
-              <Body style={{ ...styles.label, color: textSecondaryColor }}>Phone:</Body>
-              <Body style={{ ...styles.value, color: textColor }}>{user?.phone || 'Not set'}</Body>
-            </View>
-            {user?.emergency_contact && (
-              <View style={styles.infoItem}>
-                <Body style={{ ...styles.label, color: textSecondaryColor }}>Emergency Contact:</Body>
-                <Body style={{ ...styles.value, color: textColor }}>{user.emergency_contact}</Body>
-              </View>
-            )}
-          </View>
-          
-          <View style={styles.buttonContainer}>
-            <Button 
-              mode="outlined" 
-              style={{ ...styles.editButton, borderColor: accentColor }} 
-              textColor={accentColor} 
-              icon="person"
-              onPress={() => navigation.navigate('EditProfile')}
-            >
-              Edit Profile
-            </Button>
-            <Button 
-              mode="outlined" 
-              style={{ ...styles.logoutButton, borderColor: errorColor }}
-              onPress={handleLogout}
-              icon="logout"
-              textColor={errorColor}
-            >
-              Logout
-            </Button>
-          </View>
-        </Card.Content>
-      </Card>
-
       {/* Enhanced Notification Settings */}
       <Card style={[styles.cardImproved, { backgroundColor: surfaceColor }]}>
         <Card.Content style={styles.cardContentImproved}>
@@ -636,6 +602,58 @@ function ClientProfile({ navigation }: any) {
           >
             {savingSettings ? 'Saving...' : 'Save Preferences'}
           </Button>
+        </Card.Content>
+      </Card>
+
+      {/* Account Settings - Moved to the end */}
+      <Card style={[styles.card, { backgroundColor: surfaceColor }]}>
+        <Card.Content>
+          <H2 style={{ color: textColor }}>Account Settings</H2>
+          <View style={styles.accountInfo}>
+            <View style={styles.infoItem}>
+              <Body style={{ ...styles.label, color: textSecondaryColor }}>Name:</Body>
+              <Body style={{ ...styles.value, color: textColor }}>{user?.name || 'Not set'}</Body>
+            </View>
+            <View style={styles.infoItem}>
+              <Body style={{ ...styles.label, color: textSecondaryColor }}>Email:</Body>
+              <Body style={{ ...styles.value, color: textColor }}>{user?.email || 'Not set'}</Body>
+            </View>
+            <View style={styles.infoItem}>
+              <Body style={{ ...styles.label, color: textSecondaryColor }}>Phone:</Body>
+              <Body style={{ ...styles.value, color: textColor }}>{user?.phone || 'Not set'}</Body>
+            </View>
+            {user?.emergency_contact && (
+              <View style={styles.infoItem}>
+                <Body style={{ ...styles.label, color: textSecondaryColor }}>Emergency Contact:</Body>
+                <Body style={{ ...styles.value, color: textColor }}>{user.emergency_contact}</Body>
+              </View>
+            )}
+            <View style={styles.infoItem}>
+              <Body style={{ ...styles.label, color: textSecondaryColor }}>App Version:</Body>
+              <Body style={{ ...styles.value, color: textColor }}>{getFormattedAppVersion()}</Body>
+            </View>
+          </View>
+          
+          <View style={styles.buttonContainer}>
+            <Button 
+              mode="outlined" 
+              style={{ ...styles.editButton, borderColor: textMutedColor, opacity: 0.5 }} 
+              textColor={textMutedColor} 
+              icon="person"
+              disabled={true}
+            >
+              Edit Profile (Disabled)
+            </Button>
+            <Button 
+              mode="outlined" 
+              style={{ ...styles.logoutButton, borderColor: errorColor }}
+              onPress={handleLogout}
+              icon="logout"
+              textColor={errorColor}
+            >
+              Logout
+            </Button>
+          </View>
         </Card.Content>
       </Card>
 

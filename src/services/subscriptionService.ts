@@ -3,6 +3,7 @@ import { API_MODE_CONFIG } from '../config/apiMode.config';
 import { supabase } from '../config/supabase.config';
 import { SimpleDateCalculator } from '../utils/simpleDateCalculator';
 import { apiService } from './api';
+import { supabaseNotificationService } from './supabaseNotificationService';
 
 // Define ApiResponse interface locally
 interface ApiResponse<T = any> {
@@ -116,7 +117,7 @@ class SubscriptionService {
   // Subscription plan management
   async getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
     try {
-      console.log('🔍 getSubscriptionPlans: Using Supabase mode');
+      //console.log('🔍 getSubscriptionPlans: Using Supabase mode');
       
       const { data, error } = await supabase
         .from('subscription_plans')
@@ -163,7 +164,7 @@ class SubscriptionService {
 
   async getPlans(): Promise<ApiResponse<SubscriptionPlan[]>> {
     try {
-      console.log('🔍 getPlans: Using Supabase mode');
+      //console.log('🔍 getPlans: Using Supabase mode');
       
       const { data, error } = await supabase
         .from('subscription_plans')
@@ -210,7 +211,7 @@ class SubscriptionService {
 
   async createSubscriptionPlan(planData: Partial<SubscriptionPlan>): Promise<ApiResponse<SubscriptionPlan>> {
     try {
-      console.log('🔍 createSubscriptionPlan: Using Supabase mode');
+      //console.log('🔍 createSubscriptionPlan: Using Supabase mode');
       
       // Convert camelCase to snake_case for Supabase
       const supabaseData: any = {};
@@ -253,7 +254,7 @@ class SubscriptionService {
 
   async updateSubscriptionPlan(id: number, planData: Partial<SubscriptionPlan>): Promise<ApiResponse<SubscriptionPlan>> {
     try {
-      console.log('🔍 updateSubscriptionPlan: Using Supabase mode');
+      //console.log('🔍 updateSubscriptionPlan: Using Supabase mode');
       
       // Convert camelCase to snake_case for Supabase
       const supabaseData: any = {};
@@ -291,7 +292,7 @@ class SubscriptionService {
 
   async updatePlan(id: number, planData: UpdatePlanRequest): Promise<ApiResponse<SubscriptionPlan>> {
     try {
-      console.log('🔍 updatePlan: Using Supabase mode');
+      //console.log('🔍 updatePlan: Using Supabase mode');
       
       // Convert camelCase to snake_case for Supabase
       const supabaseData: any = {};
@@ -330,7 +331,7 @@ class SubscriptionService {
 
   async deleteSubscriptionPlan(id: number): Promise<ApiResponse<void>> {
     try {
-      console.log('🔍 deleteSubscriptionPlan: Using Supabase mode');
+      //console.log('🔍 deleteSubscriptionPlan: Using Supabase mode');
       
       const { error } = await supabase
         .from('subscription_plans')
@@ -426,35 +427,33 @@ class SubscriptionService {
   private static lastExpirationCheck: { [userId: string]: string } = {};
   
   private shouldRunExpirationCheck(userId: string, today: string, currentHour: number): boolean {
-    // Check if we've already run expiration check today
+    // Always run expiration check if we haven't checked today yet
+    // This ensures day passes and short subscriptions expire properly
     const lastCheck = SubscriptionService.lastExpirationCheck[userId];
-    if (lastCheck === today) {
-      return false; // Already checked today
-    }
-    
-    // Run expiration check in these conditions:
-    // 1. After 23:00 (11 PM) - near end of day
-    // 2. First check of the day (before 6 AM)
-    // 3. Never checked before for this user
-    return currentHour >= 23 || currentHour < 6 || !lastCheck;
+    return lastCheck !== today;
   }
   
   private async runExpirationCheck(userId: string, today: string): Promise<void> {
     try {
-      // Expire subscriptions with an end date up to and including yesterday.
-      // A subscription is considered active for the entirety of its end_date.
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayISO = yesterday.toISOString().split('T')[0];
+      const now = new Date();
+      const currentHour = now.getHours();
+      
+      // During daytime (before 11 PM), only expire subscriptions from yesterday or earlier
+      // After 11 PM, also expire today's subscriptions (so day passes expire at end of day)
+      const cutoffDate = currentHour >= 23 ? today : (() => {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        return yesterday.toISOString().split('T')[0];
+      })();
 
-      console.log(`🔄 Running expiration check for user ${userId}. Looking for subscriptions that ended on or before ${yesterdayISO}.`);
+      //console.log(`🔄 Running expiration check for user ${userId}. Current time: ${now.toLocaleTimeString()}, looking for subscriptions that ended on or before ${cutoffDate}.`);
 
       const { data: expiredSubs, error: expiredError } = await supabase
         .from('user_subscriptions')
         .select('id, end_date, subscription_plans:plan_id(name)')
         .eq('user_id', userId)
         .eq('status', 'active')
-        .lte('end_date', yesterdayISO);
+        .lte('end_date', cutoffDate);
       
       if (expiredError) {
         console.error('Error checking for expired subscriptions:', expiredError);
@@ -462,12 +461,12 @@ class SubscriptionService {
       }
       
       if (expiredSubs && expiredSubs.length > 0) {
-        console.log(`💀 Found ${expiredSubs.length} expired subscription(s) to update.`);
+        //console.log(`💀 Found ${expiredSubs.length} expired subscription(s) to update.`);
         
         // Log which subscriptions are being expired
         expiredSubs.forEach(sub => {
           const planName = (sub.subscription_plans as any)?.name || 'Unknown Plan';
-          console.log(`   - Expiring: ${planName} (ended ${sub.end_date})`);
+          //console.log(`   - Expiring: ${planName} (ended ${sub.end_date})`);
         });
         
         // Update expired subscriptions to 'expired' status
@@ -483,10 +482,10 @@ class SubscriptionService {
         if (updateError) {
           console.error('❌ Error updating expired subscriptions:', updateError);
         } else {
-          console.log(`✅ Successfully expired ${expiredSubs.length} subscription(s) for user ${userId}.`);
+          //console.log(`✅ Successfully expired ${expiredSubs.length} subscription(s) for user ${userId}.`);
         }
       } else {
-        console.log(`✅ No expired subscriptions found for user ${userId} ending on or before ${yesterdayISO}.`);
+        //console.log(`✅ No expired subscriptions found for user ${userId} ending on or before ${cutoffDate}.`);
       }
     } catch (error) {
       console.error('❌ Error in expiration check:', error);
@@ -498,30 +497,30 @@ class SubscriptionService {
       if (this.useSupabase()) {
         // Get current user from auth
         const { data: { user } } = await supabase.auth.getUser();
-        console.log(`🔍 [getCurrentSubscription] Auth check:`, { 
-          hasUser: !!user, 
-          userId: user?.id, 
-          userEmail: user?.email 
-        });
+                // console.log(`🔍 [getCurrentSubscription] Auth check:`, {
+        //   hasUser: !!user,
+        //   userId: user?.id,
+        //   userEmail: user?.email
+        // });
         
         if (!user) {
-          console.log('❌ [getCurrentSubscription] User not authenticated - this causes "ready to start"');
+          //console.log('❌ [getCurrentSubscription] User not authenticated - this causes "ready to start"');
           return { success: false, error: 'User not authenticated' };
         }
 
         const today = new Date().toISOString().split('T')[0];
         const currentHour = new Date().getHours();
         
-        // SMART EXPIRATION CHECK: Only run once per day and at appropriate times
+        // SMART EXPIRATION CHECK: Re-enabled
         const shouldCheckExpiration = this.shouldRunExpirationCheck(user.id, today, currentHour);
         
         if (shouldCheckExpiration) {
-          console.log('🔄 Running scheduled expiration check...');
+          //console.log('🔄 Running scheduled expiration check...');
           await this.runExpirationCheck(user.id, today);
           // Cache that we've checked today
           SubscriptionService.lastExpirationCheck[user.id] = today;
         } else {
-          console.log('✅ Expiration check skipped (already done today or not time yet)');
+          //console.log('⏰ Expiration check skipped - not time to run yet');
         }
         
         // STEP 2: Now get the current active subscription (after expiration cleanup)
@@ -553,13 +552,13 @@ class SubscriptionService {
         }
         
         if (!data || data.length === 0) {
-          console.log('❌ [getCurrentSubscription] No active subscription found - this causes "ready to start"');
-          console.log(`🔍 Query details: user_id=${user.id}, end_date>=${today}, status=active`);
+          //console.log('❌ [getCurrentSubscription] No active subscription found - this causes "ready to start"');
+          //console.log(`🔍 Query details: user_id=${user.id}, end_date>=${today}, status=active`);
           return { success: true, data: undefined };
         }
         
         const subscription = data[0]; // Get the first (most recent) subscription
-        console.log(`📋 Found active subscription: ${subscription.subscription_plans?.name} (expires ${subscription.end_date})`);
+        //console.log(`📋 Found active subscription: ${subscription.subscription_plans?.name} (expires ${subscription.end_date})`);
         
         // Transform data to match expected format - SIMPLE DURATION!
         const transformedData = {
@@ -643,11 +642,11 @@ class SubscriptionService {
   }
 
   async terminateSubscription(id: string | number, reason?: string): Promise<ApiResponse<UserSubscription>> {
-    console.log('🛑 terminateSubscription called with:', { id, reason });
+    //console.log('🛑 terminateSubscription called with:', { id, reason });
     
     if (this.useSupabase()) {
       try {
-        console.log('🛑 Using Supabase client for terminateSubscription');
+        //console.log('🛑 Using Supabase client for terminateSubscription');
         
         // Use Supabase client directly for admin/reception operations
         const { data: subscriptions, error: fetchError } = await supabase
@@ -691,7 +690,7 @@ class SubscriptionService {
           return { success: false, error: updateError.message };
         }
         
-        console.log('✅ Subscription terminated successfully:', updatedSubscription.id);
+        //console.log('✅ Subscription terminated successfully:', updatedSubscription.id);
         return { success: true, data: updatedSubscription };
         
       } catch (error) {
@@ -705,11 +704,11 @@ class SubscriptionService {
   }
 
   async cancelSubscription(id: string | number, reason?: string): Promise<ApiResponse<UserSubscription>> {
-    console.log('🎮 cancelSubscription called with:', { id, reason });
+    //console.log('🎮 cancelSubscription called with:', { id, reason });
     
     if (this.useSupabase()) {
       try {
-        console.log('🎮 Using Supabase client for cancelSubscription');
+        //console.log('🎮 Using Supabase client for cancelSubscription');
         
         // Use Supabase client directly for admin/reception operations
         const { data: subscriptions, error: fetchError } = await supabase
@@ -760,18 +759,31 @@ class SubscriptionService {
         }
 
         // **BUSINESS LOGIC: Remove payment record when cancelling (refund/mistake)**
-        console.log('🔄 Removing payment records for cancelled subscription...');
+        //console.log('🔄 Removing payment records for cancelled subscription...');
         try {
           // Note: We can't easily link subscription to payment due to UUID mismatch
           // So we don't delete payments here to avoid accidental deletions
           // The calculation logic in ReceptionClientProfile already excludes cancelled subscriptions
-          console.log('ℹ️ Payment records kept for audit trail - calculation logic excludes cancelled subscriptions');
+          //console.log('ℹ️ Payment records kept for audit trail - calculation logic excludes cancelled subscriptions');
         } catch (paymentError) {
           console.error('❌ Payment deletion warning:', paymentError);
           // Don't fail cancellation if payment handling fails
         }
 
-        console.log('✅ Subscription cancelled successfully via Supabase');
+        // Send notification for subscription cancellation
+        try {
+          await supabaseNotificationService.createSubscriptionUpdateNotification(
+            subscription.user_id.toString(),
+            'cancelled',
+            `Your ${subscription.subscription_plans.name} subscription has been cancelled${reason ? `: ${reason}` : ''}`,
+            'Reception Staff'
+          );
+        } catch (notificationError) {
+          console.error('❌ Failed to send cancellation notification:', notificationError);
+          // Don't fail the operation if notification fails
+        }
+        
+        //console.log('✅ Subscription cancelled successfully via Supabase');
         return {
           success: true,
           data: {
@@ -974,7 +986,7 @@ class SubscriptionService {
   ): Promise<ApiResponse<any>> {
     try {
       if (this.useSupabase()) {
-        console.log(`🚀 Assigning subscription for user ${userId}, plan ${planId} with action: ${action}`);
+        //console.log(`🚀 Assigning subscription for user ${userId}, plan ${planId} with action: ${action}`);
         
         // Step 1: Get all necessary details (plan, user, existing subscription)
         const { data: plan, error: planError } = await supabase
@@ -1025,7 +1037,7 @@ class SubscriptionService {
           if (error) throw new Error(`Failed to extend subscription: ${error.message}`);
 
           // **CRITICAL FIX: Create payment record for extension**
-          console.log('🔄 Creating payment record for subscription extension...');
+          //console.log('🔄 Creating payment record for subscription extension...');
           const generateUUID = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
             var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
             return v.toString(16);
@@ -1049,14 +1061,27 @@ class SubscriptionService {
               console.error('❌ Failed to create payment record for extension:', paymentError);
               // Don't fail the extension if payment fails
             } else {
-              console.log('✅ Payment record created successfully for extension:', payment.id);
+              //console.log('✅ Payment record created successfully for extension:', payment.id);
             }
           } catch (paymentError) {
             console.error('❌ Payment creation error for extension:', paymentError);
             // Continue with extension success even if payment fails
           }
           
-          return { success: true, data: { operationType: 'extended', classesAdded: plan.monthly_classes, paymentAmount: plan.monthly_price, subscription: data } };
+          // Send notification for subscription extension
+        try {
+          await supabaseNotificationService.createSubscriptionUpdateNotification(
+            userId.toString(),
+            'extended',
+            `Added ${plan.monthly_classes} classes to your subscription`,
+            'Reception Staff'
+          );
+        } catch (notificationError) {
+          console.error('❌ Failed to send extension notification:', notificationError);
+          // Don't fail the operation if notification fails
+        }
+        
+        return { success: true, data: { operationType: 'extended', classesAdded: plan.monthly_classes, paymentAmount: plan.monthly_price, subscription: data } };
         }
 
         // --- ACTION: QUEUE, REPLACE, OR NEW ---
@@ -1109,7 +1134,7 @@ class SubscriptionService {
 
         // **BUSINESS LOGIC: Create payment record only for non-cancelled subscriptions**
         // Cancelled = refunds/mistakes (no payment), Active/Terminated = completed services (payment)
-        console.log('🔄 Creating payment record for subscription assignment...');
+        //console.log('🔄 Creating payment record for subscription assignment...');
         const generateUUID = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
           var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
           return v.toString(16);
@@ -1133,11 +1158,39 @@ class SubscriptionService {
             console.error('❌ Failed to create payment record:', paymentError);
             // Don't fail the subscription creation if payment fails
           } else {
-            console.log('✅ Payment record created successfully:', payment.id);
+            //console.log('✅ Payment record created successfully:', payment.id);
           }
         } catch (paymentError) {
           console.error('❌ Payment creation error:', paymentError);
           // Continue with subscription success even if payment fails
+        }
+        
+        // Send notification for new subscription assignment
+        try {
+          if (operationType === 'new') {
+            await supabaseNotificationService.createSubscriptionAssignmentNotification(
+              userId.toString(),
+              plan.name,
+              'Reception Staff'
+            );
+          } else if (operationType === 'replaced') {
+            await supabaseNotificationService.createSubscriptionUpdateNotification(
+              userId.toString(),
+              'replaced',
+              `Your subscription has been replaced with ${plan.name}`,
+              'Reception Staff'
+            );
+          } else if (operationType === 'queued') {
+            await supabaseNotificationService.createSubscriptionUpdateNotification(
+              userId.toString(),
+              'queued',
+              `A new ${plan.name} subscription has been queued to start after your current subscription ends`,
+              'Reception Staff'
+            );
+          }
+        } catch (notificationError) {
+          console.error('❌ Failed to send subscription notification:', notificationError);
+          // Don't fail the operation if notification fails
         }
         
         return { success: true, data: { operationType, paymentAmount: plan.monthly_price, subscription: newSubscription } };
@@ -1157,11 +1210,11 @@ class SubscriptionService {
   }
 
   async pauseSubscription(id: string | number, pauseDays: number = 30, reason?: string): Promise<ApiResponse<any>> {
-    console.log('🎮 pauseSubscription called with:', { id, pauseDays, reason });
+    //console.log('🎮 pauseSubscription called with:', { id, pauseDays, reason });
     
     if (this.useSupabase()) {
       try {
-        console.log('🎮 Using Supabase client for pauseSubscription');
+        //console.log('🎮 Using Supabase client for pauseSubscription');
         
         // Use Supabase client directly for admin/reception operations
         const { data: subscriptions, error: fetchError } = await supabase
@@ -1211,7 +1264,20 @@ class SubscriptionService {
           };
         }
 
-        console.log('✅ Subscription paused successfully via Supabase client');
+        // Send notification for subscription pause
+        try {
+          await supabaseNotificationService.createSubscriptionUpdateNotification(
+            subscription.user_id.toString(),
+            'paused',
+            `Your ${subscription.subscription_plans.name} subscription has been paused for ${pauseDays} days${reason ? `: ${reason}` : ''}`,
+            'Reception Staff'
+          );
+        } catch (notificationError) {
+          console.error('❌ Failed to send pause notification:', notificationError);
+          // Don't fail the operation if notification fails
+        }
+        
+        //console.log('✅ Subscription paused successfully via Supabase client');
         return {
           success: true,
           data: {
@@ -1236,12 +1302,12 @@ class SubscriptionService {
   }
 
   async resumeSubscription(id: string | number, reason?: string): Promise<ApiResponse<any>> {
-    console.log('🎮 resumeSubscription called with:', { id, reason });
-    console.log('🎮 useSupabase() returns:', this.useSupabase());
+    //console.log('🎮 resumeSubscription called with:', { id, reason });
+    //console.log('🎮 useSupabase() returns:', this.useSupabase());
     
     if (this.useSupabase()) {
       try {
-        console.log('🎮 Using Supabase client for resumeSubscription');
+        //console.log('🎮 Using Supabase client for resumeSubscription');
         
         // Update subscription status to 'active'
         const { data, error } = await supabase
@@ -1268,7 +1334,29 @@ class SubscriptionService {
           };
         }
 
-        console.log('✅ Subscription resumed successfully:', data[0]);
+        // Send notification for subscription resume
+        try {
+          // Get subscription details for notification
+          const { data: subscriptionDetails } = await supabase
+            .from('user_subscriptions')
+            .select('*, subscription_plans!inner(name)')
+            .eq('id', id)
+            .single();
+            
+          if (subscriptionDetails) {
+            await supabaseNotificationService.createSubscriptionUpdateNotification(
+              subscriptionDetails.user_id.toString(),
+              'resumed',
+              `Your ${subscriptionDetails.subscription_plans.name} subscription has been resumed${reason ? `: ${reason}` : ''}`,
+              'Reception Staff'
+            );
+          }
+        } catch (notificationError) {
+          console.error('❌ Failed to send resume notification:', notificationError);
+          // Don't fail the operation if notification fails
+        }
+        
+        //console.log('✅ Subscription resumed successfully:', data[0]);
         return {
           success: true,
           data: data[0]
@@ -1289,12 +1377,12 @@ class SubscriptionService {
   }
 
   async extendSubscription(id: string | number, extensionDays: number, reason?: string): Promise<ApiResponse<any>> {
-    console.log('🎮 extendSubscription called with:', { id, extensionDays, reason });
-    console.log('🎮 useSupabase() returns:', this.useSupabase());
+    //console.log('🎮 extendSubscription called with:', { id, extensionDays, reason });
+    //console.log('🎮 useSupabase() returns:', this.useSupabase());
     
     if (this.useSupabase()) {
       try {
-        console.log('🎮 Using Supabase client for extendSubscription');
+        //console.log('🎮 Using Supabase client for extendSubscription');
         
         // First get the current subscription
         const { data: currentSub, error: fetchError } = await supabase
@@ -1340,7 +1428,7 @@ class SubscriptionService {
           };
         }
 
-        console.log('✅ Subscription extended successfully:', data[0]);
+        //console.log('✅ Subscription extended successfully:', data[0]);
         return {
           success: true,
           data: data[0]
@@ -1362,12 +1450,12 @@ class SubscriptionService {
   }
 
   async addClassesToSubscription(id: string | number, classesToAdd: number, planId?: string | number, paymentAmount?: number, reason?: string): Promise<ApiResponse<any>> {
-    console.log('🎮 addClassesToSubscription called with:', { id, classesToAdd, planId, paymentAmount, reason });
-    console.log('🎮 useSupabase() returns:', this.useSupabase());
+    //console.log('🎮 addClassesToSubscription called with:', { id, classesToAdd, planId, paymentAmount, reason });
+    //console.log('🎮 useSupabase() returns:', this.useSupabase());
     
     if (this.useSupabase()) {
       try {
-        console.log('🎮 Using Supabase client for addClassesToSubscription');
+        //console.log('🎮 Using Supabase client for addClassesToSubscription');
         
         // Use Supabase client directly for admin/reception operations
         const { data: subscriptions, error: fetchError } = await supabase
@@ -1402,7 +1490,7 @@ class SubscriptionService {
         // Calculate new remaining classes
         const newRemainingClasses = subscription.remaining_classes + classesToAdd;
         
-        console.log(`📊 Adding ${classesToAdd} classes: ${subscription.remaining_classes} → ${newRemainingClasses}`);
+        //console.log(`📊 Adding ${classesToAdd} classes: ${subscription.remaining_classes} → ${newRemainingClasses}`);
         
         // Update the subscription using Supabase client
         const { data: updatedData, error: updateError } = await supabase
@@ -1422,8 +1510,8 @@ class SubscriptionService {
           };
         }
 
-        console.log('✅ Classes added successfully via Supabase client');
-        console.log('📋 Updated subscription data:', updatedData);
+        //console.log('✅ Classes added successfully via Supabase client');
+        //console.log('📋 Updated subscription data:', updatedData);
         
         return {
           success: true,
@@ -1459,11 +1547,11 @@ class SubscriptionService {
   }
 
   async removeClassesFromSubscription(id: string | number, classesToRemove: number, reason?: string): Promise<ApiResponse<any>> {
-    console.log('🎮 removeClassesFromSubscription called with:', { id, classesToRemove, reason });
+    //console.log('🎮 removeClassesFromSubscription called with:', { id, classesToRemove, reason });
     
     if (this.useSupabase()) {
       try {
-        console.log('🎮 Using Supabase client for removeClassesFromSubscription');
+        //console.log('🎮 Using Supabase client for removeClassesFromSubscription');
         
         // Use Supabase client directly for admin/reception operations
         const { data: subscriptions, error: fetchError } = await supabase
@@ -1516,7 +1604,7 @@ class SubscriptionService {
           };
         }
 
-        console.log('✅ Classes removed successfully via Supabase');
+        //console.log('✅ Classes removed successfully via Supabase');
         return {
           success: true,
           data: {
@@ -1552,7 +1640,7 @@ class SubscriptionService {
   async getPlanStatistics(): Promise<ApiResponse<{ [planId: number]: { activeSubscriptions: number; totalRevenue: number; averagePrice: number; popularityRank: number } }>> {
     try {
       if (this.useSupabase()) {
-        console.log('🔧 Using Supabase to fetch plan statistics');
+        //console.log('🔧 Using Supabase to fetch plan statistics');
         
         // 1. Get all subscription plans with their monthly_price
         const { data: plans, error: plansError } = await supabase
@@ -1643,7 +1731,7 @@ class SubscriptionService {
           }
         });
 
-        console.log('✅ Plan statistics fetched successfully:', statsMap);
+        //console.log('✅ Plan statistics fetched successfully:', statsMap);
         return { success: true, data: statsMap };
  
       } else {

@@ -781,7 +781,7 @@ function AdminClassManagement() {
       </ScrollView>
 
       <FAB
-        icon="plus"
+                      icon="add"
         style={[styles.fab, { backgroundColor: accentColor }]}
         onPress={handleCreateClass}
         label="New Class"

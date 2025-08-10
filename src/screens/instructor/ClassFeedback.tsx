@@ -641,7 +641,7 @@ function ClassFeedback() {
                       mode="outlined"
                       onPress={addStudentHighlight}
                       style={styles.addHighlightButton}
-                      icon="plus"
+                      icon="add"
                     >
                       Add Highlight
                     </Button>

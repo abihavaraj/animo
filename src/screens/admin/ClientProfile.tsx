@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Platform, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
     ActivityIndicator,
     Avatar,
@@ -18,8 +18,10 @@ import {
     Title
 } from 'react-native-paper';
 import { useSelector } from 'react-redux';
+import { supabase } from '../../config/supabase.config';
 import { apiService } from '../../services/api';
 import { bookingService } from '../../services/bookingService';
+import { ClientMedicalUpdate, ClientProgressPhoto, InstructorClientAssignment, instructorClientService } from '../../services/instructorClientService';
 import { SubscriptionPlan, subscriptionService } from '../../services/subscriptionService';
 import { BackendUser, userService } from '../../services/userService';
 import { RootState } from '../../store';
@@ -165,7 +167,10 @@ function ClientProfile({ userId: propUserId, userName: propUserName }: { userId?
   const [clientDocuments, setClientDocuments] = useState<any[]>([]);
   const [clientLifecycle, setClientLifecycle] = useState<any>(null);
   const [clientActivity, setClientActivity] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'overview' | 'bookings' | 'payments' | 'subscriptions' | 'notes' | 'documents' | 'lifecycle' | 'activity'>('overview');
+  const [instructorAssignments, setInstructorAssignments] = useState<InstructorClientAssignment[]>([]);
+  const [progressPhotos, setProgressPhotos] = useState<ClientProgressPhoto[]>([]);
+  const [medicalUpdates, setMedicalUpdates] = useState<ClientMedicalUpdate[]>([]);
+  const [activeTab, setActiveTab] = useState<'overview' | 'bookings' | 'payments' | 'subscriptions' | 'notes' | 'documents' | 'lifecycle' | 'activity' | 'instructor_progress'>('overview');
 
   // Use ref to persist activeTab across re-renders
   const activeTabRef = useRef(activeTab);
@@ -277,7 +282,10 @@ function ClientProfile({ userId: propUserId, userName: propUserName }: { userId?
         loadClientNotes().catch(error => console.error('Client notes error:', error)),
         loadClientDocuments().catch(error => console.error('Client documents error:', error)),
         loadClientLifecycle().catch(error => console.error('Client lifecycle error:', error)),
-        loadClientActivity().catch(error => console.error('Client activity error:', error))
+        loadClientActivity().catch(error => console.error('Client activity error:', error)),
+        loadInstructorAssignments().catch(error => console.error('Instructor assignments error:', error)),
+        loadProgressPhotos().catch(error => console.error('Progress photos error:', error)),
+        loadMedicalUpdates().catch(error => console.error('Medical updates error:', error))
       ]);
     } catch (error) {
       console.error('Failed to load client data:', error);
@@ -600,6 +608,125 @@ function ClientProfile({ userId: propUserId, userName: propUserName }: { userId?
     } catch (error) {
       console.error('Failed to load client activity (non-critical):', error);
       setClientActivity([]);
+    }
+  };
+
+  const loadInstructorAssignments = async () => {
+    try {
+      console.log('👥 Loading instructor assignments for client:', userId);
+      
+      // Get assignments where this user is the client
+      const { data, error } = await supabase
+        .from('instructor_client_assignments')
+        .select(`
+          *,
+          instructor:users!instructor_id (
+            id,
+            name,
+            email
+          ),
+          assigned_by_user:users!assigned_by (
+            name
+          )
+        `)
+        .eq('client_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('❌ Failed to load instructor assignments:', error);
+        setInstructorAssignments([]);
+        return;
+      }
+
+      const formattedAssignments = data?.map(assignment => ({
+        ...assignment,
+        instructor_name: assignment.instructor?.name,
+        instructor_email: assignment.instructor?.email,
+        assigned_by_name: assignment.assigned_by_user?.name,
+      })) || [];
+
+      setInstructorAssignments(formattedAssignments);
+      console.log('✅ Instructor assignments loaded:', formattedAssignments.length, 'assignments');
+    } catch (error) {
+      console.error('Failed to load instructor assignments (non-critical):', error);
+      setInstructorAssignments([]);
+    }
+  };
+
+  const loadProgressPhotos = async () => {
+    try {
+      console.log('📸 Loading progress photos for client:', userId);
+      
+      const response = await instructorClientService.getClientProgressPhotos(userId.toString());
+      
+      if (response.success && response.data) {
+        setProgressPhotos(response.data);
+        console.log('✅ Progress photos loaded:', response.data.length, 'photos');
+      } else {
+        console.log('📸 No progress photos found');
+        setProgressPhotos([]);
+      }
+    } catch (error) {
+      console.error('Failed to load progress photos (non-critical):', error);
+      setProgressPhotos([]);
+    }
+  };
+
+  const handleDeletePhoto = async (photoId: number) => {
+    try {
+      console.log('🗑️ Deleting progress photo:', photoId);
+      
+      const response = await instructorClientService.deleteProgressPhoto(photoId);
+      
+      if (response.success) {
+        // Remove photo from local state
+        setProgressPhotos(prev => prev.filter(photo => photo.id !== photoId));
+        Alert.alert('Success', 'Photo deleted successfully');
+        console.log('✅ Photo deleted successfully');
+      } else {
+        Alert.alert('Error', response.error || 'Failed to delete photo');
+        console.error('❌ Failed to delete photo:', response.error);
+      }
+    } catch (error) {
+      console.error('❌ Exception while deleting photo:', error);
+      Alert.alert('Error', 'Failed to delete photo');
+    }
+  };
+
+  const confirmDeletePhoto = (photoId: number, photoDescription?: string) => {
+    Alert.alert(
+      'Delete Photo',
+      `Are you sure you want to delete this progress photo${photoDescription ? `: ${photoDescription}` : ''}?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => handleDeletePhoto(photoId),
+        },
+      ]
+    );
+  };
+
+  const loadMedicalUpdates = async () => {
+    try {
+      console.log('🏥 Loading medical updates for client:', userId);
+      
+      const response = await instructorClientService.getClientMedicalUpdates(userId.toString());
+      
+      if (response.success && response.data) {
+        setMedicalUpdates(response.data);
+        console.log('✅ Medical updates loaded:', response.data.length, 'updates');
+      } else {
+        console.log('🏥 No medical updates found');
+        setMedicalUpdates([]);
+      }
+    } catch (error) {
+      console.error('Failed to load medical updates (non-critical):', error);
+      setMedicalUpdates([]);
     }
   };
 
@@ -1302,7 +1429,8 @@ function ClientProfile({ userId: propUserId, userName: propUserName }: { userId?
           { key: 'notes', label: 'Notes', icon: 'note-text' },
           { key: 'documents', label: 'Documents', icon: 'file-document' },
           { key: 'lifecycle', label: 'Lifecycle', icon: 'account-supervisor' },
-          { key: 'activity', label: 'Activity', icon: 'timeline' }
+          { key: 'activity', label: 'Activity', icon: 'timeline' },
+          { key: 'instructor_progress', label: 'Instructor Progress', icon: 'account-group' }
         ].map((tab) => (
           <Button
             key={tab.key}
@@ -1668,7 +1796,7 @@ function ClientProfile({ userId: propUserId, userName: propUserName }: { userId?
                           <>
                             <Button 
                               mode="outlined" 
-                              icon="plus" 
+                              icon="add" 
                               onPress={() => handleAddClasses(subscription.id)}
                               style={[styles.actionButton, { borderColor: '#4caf50' }]}
                               labelStyle={styles.actionButtonText}
@@ -1733,7 +1861,7 @@ function ClientProfile({ userId: propUserId, userName: propUserName }: { userId?
             <Title style={styles.sectionTitle}>Client Notes</Title>
             <Button 
               mode="contained" 
-              icon="plus"
+              icon="add"
               onPress={handleAddNote}
               style={styles.addButton}
             >
@@ -2115,6 +2243,230 @@ function ClientProfile({ userId: propUserId, userName: propUserName }: { userId?
               </>
             );
           })()}
+        </View>
+      )}
+
+      {activeTab === 'instructor_progress' && (
+        <View style={styles.tabContent}>
+          <View style={styles.sectionHeader}>
+            <Title style={styles.sectionTitle}>Instructor Progress Tracking</Title>
+            <Text style={styles.activityCount}>
+              {instructorAssignments.length} assignment{instructorAssignments.length !== 1 ? 's' : ''}
+            </Text>
+          </View>
+
+          {/* Instructor Assignments */}
+          <Card style={styles.activitySummaryCard}>
+            <Card.Content>
+              <Title style={styles.subsectionTitle}>Assigned Instructors</Title>
+              {instructorAssignments.length > 0 ? (
+                instructorAssignments.map((assignment, index) => (
+                  <Card key={assignment.id} style={[styles.activityCard, { marginBottom: 8 }]}>
+                    <Card.Content>
+                      <View style={styles.activityHeader}>
+                        <View style={styles.activityMeta}>
+                          <View style={styles.activityTitleRow}>
+                            <MaterialIcons 
+                              name="person" 
+                              size={16} 
+                              color="#666" 
+                              style={styles.activityIcon} 
+                            />
+                            <Text style={styles.activityTitle}>
+                              {assignment.instructor_name}
+                            </Text>
+                            <Chip 
+                              mode="outlined" 
+                              style={[styles.activityBadge, { backgroundColor: assignment.status === 'active' ? '#e8f5e8' : '#fff3cd' }]}
+                            >
+                              {assignment.assignment_type}
+                            </Chip>
+                          </View>
+                          <Text style={styles.activityDescription}>
+                            Assigned on {new Date(assignment.start_date).toLocaleDateString()}
+                            {assignment.assigned_by_name && ` by ${assignment.assigned_by_name}`}
+                          </Text>
+                          {assignment.notes && (
+                            <Text style={styles.activitySubtext}>
+                              Notes: {assignment.notes}
+                            </Text>
+                          )}
+                        </View>
+                        <Text style={styles.activityTime}>
+                          {assignment.status}
+                        </Text>
+                      </View>
+                    </Card.Content>
+                  </Card>
+                ))
+              ) : (
+                <Card style={styles.emptyCard}>
+                  <Card.Content>
+                    <MaterialIcons name="person-outline" size={48} color="#ccc" style={styles.emptyIcon} />
+                    <Title style={styles.emptyTitle}>No Instructor Assignments</Title>
+                    <Paragraph style={styles.emptyText}>
+                      This client has not been assigned to any instructors yet.
+                    </Paragraph>
+                  </Card.Content>
+                </Card>
+              )}
+            </Card.Content>
+          </Card>
+
+          {/* Progress Photos */}
+          <Card style={styles.activitySummaryCard}>
+            <Card.Content>
+              <Title style={styles.subsectionTitle}>Progress Photos</Title>
+              {progressPhotos.length > 0 ? (
+                progressPhotos.map((photo, index) => (
+                  <Card key={photo.id} style={[styles.activityCard, { marginBottom: 8 }]}>
+                    <Card.Content>
+                      <View style={styles.activityHeader}>
+                        <View style={styles.activityMeta}>
+                          <View style={styles.activityTitleRow}>
+                            <MaterialIcons 
+                              name="camera-alt" 
+                              size={16} 
+                              color="#666" 
+                              style={styles.activityIcon} 
+                            />
+                            <Text style={styles.activityTitle}>
+                              {photo.photo_type.charAt(0).toUpperCase() + photo.photo_type.slice(1)} Photo
+                            </Text>
+                            {photo.body_area && (
+                              <Chip 
+                                mode="outlined" 
+                                style={[styles.activityBadge, { backgroundColor: '#e3f2fd' }]}
+                              >
+                                {photo.body_area}
+                              </Chip>
+                            )}
+                          </View>
+                          <Text style={styles.activityDescription}>
+                            Taken on {new Date(photo.taken_date).toLocaleDateString()}
+                            {photo.client_name && ` by instructor`}
+                          </Text>
+                          {photo.description && (
+                            <Text style={styles.activitySubtext}>
+                              Description: {photo.description}
+                            </Text>
+                          )}
+                          {/* Display the actual photo */}
+                          {photo.file_url && (
+                            <View style={styles.photoImageContainer}>
+                              <Image
+                                source={{ uri: photo.file_url }}
+                                style={styles.photoImage}
+                                resizeMode="cover"
+                              />
+                            </View>
+                          )}
+                          
+                          {photo.session_notes && (
+                            <Text style={styles.activitySubtext}>
+                              Session Notes: {photo.session_notes}
+                            </Text>
+                          )}
+                        </View>
+                        <View style={styles.photoActions}>
+                          <Text style={styles.activityTime}>
+                            {photo.file_size && `${Math.round(photo.file_size / 1024)}KB`}
+                          </Text>
+                          <Pressable
+                            style={styles.deletePhotoButton}
+                            onPress={() => confirmDeletePhoto(photo.id, photo.description)}
+                          >
+                            <MaterialIcons name="delete" size={20} color="#ff4444" />
+                          </Pressable>
+                        </View>
+                      </View>
+                    </Card.Content>
+                  </Card>
+                ))
+              ) : (
+                <Card style={styles.emptyCard}>
+                  <Card.Content>
+                    <MaterialIcons name="photo-camera" size={48} color="#ccc" style={styles.emptyIcon} />
+                    <Title style={styles.emptyTitle}>No Progress Photos</Title>
+                    <Paragraph style={styles.emptyText}>
+                      No progress photos have been uploaded by instructors yet.
+                    </Paragraph>
+                  </Card.Content>
+                </Card>
+              )}
+            </Card.Content>
+          </Card>
+
+          {/* Medical Updates */}
+          <Card style={styles.activitySummaryCard}>
+            <Card.Content>
+              <Title style={styles.subsectionTitle}>Medical Condition Updates</Title>
+              {medicalUpdates.length > 0 ? (
+                medicalUpdates.map((update, index) => (
+                  <Card key={update.id} style={[styles.activityCard, { marginBottom: 8 }]}>
+                    <Card.Content>
+                      <View style={styles.activityHeader}>
+                        <View style={styles.activityMeta}>
+                          <View style={styles.activityTitleRow}>
+                            <MaterialIcons 
+                              name="medical-services" 
+                              size={16} 
+                              color="#666" 
+                              style={styles.activityIcon} 
+                            />
+                            <Text style={styles.activityTitle}>
+                              Medical Update
+                            </Text>
+                            <Chip 
+                              mode="outlined" 
+                              style={[
+                                styles.activityBadge, 
+                                { 
+                                  backgroundColor: update.severity_level === 'major' ? '#ffebee' : 
+                                                   update.severity_level === 'significant' ? '#fff3e0' :
+                                                   update.severity_level === 'moderate' ? '#e8f5e8' : '#f3e5f5'
+                                }
+                              ]}
+                            >
+                              {update.severity_level}
+                            </Chip>
+                          </View>
+                          <Text style={styles.activityDescription}>
+                            Updated on {new Date(update.effective_date).toLocaleDateString()}
+                            {update.requires_clearance && ' • Requires Admin Clearance'}
+                          </Text>
+                          <Text style={styles.activitySubtext}>
+                            Reason: {update.update_reason}
+                          </Text>
+                          <Text style={styles.activitySubtext}>
+                            New Conditions: {update.updated_conditions}
+                          </Text>
+                          {update.verification_date && update.admin_name && (
+                            <Text style={styles.activitySubtext}>
+                              Verified by {update.admin_name} on {new Date(update.verification_date).toLocaleDateString()}
+                            </Text>
+                          )}
+                        </View>
+                        <Text style={styles.activityTime}>
+                          {update.requires_clearance ? 'Pending' : 'Applied'}
+                        </Text>
+                      </View>
+                    </Card.Content>
+                  </Card>
+                ))
+              ) : (
+                <Card style={styles.emptyCard}>
+                  <Card.Content>
+                    <MaterialIcons name="medical-services" size={48} color="#ccc" style={styles.emptyIcon} />
+                    <Title style={styles.emptyTitle}>No Medical Updates</Title>
+                    <Paragraph style={styles.emptyText}>
+                      No medical condition updates have been made by instructors yet.
+                    </Paragraph>
+                  </Card.Content>
+                </Card>
+              )}
+            </Card.Content>
+          </Card>
         </View>
       )}
       </ScrollView>
@@ -3453,6 +3805,17 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#ccc',
   },
+  photoActions: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  deletePhotoButton: {
+    padding: 8,
+    borderRadius: 6,
+    backgroundColor: '#ffebee',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   reminderContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3462,6 +3825,16 @@ const styles = StyleSheet.create({
   reminderText: {
     fontSize: 12,
     color: '#FF9800',
+  },
+  photoImageContainer: {
+    marginVertical: 12,
+    alignItems: 'center',
+  },
+  photoImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
   },
 });
 

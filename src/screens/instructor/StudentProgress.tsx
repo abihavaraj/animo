@@ -527,7 +527,7 @@ function StudentProgress() {
       {/* Floating Action Button */}
       <FAB
         style={styles.fab}
-        icon="plus"
+                      icon="add"
         onPress={() => {
           if (filteredStudents.length > 0) {
             openAddNote(filteredStudents[0]);

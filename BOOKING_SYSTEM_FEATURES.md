@@ -25,9 +25,11 @@
   - Disabled buttons with reason for ineligible users
 
 #### 🔄 Promotion Logic
-- **3-Hour Rule**: Waitlist promotion only occurs if cancellation happens 3+ hours before class
+- **2-Hour Rule**: Waitlist promotion only occurs if cancellation happens 2+ hours before class (now implemented)
 - **Automatic Booking**: Promoted users are automatically enrolled without manual action
 - **Subscription Check**: System verifies user has active subscription and remaining classes
+- **Credit Deduction**: System automatically deducts class credits from user's subscription
+- **Rollback Protection**: If user has insufficient credits, booking is rolled back and next waitlist user is tried
 - **Notification Trigger**: Immediate notification sent to promoted user
 
 ## 🛠️ Technical Implementation

@@ -16,7 +16,7 @@ import { AppDispatch, RootState } from '../../store';
 import { shadows } from '../../utils/shadows';
 
 interface Class {
-  id: number;
+  id: string;
   name: string;
   date: string;
   time: string;
@@ -83,9 +83,21 @@ function ScheduleOverview() {
   const loadSchedule = async () => {
     try {
       setLoading(true);
+      console.log(`🔄 [ScheduleOverview] Loading classes for instructor: ${user?.id}`);
+      console.log(`🔄 [ScheduleOverview] User object:`, user);
+      console.log(`🔄 [ScheduleOverview] Instructor filter value:`, user?.id?.toString());
+      
       const response = await classService.getClasses({
-        instructor: user?.id?.toString(),
-        status: 'active'
+        instructor: user?.id?.toString()
+        // Removed status filter temporarily to see all classes for this instructor
+        // status: 'active'
+        // Removed upcoming: true filter so instructor can see all classes including past ones
+      });
+
+      console.log(`📊 [ScheduleOverview] API Response:`, {
+        success: response.success,
+        dataLength: response.data?.length || 0,
+        error: response.error
       });
 
       if (response.success && response.data) {
@@ -95,6 +107,10 @@ function ScheduleOverview() {
           equipment_type: cls.equipment_type || 'mat'
         }));
         
+        console.log(`✅ [ScheduleOverview] Loaded ${classesData.length} classes:`, 
+          classesData.map(c => ({ id: c.id, name: c.name, date: c.date, status: c.status, instructor_id: c.instructor_id }))
+        );
+        
         setClasses(classesData);
         
         // Check for newly full classes and notify
@@ -103,9 +119,13 @@ function ScheduleOverview() {
             checkClassCapacityAndNotify(cls);
           }
         });
+      } else {
+        console.log(`⚠️ [ScheduleOverview] No classes found or API error:`, response.error);
+        setClasses([]);
       }
     } catch (error) {
-      console.error('Failed to load schedule:', error);
+      console.error('❌ [ScheduleOverview] Failed to load schedule:', error);
+      setClasses([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -226,9 +246,10 @@ function ScheduleOverview() {
   const onDateChange = (event: any, selectedDate?: Date) => {
     const currentDate = selectedDate || pickerDate;
     
-    // On iOS, keep picker open for continuous interaction
-    if (Platform.OS === 'android') {
+    // Only close on Android when user dismisses, keep open for continuous selection
+    if (Platform.OS === 'android' && event.type === 'dismissed') {
       setShowDatePicker(false);
+      return;
     }
     
     if (event.type === 'set' && selectedDate) {
@@ -236,10 +257,8 @@ function ScheduleOverview() {
       const dateString = selectedDate.toISOString().split('T')[0];
       setNewClass(prev => ({ ...prev, date: dateString }));
       
-      // Close picker on iOS after selection
-      if (Platform.OS === 'ios') {
-        setShowDatePicker(false);
-      }
+      // Keep picker open - don't auto-close on selection
+      // User must click "Done" to close
     } else if (event.type === 'dismissed') {
       setShowDatePicker(false);
     }
@@ -248,9 +267,10 @@ function ScheduleOverview() {
   const onTimeChange = (event: any, selectedTime?: Date) => {
     const currentTime = selectedTime || pickerTime;
     
-    // On iOS, keep picker open for continuous interaction
-    if (Platform.OS === 'android') {
+    // Only close on Android when user dismisses, keep open for continuous selection
+    if (Platform.OS === 'android' && event.type === 'dismissed') {
       setShowTimePicker(false);
+      return;
     }
     
     if (event.type === 'set' && selectedTime) {
@@ -258,10 +278,8 @@ function ScheduleOverview() {
       const timeString = selectedTime.toTimeString().slice(0, 5);
       setNewClass(prev => ({ ...prev, time: timeString }));
       
-      // Close picker on iOS after selection
-      if (Platform.OS === 'ios') {
-        setShowTimePicker(false);
-      }
+      // Keep picker open - don't auto-close on selection
+      // User must click "Done" to close
     } else if (event.type === 'dismissed') {
       setShowTimePicker(false);
     }
@@ -274,10 +292,41 @@ function ScheduleOverview() {
         return;
       }
 
-      // Validate room availability
-      if (newClass.room && roomAvailability[newClass.room] && !roomAvailability[newClass.room].available) {
-        Alert.alert('Error', `${newClass.room} is not available at this time. Please choose a different room or time.`);
+      // Check for instructor conflicts
+      const instructorConflictResponse = await classService.checkInstructorConflict(
+        user.id,
+        newClass.date,
+        newClass.time,
+        newClass.duration
+      );
+
+      if (instructorConflictResponse.success && instructorConflictResponse.data?.hasConflict) {
+        const conflictClass = instructorConflictResponse.data.conflictClass;
+        Alert.alert(
+          'Instructor Conflict',
+          `You already have a class "${conflictClass?.name}" scheduled at ${conflictClass?.time} on ${newClass.date}. Please choose a different time.`
+        );
         return;
+      }
+
+      // Check for room conflicts if room is selected
+      if (newClass.room) {
+        const roomConflictResponse = await classService.checkRoomAvailability(
+          newClass.date,
+          newClass.time,
+          newClass.duration
+        );
+
+        if (roomConflictResponse.success && roomConflictResponse.data) {
+          const roomAvailability = roomConflictResponse.data[newClass.room];
+          if (roomAvailability && !roomAvailability.available) {
+            Alert.alert(
+              'Room Conflict',
+              `${newClass.room} is already booked at ${newClass.time} on ${newClass.date}. Please choose a different room or time.`
+            );
+            return;
+          }
+        }
       }
 
       const response = await classService.createClass({
@@ -348,27 +397,38 @@ function ScheduleOverview() {
     const marked: any = {};
     
     classes.forEach(cls => {
-      const enrollmentPercentage = (cls.enrolled / cls.capacity) * 100;
-      let dotColor = Colors.light.success;
+      const date = cls.date;
       
-      if (enrollmentPercentage >= 100) {
-        dotColor = Colors.light.error;
-      } else if (enrollmentPercentage >= 80) {
-        dotColor = Colors.light.warning;
+      if (!marked[date]) {
+        marked[date] = { dots: [] };
+      }
+      
+      let dotColor = Colors.light.success; // Default green for available
+      
+      if (isPastClass(cls.date, cls.time)) {
+        dotColor = Colors.light.textMuted; // Gray for past classes
+      } else {
+        const enrollmentPercentage = (cls.enrolled / cls.capacity) * 100;
+        if (enrollmentPercentage >= 100) {
+          dotColor = Colors.light.error; // Red for full
+        } else if (enrollmentPercentage >= 80) {
+          dotColor = Colors.light.warning; // Yellow for almost full
+        }
       }
 
-      marked[cls.date] = {
-        marked: true,
-        dotColor,
-      };
+      marked[date].dots.push({
+        key: `class-${cls.id}`,
+        color: dotColor,
+        selectedDotColor: dotColor
+      });
     });
 
     if (selectedDate) {
-      marked[selectedDate] = {
-        ...marked[selectedDate],
-        selected: true,
-        selectedColor: Colors.light.accent,
-      };
+      if (!marked[selectedDate]) {
+        marked[selectedDate] = { dots: [] };
+      }
+      marked[selectedDate].selected = true;
+      marked[selectedDate].selectedColor = Colors.light.accent;
     }
 
     return marked;
@@ -422,6 +482,21 @@ function ScheduleOverview() {
     if (enrollmentPercentage >= 100) return 'Full';
     if (enrollmentPercentage >= 80) return 'Almost Full';
     return 'Available';
+  };
+
+  const getClassStatusColor = (cls: Class) => {
+    const enrollmentPercentage = (cls.enrolled / cls.capacity) * 100;
+    
+    if (enrollmentPercentage >= 100) return Colors.light.error; // Red for full
+    if (enrollmentPercentage >= 80) return Colors.light.warning; // Yellow for almost full
+    return Colors.light.success; // Green for available
+  };
+
+  const getClassBackgroundColor = (cls: Class) => {
+    if (isPastClass(cls.date, cls.time)) {
+      return Colors.light.textMuted; // Gray for past classes
+    }
+    return getClassStatusColor(cls);
   };
 
   const isPastClass = (date: string, time: string) => {
@@ -524,6 +599,7 @@ function ScheduleOverview() {
 
                 <Calendar
                   style={styles.calendar}
+                  markingType={'multi-dot'}
                   theme={{
                     backgroundColor: Colors.light.surface,
                     calendarBackground: Colors.light.surface,
@@ -553,13 +629,26 @@ function ScheduleOverview() {
                   <H2 style={styles.cardTitle}>Classes for {selectedDate}</H2>
                   {getSelectedDateClasses().length > 0 ? (
                     getSelectedDateClasses().map((cls) => (
-                      <View key={cls.id} style={styles.classItem}>
+                      <View key={cls.id} style={[
+                        styles.classItem,
+                        { 
+                          backgroundColor: getClassBackgroundColor(cls) + '20', // 20% opacity
+                          borderLeftWidth: 4,
+                          borderLeftColor: getClassBackgroundColor(cls),
+                          borderRadius: 8,
+                          marginVertical: 4,
+                          paddingHorizontal: 12
+                        }
+                      ]}>
                         <TouchableOpacity 
                           style={styles.classInfo}
                           onPress={() => viewClassEnrollments(cls)}
                         >
                           <View style={styles.classHeader}>
-                            <Body style={styles.className}>{cls.name}</Body>
+                            <Body style={[
+                              styles.className,
+                              { color: isPastClass(cls.date, cls.time) ? Colors.light.textMuted : Colors.light.text }
+                            ]}>{cls.name}</Body>
                             <View style={styles.chipContainer}>
                               <StatusChip 
                                 state={getStatusChipState(cls)}
@@ -572,14 +661,20 @@ function ScheduleOverview() {
                           <View style={styles.classDetails}>
                             <View style={styles.classDetailItem}>
                               <WebCompatibleIcon name="schedule" size={16} color={Colors.light.textSecondary} />
-                              <Caption style={styles.classDetailText}>
+                              <Caption style={[
+                                styles.classDetailText,
+                                { color: isPastClass(cls.date, cls.time) ? Colors.light.textMuted : Colors.light.textSecondary }
+                              ]}>
                                 {`${formatTime(cls.time)} (${cls.duration} min)`}
                               </Caption>
                             </View>
 
                             <View style={styles.classDetailItem}>
                               <WebCompatibleIcon name="people" size={16} color={Colors.light.textSecondary} />
-                              <Caption style={styles.classDetailText}>
+                              <Caption style={[
+                                styles.classDetailText,
+                                { color: isPastClass(cls.date, cls.time) ? Colors.light.textMuted : Colors.light.textSecondary }
+                              ]}>
                                 {cls.enrolled}/{cls.capacity} enrolled
                               </Caption>
                             </View>
@@ -632,13 +727,26 @@ function ScheduleOverview() {
                 </View>
               ) : (
                 classes.map((cls) => (
-                  <View key={cls.id} style={styles.classItem}>
+                  <View key={cls.id} style={[
+                    styles.classItem,
+                    { 
+                      backgroundColor: getClassBackgroundColor(cls) + '20', // 20% opacity
+                      borderLeftWidth: 4,
+                      borderLeftColor: getClassBackgroundColor(cls),
+                      borderRadius: 8,
+                      marginVertical: 4,
+                      paddingHorizontal: 12
+                    }
+                  ]}>
                     <TouchableOpacity 
                       style={styles.classInfo}
                       onPress={() => viewClassEnrollments(cls)}
                     >
                       <View style={styles.classHeader}>
-                        <Body style={styles.className}>{cls.name}</Body>
+                        <Body style={[
+                          styles.className,
+                          { color: isPastClass(cls.date, cls.time) ? Colors.light.textMuted : Colors.light.text }
+                        ]}>{cls.name}</Body>
                         <View style={styles.chipContainer}>
                           <StatusChip 
                             state={getLevelChipState(cls.level)}
@@ -656,24 +764,36 @@ function ScheduleOverview() {
                       <View style={styles.classDetails}>
                         <View style={styles.classDetailItem}>
                           <WebCompatibleIcon name="calendar-today" size={16} color={Colors.light.textSecondary} />
-                          <Caption style={styles.classDetailText}>{cls.date}</Caption>
+                          <Caption style={[
+                            styles.classDetailText,
+                            { color: isPastClass(cls.date, cls.time) ? Colors.light.textMuted : Colors.light.textSecondary }
+                          ]}>{cls.date}</Caption>
                         </View>
                         
                         <View style={styles.classDetailItem}>
                           <WebCompatibleIcon name="schedule" size={16} color={Colors.light.textSecondary} />
-                          <Caption style={styles.classDetailText}>
+                          <Caption style={[
+                            styles.classDetailText,
+                            { color: isPastClass(cls.date, cls.time) ? Colors.light.textMuted : Colors.light.textSecondary }
+                          ]}>
                             {`${formatTime(cls.time)} (${cls.duration} min)`}
                           </Caption>
                         </View>
 
                         <View style={styles.classDetailItem}>
                           <WebCompatibleIcon name="fitness-center" size={16} color={Colors.light.textSecondary} />
-                          <Caption style={styles.classDetailText}>{cls.equipment_type}</Caption>
+                          <Caption style={[
+                            styles.classDetailText,
+                            { color: isPastClass(cls.date, cls.time) ? Colors.light.textMuted : Colors.light.textSecondary }
+                          ]}>{cls.equipment_type}</Caption>
                         </View>
                         
                         <View style={styles.classDetailItem}>
                           <WebCompatibleIcon name="people" size={16} color={Colors.light.textSecondary} />
-                          <Caption style={styles.classDetailText}>
+                          <Caption style={[
+                            styles.classDetailText,
+                            { color: isPastClass(cls.date, cls.time) ? Colors.light.textMuted : Colors.light.textSecondary }
+                          ]}>
                             {cls.enrolled}/{cls.capacity} enrolled
                           </Caption>
                         </View>
@@ -957,27 +1077,79 @@ function ScheduleOverview() {
         </Modal>
       </Portal>
 
-      {/* Date/Time Pickers - Outside Modal for proper display */}
-      {showDatePicker && (
-        <DateTimePicker
-          value={pickerDate}
-          mode="date"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={onDateChange}
-          minimumDate={new Date()}
-          style={Platform.OS === 'ios' ? { backgroundColor: 'white' } : {}}
-        />
-      )}
+      {/* Date/Time Pickers - In separate Portals to appear on top */}
+      <Portal>
+        {showDatePicker && (
+          <View style={styles.dateTimePickerContainer}>
+            <View style={styles.dateTimePickerWrapper}>
+              <View style={styles.dateTimePickerHeader}>
+                <PaperButton
+                  mode="text"
+                  onPress={() => setShowDatePicker(false)}
+                  style={styles.dateTimePickerCloseButton}
+                >
+                  Cancel
+                </PaperButton>
+                <Body style={styles.dateTimePickerTitle}>Select Date</Body>
+                <PaperButton
+                  mode="text"
+                  onPress={() => setShowDatePicker(false)}
+                  style={styles.dateTimePickerCloseButton}
+                >
+                  Done
+                </PaperButton>
+              </View>
+              <DateTimePicker
+                value={pickerDate}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={onDateChange}
+                minimumDate={new Date()}
+                style={[
+                  Platform.OS === 'ios' ? { backgroundColor: 'white' } : {},
+                  styles.dateTimePicker
+                ]}
+              />
+            </View>
+          </View>
+        )}
+      </Portal>
 
-      {showTimePicker && (
-        <DateTimePicker
-          value={pickerTime}
-          mode="time"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={onTimeChange}
-          style={Platform.OS === 'ios' ? { backgroundColor: 'white' } : {}}
-        />
-      )}
+      <Portal>
+        {showTimePicker && (
+          <View style={styles.dateTimePickerContainer}>
+            <View style={styles.dateTimePickerWrapper}>
+              <View style={styles.dateTimePickerHeader}>
+                <PaperButton
+                  mode="text"
+                  onPress={() => setShowTimePicker(false)}
+                  style={styles.dateTimePickerCloseButton}
+                >
+                  Cancel
+                </PaperButton>
+                <Body style={styles.dateTimePickerTitle}>Select Time</Body>
+                <PaperButton
+                  mode="text"
+                  onPress={() => setShowTimePicker(false)}
+                  style={styles.dateTimePickerCloseButton}
+                >
+                  Done
+                </PaperButton>
+              </View>
+              <DateTimePicker
+                value={pickerTime}
+                mode="time"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={onTimeChange}
+                style={[
+                  Platform.OS === 'ios' ? { backgroundColor: 'white' } : {},
+                  styles.dateTimePicker
+                ]}
+              />
+            </View>
+          </View>
+        )}
+      </Portal>
     </View>
   );
 }
@@ -1188,6 +1360,7 @@ const styles = StyleSheet.create({
   modalContainer: {
     padding: spacing.lg,
     justifyContent: 'center',
+    zIndex: 1000,
   },
   modalCard: {
     backgroundColor: Colors.light.surface,
@@ -1322,6 +1495,46 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     color: Colors.light.textMuted,
     textAlign: 'center',
+  },
+  
+  // Date/Time Picker styles
+  dateTimePickerContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 99999,
+    elevation: 99999,
+  },
+  dateTimePicker: {
+    backgroundColor: Colors.light.surface,
+    borderRadius: layout.borderRadius,
+    ...shadows.medium,
+  },
+  dateTimePickerWrapper: {
+    backgroundColor: Colors.light.surface,
+    borderRadius: layout.borderRadius,
+    padding: spacing.md,
+    ...shadows.medium,
+    minWidth: 300,
+  },
+  dateTimePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.sm,
+  },
+  dateTimePickerTitle: {
+    fontWeight: '600',
+    color: Colors.light.text,
+  },
+  dateTimePickerCloseButton: {
+    minWidth: 60,
   },
 });
 

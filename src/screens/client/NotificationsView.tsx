@@ -1,5 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import React, { useEffect, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import * as Notifications from 'expo-notifications';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -10,6 +12,7 @@ import {
   View
 } from 'react-native';
 import { useSelector } from 'react-redux';
+import { supabase } from '../../config/supabase.config';
 import { notificationService } from '../../services/notificationService';
 import { RootState } from '../../store';
 import { formatDetailedTime, formatLocalTime, formatUTCToLocal, isUTCFormat } from '../../utils/timeUtils';
@@ -20,6 +23,7 @@ interface Notification {
   message: string;
   scheduled_time: string;
   sent: boolean;
+  is_read?: boolean;
   sent_at?: string;
   created_at: string;
   class_name?: string;
@@ -37,9 +41,16 @@ export default function NotificationsView() {
     loadNotifications();
   }, []);
 
+  // Mark all notifications as read when the screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      markAllNotificationsAsRead();
+    }, [])
+  );
+
   const loadNotifications = async () => {
     try {
-      const response = await notificationService.getUserNotifications(parseInt(user?.id || '0'));
+      const response = await notificationService.getUserNotifications(user?.id || '');
       if (response.success && response.data) {
         setNotifications(response.data as any[]);
       } else {
@@ -58,6 +69,40 @@ export default function NotificationsView() {
   const onRefresh = () => {
     setRefreshing(true);
     loadNotifications();
+  };
+
+  const markAllNotificationsAsRead = async () => {
+    try {
+      if (!user?.id) return;
+      
+      // Get all unread notifications by is_read flag
+      const unreadNotifications = notifications.filter(n => !n.is_read);
+      
+      if (unreadNotifications.length === 0) return;
+      
+      console.log(`📱 Marking ${unreadNotifications.length} notifications as read`);
+      
+      // Mark all notifications as read in Supabase
+      const { error } = await supabase
+        .from('notifications')
+        .update({ is_read: true, updated_at: new Date().toISOString() })
+        .eq('user_id', user.id)
+        .eq('is_read', false);
+      
+      if (error) {
+        console.error('❌ Failed to mark notifications as read:', error);
+      } else {
+        console.log('✅ All notifications marked as read');
+        // Update local state
+        setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+        // Clear app icon badge count on device
+        try {
+          await Notifications.setBadgeCountAsync(0);
+        } catch {}
+      }
+    } catch (error) {
+      console.error('❌ Error marking notifications as read:', error);
+    }
   };
 
   const getNotificationIcon = (type: string) => {
@@ -150,7 +195,7 @@ export default function NotificationsView() {
             </Text>
           )}
         </View>
-        {!item.sent && (
+        {!item.is_read && (
           <View style={styles.unreadDot} />
         )}
       </View>

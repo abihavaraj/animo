@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "ANIMO Pilates Studio",
+    "name": "ANIMO",
     "slug": "PilatesStudioApp",
-    "version": "1.0.1",
+    "version": "1.0.4",
     "orientation": "portrait",
     "scheme": "animopilatesstudio",
     "userInterfaceStyle": "automatic",
@@ -18,24 +18,37 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.animo.pilatesstudio",
-      "buildNumber": "22",
+      "buildNumber": "26",
       "icon": "./assets/images/ios/iTunesArtwork@2x.png",
       "jsEngine": "jsc",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCalendarsUsageDescription": "ANIMO Pilates Studio uses calendar access to help you schedule and manage your pilates classes and appointments.",
-        "NSCameraUsageDescription": "This app may need camera access for profile photos.",
+        "NSCameraUsageDescription": "This app needs camera access to capture progress photos for client assessments and tracking.",
         "NSMicrophoneUsageDescription": "This app may need microphone access for video features.",
         "NSPhotoLibraryUsageDescription": "This app may need photo library access for profile photos.",
         "NSUserNotificationsUsageDescription": "ANIMO Pilates Studio needs notification access to send you class reminders, subscription updates, and important studio announcements.",
         "UIBackgroundModes": [
           "remote-notification"
         ],
+        "com.apple.developer.aps-environment": "production",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": false,
           "NSAllowsArbitraryLoadsInWebContent": false,
           "NSExceptionDomains": {
             "animo-pilates-backend.fly.dev": {
+              "NSExceptionAllowsInsecureHTTPLoads": false,
+              "NSExceptionMinimumTLSVersion": "1.2",
+              "NSExceptionRequiresForwardSecrecy": true,
+              "NSIncludesSubdomains": true
+            },
+            "supabase.co": {
+              "NSExceptionAllowsInsecureHTTPLoads": false,
+              "NSExceptionMinimumTLSVersion": "1.2",
+              "NSExceptionRequiresForwardSecrecy": true,
+              "NSIncludesSubdomains": true
+            },
+            "byhqueksdwlbiwodpbbd.supabase.co": {
               "NSExceptionAllowsInsecureHTTPLoads": false,
               "NSExceptionMinimumTLSVersion": "1.2",
               "NSExceptionRequiresForwardSecrecy": true,
@@ -64,6 +77,7 @@
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.VIBRATE",
         "android.permission.WAKE_LOCK",
+        "android.permission.CAMERA",
         "com.google.android.c2dm.permission.RECEIVE"
       ]
     },
@@ -79,11 +93,18 @@
           "defaultChannel": "animo-notifications"
         }
       ],
-   "expo-web-browser",
+      "expo-web-browser",
       [
         "expo-calendar",
         {
           "calendarPermission": "The app needs to access your calendar to manage class schedules."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app needs access to your photo library to select progress photos.",
+          "cameraPermission": "The app needs camera access to capture progress photos for client assessments."
         }
       ]
     ],
