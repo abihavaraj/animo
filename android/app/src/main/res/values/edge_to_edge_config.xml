@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Edge-to-edge configuration for Android 15+ compatibility -->
+    <bool name="config_enableEdgeToEdge">true</bool>
+    
+    <!-- System bar colors for edge-to-edge -->
+    <color name="system_bar_color">@android:color/transparent</color>
+    <color name="status_bar_color">@android:color/transparent</color>
+    <color name="navigation_bar_color">@android:color/transparent</color>
+    
+    <!-- Light system bars for better visibility -->
+    <bool name="config_lightStatusBar">true</bool>
+    <bool name="config_lightNavigationBar">true</bool>
+    
+    <!-- Display cutout support -->
+    <string name="config_displayCutoutMode">shortEdges</string>
+</resources>

@@ -1,22 +1,22 @@
-import { useThemeColor } from '@/hooks/useThemeColor';
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import {
-    ActivityIndicator,
-    Button,
-    Card,
-    Chip,
-    DataTable,
-    IconButton,
-    Modal,
-    Paragraph,
-    Portal,
-    SegmentedButtons,
-    Surface,
-    TextInput,
-    Title
+  ActivityIndicator,
+  Button,
+  Card,
+  Chip,
+  DataTable,
+  IconButton,
+  Modal,
+  Paragraph,
+  Portal,
+  SegmentedButtons,
+  Surface,
+  TextInput,
+  Title
 } from 'react-native-paper';
+import { useThemeColor } from '../../../hooks/useThemeColor';
 import { dataCleanupService } from '../../services/dataCleanupService';
 import { userService } from '../../services/userService';
 import { useAppDispatch } from '../../store';
@@ -283,10 +283,11 @@ function SystemSettings() {
       }
       
       console.log(`🔧 [DEBUG] Cleanup result for ${selectedTable}:`, result);
-      Alert.alert(
-        'Table Cleanup Complete',
-        `Successfully deleted ${result.deletedCount} records from ${selectedTable} table older than ${tableCleanupDays} ${tableCleanupType}`
-      );
+      const cleanupMessage = tableCleanupDays === '0' 
+        ? `Successfully deleted ${result.deletedCount} records from ${selectedTable} table (ALL DATA CLEARED)`
+        : `Successfully deleted ${result.deletedCount} records from ${selectedTable} table older than ${tableCleanupDays} ${tableCleanupType}`;
+        
+      Alert.alert('Table Cleanup Complete', cleanupMessage);
       
       setTableCleanupModalVisible(false);
       await loadDataStats();
@@ -356,7 +357,8 @@ function SystemSettings() {
         `• Notifications: ${results.notifications.deletedCount}\n` +
         `• Payments: ${results.payments.deletedCount}\n` +
         `• Subscriptions: ${results.subscriptions.deletedCount}\n` +
-        `• Waitlist: ${results.waitlist.deletedCount}`
+        `• Waitlist: ${results.waitlist.deletedCount}\n` +
+        `• Client Data: ${results.clientData.deletedCount}`
       );
       
       setUserCleanupModalVisible(false);
@@ -866,7 +868,7 @@ function SystemSettings() {
             />
             <SegmentedButtons
               value={cleanupType}
-              onValueChange={setCleanupType}
+              onValueChange={(value) => setCleanupType(value as typeof cleanupType)}
               buttons={[
                 { value: 'days', label: 'Days' },
                 { value: 'months', label: 'Months' },
@@ -917,7 +919,7 @@ function SystemSettings() {
             />
             <SegmentedButtons
               value={cleanupType}
-              onValueChange={setCleanupType}
+              onValueChange={(value) => setCleanupType(value as typeof cleanupType)}
               buttons={[
                 { value: 'days', label: 'Days' },
                 { value: 'months', label: 'Months' },
@@ -977,7 +979,7 @@ function SystemSettings() {
           </View>
 
           <Paragraph style={[styles.warningText, { color: warningColor }]}>
-            ⚠️ This will permanently delete {selectedTable} records older than {tableCleanupDays} {tableCleanupType}
+            ⚠️ This will permanently delete {selectedTable} records {tableCleanupDays === '0' ? '(ALL DATA WILL BE CLEARED!)' : `older than ${tableCleanupDays} ${tableCleanupType}`}
           </Paragraph>
 
           <View style={styles.modalButtons}>
@@ -1232,6 +1234,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 16,
     fontStyle: 'italic',
+  },
+  warningText: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginBottom: 16,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
   },
 });
 

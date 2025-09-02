@@ -1,5 +1,3 @@
-import { Body, Caption, H1, H2, H3 } from '@/components/ui/Typography';
-import { useThemeColor } from '@/hooks/useThemeColor';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Dimensions, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -18,11 +16,14 @@ import {
     Surface,
 } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
+import { Body, Caption, H1, H2, H3 } from '../../../components/ui/Typography';
 import { layout, spacing } from '../../../constants/Spacing';
+import { useThemeColor } from '../../../hooks/useThemeColor';
 import { AppDispatch, RootState } from '../../store';
 import { createBooking, fetchBookings } from '../../store/bookingSlice';
 import { fetchClasses } from '../../store/classSlice';
 import { fetchCurrentSubscription } from '../../store/subscriptionSlice';
+import { getResponsiveModalDimensions, getResponsiveSpacing } from '../../utils/responsiveUtils';
 
 // Helper function to check equipment access validation
 const isEquipmentAccessAllowed = (userAccess: string, classEquipment: string): boolean => {
@@ -59,11 +60,15 @@ interface ClassItem {
   enrolled: number;
   equipmentType: string;
   isBooked?: boolean;
-  bookingId?: number;
+  bookingId?: number | string;
   status?: string;
 }
 
 function PCCalendarView() {
+  // Get responsive dimensions for modal
+  const modalDimensions = getResponsiveModalDimensions('medium');
+  const responsiveSpacing = getResponsiveSpacing(spacing.lg);
+  
   // Theme colors
   const backgroundColor = useThemeColor({}, 'background');
   const surfaceColor = useThemeColor({}, 'surface');
@@ -81,7 +86,7 @@ function PCCalendarView() {
   const dispatch = useDispatch<AppDispatch>();
   const { bookings, isLoading: bookingsLoading } = useSelector((state: RootState) => state.bookings);
   const { classes, isLoading: classesLoading } = useSelector((state: RootState) => state.classes);
-  const { currentSubscription } = useSelector((state: RootState) => state.subscription);
+  const { currentSubscription } = useSelector((state: RootState) => state.subscriptions);
   
   const [viewMode, setViewMode] = useState<'month' | 'agenda'>('month');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -110,8 +115,12 @@ function PCCalendarView() {
 
   const loadCalendarData = async () => {
     try {
+      // Load all classes for clients (service will apply 2-month rule automatically)
       await Promise.all([
-        dispatch(fetchClasses({})),
+        dispatch(fetchClasses({ 
+          userRole: 'client'
+          // No date_from, date_to, or limit - let service handle client restrictions
+        })), 
         dispatch(fetchBookings({}))
       ]);
     } catch (error) {
@@ -123,6 +132,9 @@ function PCCalendarView() {
     const marked: any = {};
     const classesArray = Array.isArray(classes) ? classes : [];
     const bookingsArray = Array.isArray(bookings) ? bookings : [];
+
+    // console.log('🔍 [PCCalendar] Generating marked dates with', classesArray.length, 'classes');
+    // console.log('🔍 [PCCalendar] September 2025 classes:', classesArray.filter((c: any) => c.date >= '2025-09-01' && c.date < '2025-10-01').length);
 
     classesArray.forEach((classItem: any) => {
       const date = classItem.date;
@@ -186,7 +198,7 @@ function PCCalendarView() {
           date: classItem.date,
           startTime: classItem.startTime || classItem.time,
           endTime: classItem.endTime || classItem.time, // Use startTime instead of '00:00'
-          instructorName: classItem.instructorName || classItem.instructor_name,
+          instructorName: classItem.instructorName || classItem.instructor_name || 'TBD',
           level: classItem.level || 'All Levels',
           capacity: classItem.capacity,
           enrolled: classItem.enrolled || 0,
@@ -363,14 +375,17 @@ function PCCalendarView() {
             theme={{
               backgroundColor: surfaceColor,
               calendarBackground: surfaceColor,
+              textSectionTitleColor: textColor,
               selectedDayBackgroundColor: accentColor,
               selectedDayTextColor: backgroundColor,
-              todayTextColor: primaryColor,
+              todayTextColor: '#FFFFFF',
+              todayBackgroundColor: accentColor,
               dayTextColor: textColor,
               textDisabledColor: textMutedColor,
               dotColor: primaryColor,
-              selectedDotColor: backgroundColor,
-              arrowColor: primaryColor,
+              selectedDotColor: '#FFFFFF',
+              arrowColor: textColor,
+              disabledArrowColor: textMutedColor,
               monthTextColor: textColor,
               textDayFontFamily: 'System',
               textMonthFontFamily: 'System',
@@ -490,7 +505,16 @@ function PCCalendarView() {
           contentContainerStyle={[styles.modalContainer, { backgroundColor: 'rgba(0,0,0,0.5)' }]}
         >
           {selectedClass && (
-            <Surface style={[styles.modalSurface, { backgroundColor: surfaceColor }]}>
+            <Surface style={[
+              styles.modalSurface, 
+              { 
+                backgroundColor: surfaceColor,
+                width: modalDimensions.width,
+                maxWidth: modalDimensions.maxWidth,
+                padding: modalDimensions.padding,
+                margin: modalDimensions.margin
+              }
+            ]}>
               <H2 style={{ ...styles.modalTitle, color: textColor }}>Confirm Booking</H2>
               
               <View style={styles.modalClassInfo}>
@@ -678,11 +702,17 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   modalContainer: {
-    margin: spacing.lg,
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   modalSurface: {
-    padding: spacing.lg,
     borderRadius: layout.borderRadius,
+    alignSelf: 'center',
+    elevation: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
   },
   modalTitle: {
     textAlign: 'center',

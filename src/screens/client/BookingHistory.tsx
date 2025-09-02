@@ -1,5 +1,6 @@
-import { useNavigation } from '@react-navigation/native';
-import { useEffect, useState } from 'react';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import * as Notifications from 'expo-notifications';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { ActivityIndicator, Button, Card, Chip } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
@@ -17,10 +18,31 @@ function BookingHistory() {
   const { user } = useSelector((state: RootState) => state.auth);
   const [refreshing, setRefreshing] = useState(false);
   const [waitlistEntries, setWaitlistEntries] = useState([]);
+  
+  // Pagination state
+  const [displayLimit, setDisplayLimit] = useState(20);
+  const [showLoadMore, setShowLoadMore] = useState(false);
 
   useEffect(() => {
     loadData();
   }, []);
+
+  // Clear badge when booking history screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      try {
+        Notifications.setBadgeCountAsync(0);
+      } catch (error) {
+        console.error('Failed to clear badge count on booking history focus:', error);
+      }
+    }, [])
+  );
+
+  // Update showLoadMore when bookings change
+  useEffect(() => {
+    const safeBookings = Array.isArray(bookings) ? bookings : [];
+    setShowLoadMore(safeBookings.length > displayLimit);
+  }, [bookings, displayLimit]);
 
   const loadData = async () => {
     try {
@@ -51,10 +73,11 @@ function BookingHistory() {
 
   const onRefresh = () => {
     setRefreshing(true);
+    setDisplayLimit(20); // Reset to show only last 20 bookings
     loadData();
   };
 
-  const handleCancelBooking = async (bookingId: number, className: string) => {
+  const handleCancelBooking = async (bookingId: string | number, className: string) => {
     Alert.alert(
       'Cancel Booking',
       `Are you sure you want to cancel your booking for "${className}"?\n\nThis will refund 1 class to your subscription if cancelled more than 2 hours before the class starts.`,
@@ -65,7 +88,7 @@ function BookingHistory() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await dispatch(cancelBooking(bookingId)).unwrap();
+              await dispatch(cancelBooking(String(bookingId))).unwrap();
               Alert.alert('Success', 'Booking cancelled successfully');
               loadData(); // Refresh the list
             } catch (error) {
@@ -218,6 +241,14 @@ function BookingHistory() {
   const upcomingBookings = safeBookings.filter(booking => booking && isUpcoming(booking));
   const pastBookings = safeBookings.filter(booking => booking && !isUpcoming(booking));
   
+  // Apply pagination to past bookings - show only the most recent ones
+  const displayedPastBookings = pastBookings.slice(0, displayLimit);
+  const hasMoreBookings = pastBookings.length > displayLimit;
+  
+  const handleLoadMore = () => {
+    setDisplayLimit(prev => prev + 20);
+  };
+  
   // Process waitlist entries - filter for upcoming classes only
   const safeWaitlistEntries = Array.isArray(waitlistEntries) ? waitlistEntries : [];
   const upcomingWaitlistEntries = safeWaitlistEntries.filter(entry => {
@@ -287,6 +318,28 @@ function BookingHistory() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
+        {/* Summary Stats */}
+        {safeBookings.length > 0 && (
+          <Card style={[styles.summaryCard, { backgroundColor: cardColor }]}>
+            <Card.Content>
+              <View style={styles.summaryRow}>
+                <View style={styles.summaryItem}>
+                  <H2 style={{ color: textColor, fontSize: 24 }}>{upcomingBookings.length}</H2>
+                  <Caption style={{ color: textSecondaryColor }}>Upcoming</Caption>
+                </View>
+                <View style={styles.summaryItem}>
+                  <H2 style={{ color: textColor, fontSize: 24 }}>{pastBookings.length}</H2>
+                  <Caption style={{ color: textSecondaryColor }}>Past Classes</Caption>
+                </View>
+                <View style={styles.summaryItem}>
+                  <H2 style={{ color: textColor, fontSize: 24 }}>{upcomingWaitlistEntries.length}</H2>
+                  <Caption style={{ color: textSecondaryColor }}>Waitlist</Caption>
+                </View>
+              </View>
+            </Card.Content>
+          </Card>
+        )}
+
         {safeBookings.length === 0 && safeWaitlistEntries.length === 0 ? (
           <Card style={[styles.emptyCard, { backgroundColor: cardColor }]}>
             <Card.Content>
@@ -320,7 +373,7 @@ function BookingHistory() {
                   const bookingStatus = safeString(booking.status, 'unknown');
                   
                   return (
-                    <Card key={booking.id} style={[styles.bookingCard, styles.upcomingCard, { backgroundColor: cardColor, borderColor: successColor }]}>
+                    <Card key={`upcoming-${booking.id}`} style={[styles.bookingCard, styles.upcomingCard, { backgroundColor: cardColor, borderColor: successColor }]}>
                       <Card.Content>
                         <View style={styles.bookingHeader}>
                           <H2 style={{ ...styles.className, color: textColor }}>{className}</H2>
@@ -349,7 +402,7 @@ function BookingHistory() {
                         {canCancel(booking) && (
                           <Button 
                             mode="outlined" 
-                            onPress={() => handleCancelBooking(booking.id, className)}
+                            onPress={() => handleCancelBooking(String(booking.id), className)}
                             style={[styles.cancelButton, { borderColor: errorColor }]}
                             textColor={errorColor}
                             icon="close"
@@ -379,7 +432,7 @@ function BookingHistory() {
                   const position = waitlistEntry.position || 0;
                   
                   return (
-                    <Card key={waitlistEntry.id} style={[styles.bookingCard, styles.waitlistCard, { backgroundColor: cardColor, borderColor: warningColor }]}>
+                    <Card key={`waitlist-${waitlistEntry.id}`} style={[styles.bookingCard, styles.waitlistCard, { backgroundColor: cardColor, borderColor: warningColor }]}>
                       <Card.Content>
                         <View style={styles.bookingHeader}>
                           <H2 style={{ ...styles.className, color: textColor }}>{className}</H2>
@@ -424,8 +477,13 @@ function BookingHistory() {
             {/* Past Bookings Section */}
             {pastBookings.length > 0 && (
               <>
-                <H2 style={{ ...styles.sectionTitle, color: textColor }}>Past Classes</H2>
-                {pastBookings.map((booking) => {
+                <View style={styles.sectionHeader}>
+                  <H2 style={{ ...styles.sectionTitle, color: textColor, marginBottom: 0 }}>Past Classes</H2>
+                  <Caption style={{ color: textSecondaryColor }}>
+                    Showing {displayedPastBookings.length} of {pastBookings.length} total classes
+                  </Caption>
+                </View>
+                {displayedPastBookings.map((booking) => {
                   if (!booking || !booking.id) return null;
                   
                   const className = safeString(booking.classes?.name || booking.class_name, 'Unknown Class');
@@ -436,7 +494,7 @@ function BookingHistory() {
                   const bookingStatus = safeString(booking.status, 'unknown');
                   
                   return (
-                    <Card key={booking.id} style={[styles.bookingCard, { backgroundColor: cardColor }]}>
+                    <Card key={`past-${booking.id}`} style={[styles.bookingCard, { backgroundColor: cardColor }]}>
                       <Card.Content>
                         <View style={styles.bookingHeader}>
                           <H2 style={{ ...styles.className, color: textColor }}>{className}</H2>
@@ -465,6 +523,35 @@ function BookingHistory() {
                     </Card>
                   );
                 })}
+                
+                {/* Load More / Show All Buttons */}
+                {hasMoreBookings && (
+                  <View style={styles.loadMoreContainer}>
+                    <View style={styles.buttonRow}>
+                      <Button
+                        mode="outlined"
+                        onPress={handleLoadMore}
+                        style={[styles.loadMoreButton, { borderColor: accentColor, flex: 1, marginRight: spacing.sm }]}
+                        textColor={accentColor}
+                        icon="keyboard-arrow-down"
+                      >
+                        Load More
+                      </Button>
+                      <Button
+                        mode="contained"
+                        onPress={() => setDisplayLimit(pastBookings.length)}
+                        style={[styles.showAllButton, { backgroundColor: accentColor, flex: 1, marginLeft: spacing.sm }]}
+                        textColor="white"
+                        icon="list"
+                      >
+                        Show All
+                      </Button>
+                    </View>
+                    <Caption style={{ color: textSecondaryColor, marginTop: spacing.sm, textAlign: 'center' }}>
+                      Showing {displayedPastBookings.length} of {pastBookings.length} total classes
+                    </Caption>
+                  </View>
+                )}
               </>
             )}
           </>
@@ -583,6 +670,10 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '600',
   },
+  sectionHeader: {
+    marginBottom: spacing.sm,
+    marginTop: spacing.lg,
+  },
   upcomingCard: { 
     borderWidth: 1,
   },
@@ -593,6 +684,41 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     fontSize: 13,
     fontStyle: 'italic',
+  },
+  loadMoreContainer: {
+    alignItems: 'center',
+    marginTop: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    width: '100%',
+    marginBottom: spacing.sm,
+  },
+  loadMoreButton: {
+    borderRadius: 16,
+    paddingHorizontal: spacing.xl,
+  },
+  showAllButton: {
+    borderRadius: 16,
+    paddingHorizontal: spacing.xl,
+  },
+  summaryCard: {
+    marginBottom: spacing.lg,
+    borderRadius: 16,
+    elevation: 2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+  },
+  summaryItem: {
+    alignItems: 'center',
+    flex: 1,
   },
 });
 

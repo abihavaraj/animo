@@ -1,24 +1,24 @@
-import { useThemeColor } from '@/hooks/useThemeColor';
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import {
-    ActivityIndicator,
-    Button,
-    Caption,
-    Card,
-    Chip,
-    FAB,
-    IconButton,
-    Menu,
-    Modal,
-    Paragraph,
-    Portal,
-    Searchbar,
-    SegmentedButtons,
-    TextInput,
-    Title
+  ActivityIndicator,
+  Button,
+  Caption,
+  Card,
+  Chip,
+  FAB,
+  IconButton,
+  Menu,
+  Modal,
+  Paragraph,
+  Portal,
+  Searchbar,
+  SegmentedButtons,
+  TextInput,
+  Title
 } from 'react-native-paper';
+import { useThemeColor } from '../../../hooks/useThemeColor';
 import { BackendClass, classService, CreateClassRequest, UpdateClassRequest } from '../../services/classService';
 import { notificationService } from '../../services/notificationService';
 import { BackendUser, userService } from '../../services/userService';
@@ -61,7 +61,7 @@ function AdminClassManagement() {
     date: '',
     time: '',
     duration: 60,
-    level: 'Beginner' as BackendClass['level'],
+    // level: removed from schema
     category: 'group' as 'personal' | 'group',
     capacity: 10,
     equipment: '',
@@ -86,7 +86,9 @@ function AdminClassManagement() {
     try {
       setLoading(true);
       const filters = {
-        status: filterStatus === 'all' ? undefined : filterStatus
+        status: filterStatus === 'all' ? undefined : filterStatus,
+        userRole: 'admin' // Ensure admin can see all classes including private ones
+        // No limit - truly unlimited for admin to see all classes past, present, future
       };
       
       const response = await classService.getClasses(filters);
@@ -173,14 +175,7 @@ function AdminClassManagement() {
     }
   };
 
-  const getLevelColor = (level: string | undefined) => {
-    switch (level) {
-      case 'Beginner': return '#4caf50';
-      case 'Intermediate': return '#ff9800';
-      case 'Advanced': return '#f44336';
-      default: return '#666';
-    }
-  };
+  // getLevelColor function removed - level field no longer exists
 
   const getEquipmentTypeColor = (equipmentType: string) => {
     switch (equipmentType) {
@@ -206,7 +201,7 @@ function AdminClassManagement() {
       date: today,
       time: currentTime,
       duration: 60,
-      level: 'Beginner',
+      // level: removed from schema
       category: 'group',
       capacity: 10,
       equipment: '',
@@ -219,7 +214,6 @@ function AdminClassManagement() {
 
   const handleEditClass = (class_: BackendClass) => {
     setEditingClass(class_);
-    
     setFormData({
       name: class_.name,
       instructorId: class_.instructor_id.toString(),
@@ -227,10 +221,10 @@ function AdminClassManagement() {
       date: class_.date,
       time: class_.time,
       duration: class_.duration,
-      level: class_.level,
+      // level: removed from schema
       category: class_.category,
       capacity: class_.capacity,
-      equipment: class_.equipment.join(', '),
+      equipment: (class_.equipment && Array.isArray(class_.equipment) ? class_.equipment.join(', ') : ''),
       description: class_.description || '',
       equipmentType: class_.equipment_type,
       room: (class_ as any).room || '',
@@ -326,7 +320,7 @@ function AdminClassManagement() {
           date: formData.date,
           time: formData.time,
           duration: formData.duration,
-          level: formData.level,
+          // level: removed from schema
           category: formData.category,
           capacity: formData.capacity,
           equipment: equipmentArray,
@@ -364,7 +358,7 @@ function AdminClassManagement() {
           date: formData.date,
           time: formData.time,
           duration: formData.duration,
-          level: formData.level,
+          // level: removed from schema
           category: formData.category,
           capacity: formData.capacity,
           equipment: equipmentArray,
@@ -405,7 +399,7 @@ function AdminClassManagement() {
     }
   };
 
-  const handleDeleteClass = (classId: number) => {
+  const handleDeleteClass = (classId: string) => {
     Alert.alert(
       'Delete Class',
       'Are you sure you want to delete this class? This action cannot be undone.',
@@ -433,7 +427,7 @@ function AdminClassManagement() {
     );
   };
 
-  const handleCancelClass = (classId: number) => {
+  const handleCancelClass = (classId: string) => {
     const classToCancel = classes.find(c => c.id === classId);
     
     Alert.alert(
@@ -458,7 +452,7 @@ function AdminClassManagement() {
                   );
                   
                   // Cancel any scheduled reminder notifications
-                  await notificationService.cancelClassNotifications(classId);
+                  await notificationService.cancelClassNotifications(Number(classId));
                 } catch (notificationError) {
                   console.error('Notification error:', notificationError);
                   // Don't block the main operation for notification errors
@@ -616,12 +610,7 @@ function AdminClassManagement() {
                               >
                                 {class_.status}
                               </Chip>
-                              <Chip 
-                                style={[styles.levelChip, { backgroundColor: getLevelColor(class_.level) }]}
-                                textStyle={styles.chipText}
-                              >
-                                {class_.level || 'N/A'}
-                              </Chip>
+                              {/* Level chip removed - level field no longer exists */}
                             </View>
                           </View>
 
@@ -637,7 +626,7 @@ function AdminClassManagement() {
                           <View style={styles.equipmentInfo}>
                             <MaterialIcons name="sports-gymnastics" size={16} color={textSecondaryColor} />
                             <Paragraph style={[styles.equipmentText, { color: textSecondaryColor }]}>
-                              {class_.equipment.join(', ')}
+                              {class_.equipment && Array.isArray(class_.equipment) ? class_.equipment.join(', ') : 'No equipment specified'}
                             </Paragraph>
                           </View>
 
@@ -706,12 +695,7 @@ function AdminClassManagement() {
                       >
                         {class_.status}
                       </Chip>
-                      <Chip 
-                        style={[styles.levelChip, { backgroundColor: getLevelColor(class_.level) }]}
-                        textStyle={styles.chipText}
-                      >
-                        {class_.level || 'N/A'}
-                      </Chip>
+                      {/* Level chip removed - level field no longer exists */}
                     </View>
                   </View>
 
@@ -727,7 +711,7 @@ function AdminClassManagement() {
                   <View style={styles.equipmentInfo}>
                     <MaterialIcons name="sports-gymnastics" size={16} color={textSecondaryColor} />
                     <Paragraph style={[styles.equipmentText, { color: textSecondaryColor }]}>
-                      {class_.equipment.join(', ')}
+                      {class_.equipment && Array.isArray(class_.equipment) ? class_.equipment.join(', ') : 'No equipment specified'}
                     </Paragraph>
                   </View>
 
@@ -949,19 +933,7 @@ function AdminClassManagement() {
               </View>
             </View>
 
-            <View style={styles.segmentedContainer}>
-              <Paragraph style={styles.pickerLabel}>Level *</Paragraph>
-              <SegmentedButtons
-                value={formData.level || 'Beginner'}
-                onValueChange={(value) => setFormData({...formData, level: value as BackendClass['level']})}
-                buttons={[
-                  { value: 'Beginner', label: 'Beginner' },
-                  { value: 'Intermediate', label: 'Intermediate' },
-                  { value: 'Advanced', label: 'Advanced' },
-                ]}
-                style={styles.segmentedButtons}
-              />
-            </View>
+            {/* Level selection removed - level field no longer exists in schema */}
 
             <View style={styles.segmentedContainer}>
               <Paragraph style={styles.pickerLabel}>Category *</Paragraph>
@@ -1201,9 +1173,7 @@ const styles = StyleSheet.create({
   statusChip: {
     marginBottom: 5,
   },
-  levelChip: {
-    marginBottom: 5,
-  },
+  // levelChip styles removed - level field no longer exists
   chipText: {
     color: 'white',
     fontSize: 11,

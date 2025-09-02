@@ -1,7 +1,7 @@
-import { storageService } from '@/src/services/storageService';
-import { supabase } from '../config/supabase.config';
+import { supabase, supabaseAdmin } from '../config/supabase.config';
 import { devError, devLog } from '../utils/devUtils';
 import { ApiResponse } from './api';
+import { storageService } from './storageService';
 
 // Define the shape of the user profile
 export interface UserProfile {
@@ -215,11 +215,32 @@ class AuthService {
     try {
       devLog('🚪 [authService] Logging out');
       
+      // Get current user before logout to clean up push tokens
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      
       const { error } = await supabase.auth.signOut();
       
       if (error) {
         devError('❌ [authService] Logout error:', error);
         // Even if logout fails, clear local data
+      }
+
+      // Clean up push notification tokens for this user
+      if (currentUser?.id) {
+        try {
+          const { error: tokenCleanupError } = await supabase
+            .from('push_tokens')
+            .delete()
+            .eq('user_id', currentUser.id);
+          
+          if (tokenCleanupError) {
+            devError('⚠️ [authService] Push token cleanup failed:', tokenCleanupError);
+          } else {
+            devLog('🔔 [authService] Push tokens cleaned up for user:', currentUser.id);
+          }
+        } catch (tokenError) {
+          devError('⚠️ [authService] Push token cleanup error:', tokenError);
+        }
       }
 
       // Clear local token and all session data to prevent device-specific corruption
@@ -235,7 +256,7 @@ class AuthService {
         devError('⚠️ [authService] Storage cleanup failed (non-critical):', storageError);
       }
 
-      devLog('✅ [authService] Logout successful');
+      devLog('✅ [authService] Logout successful with push token cleanup');
       return { success: true, data: null };
     } catch (error) {
       devError('❌ [authService] Logout error:', error);
@@ -249,8 +270,6 @@ class AuthService {
   // Check if user has valid session (automatic session restoration)
   async restoreSession(): Promise<ApiResponse<{ user: UserProfile; token: string } | null>> {
     try {
-      devLog('🔄 [authService] Checking for existing session');
-      
       // Add timeout protection for session check
       const sessionPromise = supabase.auth.getSession();
       const timeoutPromise = new Promise((_, reject) => 
@@ -352,10 +371,17 @@ class AuthService {
     try {
       devLog('📝 [authService] Starting user registration');
       
-      // Create auth user in Supabase
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      // Create auth user using admin API to bypass email confirmation
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
         email: userData.email,
         password: userData.password,
+        email_confirm: true, // Automatically confirm email
+        user_metadata: {
+          role: 'client'
+        },
+        app_metadata: {
+          role: 'client'
+        }
       });
 
       if (authError) {
@@ -391,25 +417,30 @@ class AuthService {
       if (profileError) {
         devLog(`❌ [authService] Profile creation failed: ${profileError.message}`);
         // If profile creation fails, try to clean up auth user
-        await supabase.auth.admin.deleteUser(authData.user.id);
+        await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
         return { success: false, error: 'Failed to create user profile' };
       }
 
-      // If registration successful and session exists, set token
-      if (authData.session) {
-        this.setToken(authData.session.access_token);
-        devLog('✅ [authService] Registration successful');
-        return {
-          success: true,
-          data: {
-            user: profileData as UserProfile,
-            token: authData.session.access_token
-          }
-        };
+      // Admin createUser doesn't create a session, so we need to sign in the user
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: userData.email,
+        password: userData.password
+      });
+
+      if (signInError || !signInData.session) {
+        devLog('⚠️ [authService] Registration successful but auto-login failed');
+        return { success: false, error: 'Registration successful. Please try logging in.' };
       }
 
-      devLog('✅ [authService] Registration successful, but no session - user needs to verify email');
-      return { success: false, error: 'Registration successful. Please check your email to verify your account.' };
+      this.setToken(signInData.session.access_token);
+      devLog('✅ [authService] Registration and auto-login successful');
+      return {
+        success: true,
+        data: {
+          user: profileData as UserProfile,
+          token: signInData.session.access_token
+        }
+      };
 
     } catch (error) {
       devError('❌ [authService] Registration error:', error);

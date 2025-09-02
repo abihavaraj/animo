@@ -1,11 +1,13 @@
-import { Body, Caption, H1 } from '@/components/ui/Typography';
-import { Colors } from '@/constants/Colors';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Linking, TextInput as RNTextInput, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Dimensions, KeyboardAvoidingView, Linking, Platform, TextInput as RNTextInput, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
+import { Body, Caption, H1 } from '../../components/ui/Typography';
 import { layout, spacing } from '../../constants/Spacing';
+import { useThemeColor } from '../../hooks/useThemeColor';
 import { AppDispatch, RootState } from '../store';
 import { loginUser } from '../store/authSlice';
+import { getResponsiveFontSize, getResponsiveSpacing, getScreenSize } from '../utils/responsiveUtils';
 import { componentShadows } from '../utils/shadows';
 
 function LoginScreen() {
@@ -21,8 +23,6 @@ function LoginScreen() {
   // Handle Redux error and show alert
   useEffect(() => {
     if (reduxError) {
-      console.log('🔍 [LoginScreen] Redux error detected:', reduxError);
-      
       // Set error flag to disable autocomplete
       setHasLoginError(true);
       
@@ -37,7 +37,6 @@ function LoginScreen() {
           reduxError.toLowerCase().includes('credentials') ||
           reduxError.toLowerCase().includes('wrong') ||
           reduxError.toLowerCase().includes('invalid')) {
-        console.log('🔍 [LoginScreen] Showing alert for Redux error:', reduxError);
         Alert.alert(
           '🔐 Login Failed', 
           reduxError,
@@ -50,13 +49,23 @@ function LoginScreen() {
     }
   }, [reduxError]);
 
-  // Theme colors for input fields - using static values to prevent re-render issues
-  const backgroundColor = Colors.light.background;
-  const surfaceColor = Colors.light.surface;
-  const textColor = Colors.light.text;
-  const textSecondaryColor = Colors.light.textSecondary;
-  const primaryColor = Colors.light.primary;
-  const borderColor = Colors.light.border;
+  // Responsive utilities
+  const screenSize = getScreenSize();
+  const insets = useSafeAreaInsets();
+  const responsiveSpacing = getResponsiveSpacing(spacing.md);
+  const responsiveFontSize = getResponsiveFontSize(16);
+
+
+
+  // Theme colors using hooks for proper theme support
+  const backgroundColor = useThemeColor({}, 'background');
+  const surfaceColor = useThemeColor({}, 'surface');
+  const textColor = useThemeColor({}, 'text');
+  const textSecondaryColor = useThemeColor({}, 'textSecondary');
+  const primaryColor = useThemeColor({}, 'primary');
+  const borderColor = useThemeColor({}, 'border');
+  const accentColor = useThemeColor({}, 'accent');
+  const errorColor = useThemeColor({}, 'error');
 
   const handleLogin = async () => {
     if (!emailOrPhone || !password) {
@@ -73,21 +82,16 @@ function LoginScreen() {
       const errorMessage = err.payload || err.message || 'Login failed. Please try again.';
       setLocalError(errorMessage);
       
-      console.log('🔍 [LoginScreen] Error message:', errorMessage);
-      
       // Show alert for any login error on mobile
       if (errorMessage.toLowerCase().includes('password') || 
           errorMessage.toLowerCase().includes('credentials') ||
           errorMessage.toLowerCase().includes('wrong') ||
           errorMessage.toLowerCase().includes('invalid')) {
-        console.log('🔍 [LoginScreen] Showing alert for error:', errorMessage);
         Alert.alert(
           '🔐 Login Failed', 
           errorMessage,
           [{ text: 'Try Again', style: 'default' }]
         );
-      } else {
-        console.log('🔍 [LoginScreen] Not showing alert for error:', errorMessage);
       }
     }
   };
@@ -134,223 +138,297 @@ function LoginScreen() {
 
   
   return (
-    <View style={styles.container}>
-      <View style={styles.card}>
-        <View style={styles.cardContent}>
-          <H1 style={styles.title}>Welcome to ANIMO</H1>
-          <Body style={styles.subtitle}>Sign in to access your pilates journey</Body>
-          
-          {(localError || reduxError) ? <Caption style={styles.errorText}>{localError || reduxError}</Caption> : null}
-          
-          <RNTextInput
-            key={`email-${inputKey}`}
-            placeholder="Email or Phone Number"
-            value={emailOrPhone}
-            onChangeText={(text) => {
-              setEmailOrPhone(text);
-              // Clear error flag when user starts typing
-              if (hasLoginError) setHasLoginError(false);
-            }}
-            style={[styles.input, {
-              borderColor: borderColor,
-              backgroundColor: surfaceColor,
-              color: textColor,
-            }]}
-            placeholderTextColor={textSecondaryColor}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="default"
-            autoComplete={hasLoginError ? "off" : "username"}
-            textContentType={hasLoginError ? "none" : "username"}
-            returnKeyType="next"
-            enablesReturnKeyAutomatically
-            onSubmitEditing={() => passwordInputRef.current?.focus()}
-          />
-          
-          
-          <RNTextInput
-            key={`password-${inputKey}`}
-            ref={passwordInputRef}
-            placeholder="Password"
-            value={password}
-            onChangeText={(text) => {
-              setPassword(text);
-              // Clear error flag when user starts typing
-              if (hasLoginError) setHasLoginError(false);
-            }}
-            style={[styles.input, {
-              borderColor: borderColor,
-              backgroundColor: surfaceColor,
-              color: textColor,
-            }]}
-            secureTextEntry
-            editable={!isLoading}
-            placeholderTextColor={textSecondaryColor}
-            autoComplete={hasLoginError ? "off" : "current-password"}
-            textContentType={hasLoginError ? "none" : "password"}
-            returnKeyType="done"
-            enablesReturnKeyAutomatically
-            onSubmitEditing={handleLogin}
-          />
-          
-          <TouchableOpacity 
-            style={[styles.loginButton, isLoading && { backgroundColor: '#cccccc' }]} 
-            onPress={handleLogin}
-            disabled={isLoading}
-          >
-            <Text style={styles.loginButtonLabel}>
-              {isLoading ? 'Signing In...' : 'Sign In'}
-            </Text>
-          </TouchableOpacity>
-
-          <View style={styles.registrationSection}>
-            <Body style={styles.registrationTitle}>Need to Register?</Body>
-            <Body style={styles.registrationText}>
-              Contact our reception team to create your account and get started with your pilates journey.
-            </Body>
-            
-            <View style={styles.contactButtons}>
-              <TouchableOpacity 
-                style={styles.contactButton}
-                onPress={() => handleContactReception('phone')} 
-              >
-                <Text style={styles.contactButtonLabel}>📞 Call Reception</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.contactButton}
-                onPress={() => handleContactReception('whatsapp')} 
-              >
-                <Text style={styles.contactButtonLabel}>💬 WhatsApp</Text>
-              </TouchableOpacity>
+    <KeyboardAvoidingView 
+      style={[styles.container, { backgroundColor }]} 
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
+      <ScrollView 
+        contentContainerStyle={[styles.scrollContainer, {
+          paddingTop: Math.max(insets.top, responsiveSpacing),
+          paddingBottom: Math.max(insets.bottom, responsiveSpacing),
+          paddingHorizontal: responsiveSpacing,
+        }]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={[styles.card, { 
+          backgroundColor: surfaceColor,
+          borderColor: borderColor,
+          maxWidth: screenSize.isSmall ? screenSize.width - (responsiveSpacing * 2) : 400,
+          marginHorizontal: screenSize.isSmall ? 0 : 'auto'
+        }]}>
+          <View style={[styles.cardContent, { 
+            padding: screenSize.isSmall ? responsiveSpacing : spacing.lg 
+          }]}>
+            <H1 style={{
+              ...styles.title,
+              color: primaryColor,
+              fontSize: getResponsiveFontSize(screenSize.isSmall ? 24 : 28)
+            }}>
+              Welcome to ANIMO
+            </H1>
+            <View style={{
+              alignItems: 'center',
+              marginBottom: screenSize.isSmall ? spacing.md : spacing.lg,
+              paddingHorizontal: responsiveSpacing,
+              width: '100%'
+            }}>
+                             <Text style={{
+                 color: textSecondaryColor,
+                 fontSize: getResponsiveFontSize(16),
+                 textAlign: 'center',
+                 fontWeight: '500',
+                 lineHeight: 22,
+                 paddingHorizontal: spacing.sm,
+               }}
+               allowFontScaling={false}>
+                 ⭐ Sign in to your pilates journey ⭐
+               </Text>
             </View>
             
-            <Body style={styles.contactInfo}>
-              📞 Phone: +355 68 940 0040{'\n'}
-              💬 WhatsApp: +355 68 940 0040{'\n'}
-              🏢 Visit us at the front desk
-            </Body>
+            {(localError || reduxError) ? (
+              <Caption style={{
+                ...styles.errorText,
+                color: errorColor,
+                padding: screenSize.isSmall ? spacing.sm : spacing.md,
+                marginBottom: screenSize.isSmall ? spacing.sm : spacing.md
+              }}>
+                {localError || reduxError}
+              </Caption>
+            ) : null}
+          
+            <RNTextInput
+              key={`email-${inputKey}`}
+              placeholder="Email or Phone Number"
+              value={emailOrPhone}
+              onChangeText={(text) => {
+                setEmailOrPhone(text);
+                // Clear error flag when user starts typing
+                if (hasLoginError) setHasLoginError(false);
+              }}
+              style={[styles.input, {
+                borderColor: borderColor,
+                backgroundColor: surfaceColor,
+                color: textColor,
+                fontSize: responsiveFontSize,
+                height: screenSize.isSmall ? 44 : 48,
+                paddingHorizontal: screenSize.isSmall ? spacing.sm : spacing.md,
+                marginBottom: screenSize.isSmall ? spacing.sm : spacing.md
+              }]}
+              placeholderTextColor={textSecondaryColor}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="default"
+              autoComplete={hasLoginError ? "off" : "username"}
+              textContentType={hasLoginError ? "none" : "username"}
+              returnKeyType="next"
+              enablesReturnKeyAutomatically
+              onSubmitEditing={() => passwordInputRef.current?.focus()}
+            />
+            
+            <RNTextInput
+              key={`password-${inputKey}`}
+              ref={passwordInputRef}
+              placeholder="Password"
+              value={password}
+              onChangeText={(text) => {
+                setPassword(text);
+                // Clear error flag when user starts typing
+                if (hasLoginError) setHasLoginError(false);
+              }}
+              style={[styles.input, {
+                borderColor: borderColor,
+                backgroundColor: surfaceColor,
+                color: textColor,
+                fontSize: responsiveFontSize,
+                height: screenSize.isSmall ? 44 : 48,
+                paddingHorizontal: screenSize.isSmall ? spacing.sm : spacing.md,
+                marginBottom: screenSize.isSmall ? spacing.sm : spacing.md
+              }]}
+              secureTextEntry
+              editable={!isLoading}
+              placeholderTextColor={textSecondaryColor}
+              autoComplete={hasLoginError ? "off" : "current-password"}
+              textContentType={hasLoginError ? "none" : "password"}
+              returnKeyType="done"
+              enablesReturnKeyAutomatically
+              onSubmitEditing={handleLogin}
+            />
+          
+            <TouchableOpacity 
+              style={[styles.loginButton, { 
+                backgroundColor: isLoading ? textSecondaryColor : accentColor,
+                marginTop: screenSize.isSmall ? spacing.sm : spacing.md,
+                marginBottom: screenSize.isSmall ? spacing.md : spacing.lg,
+                paddingVertical: screenSize.isSmall ? 12 : 16
+              }]} 
+              onPress={handleLogin}
+              disabled={isLoading}
+            >
+              <Text style={{
+                ...styles.loginButtonLabel,
+                fontSize: getResponsiveFontSize(16),
+                color: backgroundColor
+              }}>
+                {isLoading ? 'Signing In...' : 'Sign In'}
+              </Text>
+            </TouchableOpacity>
+
+            <View style={[styles.registrationSection, {
+              borderTopColor: borderColor,
+              paddingTop: screenSize.isSmall ? spacing.md : spacing.lg,
+              marginTop: screenSize.isSmall ? spacing.sm : spacing.md
+            }]}>
+              <Body style={{
+                ...styles.registrationTitle,
+                color: textColor,
+                fontSize: getResponsiveFontSize(16),
+                marginBottom: screenSize.isSmall ? spacing.xs : spacing.sm
+              }}>
+                Need to Register?
+              </Body>
+              <Body style={{
+                ...styles.registrationText,
+                color: textSecondaryColor,
+                fontSize: getResponsiveFontSize(14),
+                marginBottom: screenSize.isSmall ? spacing.sm : spacing.md,
+                lineHeight: getResponsiveFontSize(14) * 1.4
+              }}>
+                Contact our reception team to create your account and get started with your pilates journey.
+              </Body>
+              
+              <View style={[styles.contactButtons, {
+                flexDirection: screenSize.isSmall ? 'column' : 'row',
+                gap: screenSize.isSmall ? spacing.xs : spacing.sm,
+                marginBottom: screenSize.isSmall ? spacing.sm : spacing.md
+              }]}>
+                <TouchableOpacity 
+                  style={[styles.contactButton, {
+                    borderColor: borderColor,
+                    backgroundColor: surfaceColor,
+                    padding: screenSize.isSmall ? 10 : 12,
+                    flex: screenSize.isSmall ? undefined : 1
+                  }]}
+                  onPress={() => handleContactReception('phone')} 
+                >
+                  <Text style={{
+                    ...styles.contactButtonLabel,
+                    color: textSecondaryColor,
+                    fontSize: getResponsiveFontSize(12)
+                  }}>
+                    📞 Call Reception
+                  </Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.contactButton, {
+                    borderColor: borderColor,
+                    backgroundColor: surfaceColor,
+                    padding: screenSize.isSmall ? 10 : 12,
+                    flex: screenSize.isSmall ? undefined : 1
+                  }]}
+                  onPress={() => handleContactReception('whatsapp')} 
+                >
+                  <Text style={{
+                    ...styles.contactButtonLabel,
+                    color: textSecondaryColor,
+                    fontSize: getResponsiveFontSize(12)
+                  }}>
+                    💬 WhatsApp
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              
+              <Body style={{
+                ...styles.contactInfo,
+                color: textSecondaryColor,
+                fontSize: getResponsiveFontSize(12),
+                lineHeight: getResponsiveFontSize(12) * 1.5,
+                padding: screenSize.isSmall ? spacing.xs : spacing.sm
+              }}>
+                📞 Phone: +355 68 940 0040{'\n'}
+                💬 WhatsApp: +355 68 940 0040{'\n'}
+                🏢 Visit us at the front desk
+              </Body>
+            </View>
           </View>
         </View>
-      </View>
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.light.background,
+  },
+  scrollContainer: {
+    flexGrow: 1,
     justifyContent: 'center',
-    padding: spacing.md,
+    minHeight: Dimensions.get('window').height * 0.9,
   },
   card: {
-    backgroundColor: Colors.light.surface,
     borderRadius: layout.borderRadius,
     borderWidth: 1,
-    borderColor: Colors.light.border,
     ...componentShadows.loginCard,
-    maxWidth: 400,
     alignSelf: 'center',
+    width: '100%',
   },
   cardContent: {
-    padding: spacing.lg,
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
   title: {
     textAlign: 'center',
-    color: Colors.light.primary,
-    marginBottom: spacing.xs,
+    fontWeight: 'bold',
   },
   subtitle: {
     textAlign: 'center',
-    color: Colors.light.textSecondary,
-    marginBottom: spacing.lg,
   },
   errorText: {
-    color: Colors.light.error,
     textAlign: 'center',
     backgroundColor: 'rgba(196, 125, 125, 0.1)',
-    padding: spacing.sm,
     borderRadius: spacing.sm,
     borderWidth: 1,
     borderColor: 'rgba(196, 125, 125, 0.2)',
-    marginBottom: spacing.md,
   },
   input: {
     borderWidth: 1,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    marginBottom: spacing.sm,
-    fontSize: 16,
-    height: 48,
     borderRadius: spacing.sm,
-  },
-  helpText: {
-    fontSize: 12,
-    textAlign: 'center',
-    marginBottom: spacing.sm,
+    paddingVertical: spacing.sm,
   },
   loginButton: {
-    backgroundColor: Colors.light.accent,
     borderRadius: layout.borderRadius,
-    marginTop: spacing.md,
-    marginBottom: spacing.lg,
     ...componentShadows.loginButton,
-    padding: 16,
   },
   loginButtonLabel: {
-    fontSize: 16,
     fontWeight: '600',
-    color: Colors.light.textOnAccent,
     textAlign: 'center',
   },
   registrationSection: {
     borderTopWidth: 1,
-    borderTopColor: Colors.light.border,
-    paddingTop: spacing.lg,
-    marginTop: spacing.md,
   },
   registrationTitle: {
     textAlign: 'center',
     fontWeight: '600',
-    color: Colors.light.text,
-    marginBottom: spacing.sm,
-    fontSize: 16,
   },
   registrationText: {
     textAlign: 'center',
-    color: Colors.light.textSecondary,
-    marginBottom: spacing.md,
-    lineHeight: 20,
   },
   contactButtons: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: spacing.md,
-    gap: spacing.sm,
   },
   contactButton: {
-    flex: 1,
-    borderColor: Colors.light.border,
     borderRadius: layout.borderRadius,
     borderWidth: 1,
-    padding: 12,
-    backgroundColor: Colors.light.surface,
   },
   contactButtonLabel: {
-    fontSize: 12,
     fontWeight: '500',
-    color: Colors.light.textSecondary,
     textAlign: 'center',
   },
   contactInfo: {
     textAlign: 'center',
-    color: Colors.light.textSecondary,
-    fontSize: 12,
-    lineHeight: 18,
     backgroundColor: 'rgba(0, 0, 0, 0.03)',
-    padding: spacing.sm,
     borderRadius: spacing.sm,
   },
 });

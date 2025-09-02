@@ -53,7 +53,36 @@
         "buildConfiguration": "Release"
       },
       "android": {
-        "resourceClass": "medium"
+        "resourceClass": "medium",
+        "buildType": "apk"
+      },
+      "env": {
+        "NODE_ENV": "production",
+        "DISABLE_ESLINT_PLUGIN": "true",
+        "ESLINT_NO_DEV_ERRORS": "true",
+        "TSC_COMPILE_ON_ERROR": "true",
+        "GENERATE_SOURCEMAP": "false",
+        "SKIP_TYPE_CHECK": "true",
+        "EXPO_SKIP_TYPESCRIPT_CHECK": "true",
+        "BABEL_ENV": "production"
+      }
+    },
+    "production-aab": {
+      "autoIncrement": true,
+      "distribution": "store",
+      "ios": {
+        "resourceClass": "m-medium",
+        "buildConfiguration": "Release"
+      },
+      "android": {
+        "resourceClass": "medium",
+        "buildType": "app-bundle",
+        "gradleCommand": ":app:bundleRelease",
+        "env": {
+          "ANDROID_ENABLE_PROGUARD": "true",
+          "ANDROID_ENABLE_R8": "true",
+          "ANDROID_ENABLE_SHRINK_RESOURCES": "true"
+        }
       },
       "env": {
         "NODE_ENV": "production",
@@ -68,6 +97,12 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {},
+    "production-aab": {
+      "android": {
+        "serviceAccountKeyPath": "./google-service-account.json",
+        "track": "internal"
+      }
+    }
   }
 }

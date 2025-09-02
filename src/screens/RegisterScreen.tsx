@@ -1,9 +1,9 @@
-import { Body, Caption, H1 } from '@/components/ui/Typography';
-import { Colors } from '@/constants/Colors';
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet } from 'react-native';
 import { Menu, Button as PaperButton, Card as PaperCard, TextInput } from 'react-native-paper';
 import { useDispatch } from 'react-redux';
+import { Body, Caption, H1 } from '../../components/ui/Typography';
+import { Colors } from '../../constants/Colors';
 import { layout, spacing } from '../../constants/Spacing';
 import type { AppDispatch } from '../store';
 import { registerUser } from '../store/authSlice';
@@ -149,7 +149,7 @@ function RegisterScreen() {
                 style={styles.input}
                 editable={false}
                 onPress={() => setMenuVisible(true)}
-                right={<TextInput.Icon icon="chevron-down" onPress={() => setMenuVisible(true)} />}
+                right={<TextInput.Icon icon="keyboard-arrow-down" onPress={() => setMenuVisible(true)} />}
                 disabled={isLoading}
               />
             }

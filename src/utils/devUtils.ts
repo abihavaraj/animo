@@ -8,18 +8,14 @@ export const isDev = (): boolean => {
   }
 };
 
-// Development logging helper
+// Development logging helper - disabled to reduce console noise
 export const devLog = (message: string, ...args: any[]): void => {
-  if (isDev()) {
-    console.log(`[DEV] ${message}`, ...args);
-  }
+  // Logging disabled to reduce console noise
 };
 
-// Development error logging helper
+// Development error logging helper - disabled to reduce console noise
 export const devError = (message: string, ...args: any[]): void => {
-  if (isDev()) {
-    console.error(`[DEV ERROR] ${message}`, ...args);
-  }
+  // Error logging disabled to reduce console noise
 };
 
 // Cross-platform timeout for fetch requests

@@ -1,5 +1,4 @@
 import { supabase } from '../config/supabase.config';
-import { bookingService } from './bookingService';
 import { classService } from './classService';
 import { notificationService } from './notificationService';
 import { subscriptionService } from './subscriptionService';
@@ -165,12 +164,20 @@ class ProfileService {
 
   private async loadRecentBookings(userId: string): Promise<any[]> {
     try {
-      const response = await bookingService.getBookings({
-        userId: userId,
-        limit: 5,
-        status: 'confirmed'
-      });
-      return response.success ? response.data || [] : [];
+      // Direct Supabase query since bookingService filters by authenticated user
+      const { data, error } = await supabase
+        .from('bookings')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('status', 'confirmed')
+        .limit(5);
+      
+      if (error) {
+        console.error('❌ Error fetching recent bookings:', error);
+        return [];
+      }
+      
+      return data || [];
     } catch (error) {
       console.error('❌ Failed to load recent bookings:', error);
       return [];
@@ -179,12 +186,20 @@ class ProfileService {
 
   private async loadUpcomingClasses(userId: string): Promise<any[]> {
     try {
-      const response = await bookingService.getBookings({
-        userId: userId,
-        from: new Date().toISOString().split('T')[0],
-        status: 'confirmed'
-      });
-      return response.success ? response.data || [] : [];
+      // Direct Supabase query since bookingService filters by authenticated user
+      const { data, error } = await supabase
+        .from('bookings')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('status', 'confirmed')
+        .gte('booking_date', new Date().toISOString().split('T')[0]);
+      
+      if (error) {
+        console.error('❌ Error fetching upcoming classes:', error);
+        return [];
+      }
+      
+      return data || [];
     } catch (error) {
       console.error('❌ Failed to load upcoming classes:', error);
       return [];
@@ -193,11 +208,19 @@ class ProfileService {
 
   private async loadBookingHistory(userId: string): Promise<any[]> {
     try {
-      const response = await bookingService.getBookings({
-        userId: userId,
-        limit: 10
-      });
-      return response.success ? response.data || [] : [];
+      // Direct Supabase query since bookingService filters by authenticated user
+      const { data, error } = await supabase
+        .from('bookings')
+        .select('*')
+        .eq('user_id', userId)
+        .limit(10);
+      
+      if (error) {
+        console.error('❌ Error fetching booking history:', error);
+        return [];
+      }
+      
+      return data || [];
     } catch (error) {
       console.error('❌ Failed to load booking history:', error);
       return [];
@@ -284,7 +307,7 @@ class ProfileService {
     try {
       const response = await classService.getClasses({
         instructor: userId,
-        from: new Date().toISOString().split('T')[0],
+        date_from: new Date().toISOString().split('T')[0],
         limit: 10
       });
       return response.success ? response.data || [] : [];
@@ -298,7 +321,7 @@ class ProfileService {
     try {
       const response = await classService.getClasses({
         instructor: userId,
-        to: new Date().toISOString().split('T')[0],
+        date_to: new Date().toISOString().split('T')[0],
         limit: 5
       });
       return response.success ? response.data || [] : [];
@@ -316,8 +339,8 @@ class ProfileService {
 
       const response = await classService.getClasses({
         instructor: userId,
-        from: firstDayOfMonth.toISOString().split('T')[0],
-        to: lastDayOfMonth.toISOString().split('T')[0]
+        date_from: firstDayOfMonth.toISOString().split('T')[0],
+        date_to: lastDayOfMonth.toISOString().split('T')[0]
       });
 
       if (!response.success || !response.data) {

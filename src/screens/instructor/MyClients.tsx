@@ -5,26 +5,26 @@ import { spacing } from '@/constants/Spacing';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useEffect, useState } from 'react';
 import {
-  Alert,
-  Image,
-  Keyboard,
-  Modal,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  View
+    Alert,
+    Image,
+    Keyboard,
+    Modal,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { Avatar, Chip, Button as PaperButton, Card as PaperCard } from 'react-native-paper';
 import { useSelector } from 'react-redux';
 import WebCompatibleIcon from '../../components/WebCompatibleIcon';
 import {
-  ClientMedicalUpdate,
-  ClientProgressAssessment,
-  ClientProgressPhoto,
-  InstructorClientAssignment,
-  instructorClientService,
+    ClientMedicalUpdate,
+    ClientProgressAssessment,
+    ClientProgressPhoto,
+    InstructorClientAssignment,
+    instructorClientService,
 } from '../../services/instructorClientService';
 import { RootState } from '../../store';
 
@@ -461,42 +461,86 @@ function MyClients() {
     }, 100);
   };
 
-  const renderClientCard = (client: InstructorClientAssignment) => (
-    <PaperCard key={`client-${client.client_id}-${client.instructor_id}`} style={styles.clientCard}>
-      <TouchableOpacity onPress={() => openClientDetails(client)}>
-        <PaperCard.Content style={styles.clientCardContent}>
-          <View style={styles.clientHeader}>
-            <Avatar.Text
-              size={50}
-              label={client.client_name?.charAt(0).toUpperCase() || 'C'}
-              style={styles.avatar}
-            />
-            <View style={styles.clientInfo}>
-              <H3 style={styles.clientName}>{client.client_name}</H3>
-              <Body style={styles.clientEmail}>{client.client_email}</Body>
-              <View style={styles.chipContainer}>
-                <Chip icon="person" mode="outlined" compact style={styles.typeChip}>
-                  {client.assignment_type}
-                </Chip>
-                <StatusChip
-                  state={client.status === 'active' ? 'success' : 'warning'}
-                  text={client.status}
-                  size="small"
-                />
+  const renderClientCard = (client: InstructorClientAssignment) => {
+    const activeSubscription = getActiveSubscription(client);
+    
+    return (
+      <PaperCard key={`client-${client.client_id}-${client.instructor_id}`} style={styles.clientCard}>
+        <TouchableOpacity onPress={() => openClientDetails(client)}>
+          <PaperCard.Content style={styles.clientCardContent}>
+            <View style={styles.clientHeader}>
+              <Avatar.Text
+                size={50}
+                label={client.client_name?.charAt(0).toUpperCase() || 'C'}
+                style={styles.avatar}
+              />
+              <View style={styles.clientInfo}>
+                <H3 style={styles.clientName}>{client.client_name}</H3>
+                <Body style={styles.clientEmail}>{client.client_email}</Body>
+                
+                {/* Package Information */}
+                {activeSubscription && (
+                  <View style={styles.packageInfo}>
+                    <View style={styles.packageRow}>
+                      <WebCompatibleIcon name="fitness-center" size={16} color={Colors.light.primary} />
+                      <Caption style={styles.packageText}>
+                        {activeSubscription.remaining_classes} classes remaining
+                      </Caption>
+                    </View>
+                    {activeSubscription.subscription_plans && (
+                      <View style={styles.packageRow}>
+                        <WebCompatibleIcon name="card-membership" size={16} color={Colors.light.textSecondary} />
+                        <Caption style={styles.packagePlanText}>
+                          {activeSubscription.subscription_plans.name}
+                        </Caption>
+                      </View>
+                    )}
+                  </View>
+                )}
+                
+                <View style={styles.chipContainer}>
+                  <Chip icon="person" mode="outlined" compact style={styles.typeChip}>
+                    {client.assignment_type}
+                  </Chip>
+                  <StatusChip
+                    state={client.status === 'active' ? 'success' : 'warning'}
+                    text={client.status}
+                    size="small"
+                  />
+                  {/* Package Credit Badge */}
+                  {activeSubscription && (
+                    <Chip 
+                      icon="fitness-center" 
+                      mode="flat" 
+                      compact 
+                      style={[
+                        styles.creditsChip, 
+                        { backgroundColor: activeSubscription.remaining_classes > 0 ? Colors.light.success + '20' : Colors.light.error + '20' }
+                      ]}
+                      textStyle={{ 
+                        color: activeSubscription.remaining_classes > 0 ? Colors.light.success : Colors.light.error,
+                        fontWeight: '600',
+                        fontSize: 12
+                      }}
+                    >
+                      {activeSubscription.remaining_classes}
+                    </Chip>
+                  )}
+                </View>
               </View>
+              <WebCompatibleIcon name="chevron-right" size={24} color={Colors.light.textSecondary} />
             </View>
-            <WebCompatibleIcon name="chevron-right" size={24} color={Colors.light.textSecondary} />
-          </View>
-          
-          {client.notes && (
-            <View style={styles.notesContainer}>
-              <Caption style={styles.notesText}>{client.notes}</Caption>
-            </View>
-          )}
-        </PaperCard.Content>
-      </TouchableOpacity>
-    </PaperCard>
-  );
+            
+            {client.notes && (
+              <View style={styles.notesContainer}>
+                <Caption style={styles.notesText}>{client.notes}</Caption>
+              </View>
+            )}
+          </PaperCard.Content>
+        </TouchableOpacity>
+      </PaperCard>
+    );
+  };
 
   const filteredClients = clients.filter(client => {
     if (!searchQuery.trim()) return true;
@@ -595,6 +639,89 @@ function MyClients() {
                     )}
                   </PaperCard.Content>
                 </PaperCard>
+
+                {/* Package Plan Information */}
+                {(() => {
+                  const activeSubscription = getActiveSubscription(selectedClient);
+                  return activeSubscription ? (
+                    <PaperCard style={styles.infoCard}>
+                      <PaperCard.Content>
+                        <H3 style={styles.sectionTitle}>Package Plan</H3>
+                        <View style={styles.detailRow}>
+                          <WebCompatibleIcon name="card-membership" size={20} color={Colors.light.primary} />
+                          <Body style={styles.infoText}>
+                            {activeSubscription.subscription_plans?.name || 'Unknown Plan'}
+                          </Body>
+                        </View>
+                        <View style={styles.detailRow}>
+                          <WebCompatibleIcon name="fitness-center" size={20} color={Colors.light.success} />
+                          <Body style={[styles.infoText, { color: Colors.light.success, fontWeight: '600' }]}>
+                            {activeSubscription.remaining_classes} classes remaining
+                          </Body>
+                        </View>
+                        <View style={styles.detailRow}>
+                          <WebCompatibleIcon name="date-range" size={20} color={Colors.light.textSecondary} />
+                          <Body style={styles.infoText}>
+                            Start: {new Date(activeSubscription.start_date).toLocaleDateString()}
+                          </Body>
+                        </View>
+                        <View style={styles.detailRow}>
+                          <WebCompatibleIcon name="event" size={20} color={Colors.light.textSecondary} />
+                          <Body style={styles.infoText}>
+                            End: {new Date(activeSubscription.end_date).toLocaleDateString()}
+                          </Body>
+                        </View>
+                        {activeSubscription.subscription_plans?.monthly_classes && (
+                          <View style={styles.detailRow}>
+                            <WebCompatibleIcon name="repeat" size={20} color={Colors.light.textSecondary} />
+                            <Body style={styles.infoText}>
+                              {activeSubscription.subscription_plans.monthly_classes} classes/month
+                            </Body>
+                          </View>
+                        )}
+                        
+                        {/* Visual Progress Bar */}
+                        {activeSubscription.subscription_plans?.monthly_classes && (
+                          <View style={styles.progressContainer}>
+                            <Caption style={styles.progressLabel}>
+                              Package Usage
+                            </Caption>
+                            <View style={styles.progressBar}>
+                              <View 
+                                style={[
+                                  styles.progressFill, 
+                                  { 
+                                    width: `${Math.min(100, (activeSubscription.remaining_classes / activeSubscription.subscription_plans.monthly_classes) * 100)}%`,
+                                    backgroundColor: activeSubscription.remaining_classes > (activeSubscription.subscription_plans.monthly_classes * 0.2) 
+                                      ? Colors.light.success 
+                                      : activeSubscription.remaining_classes > 0 
+                                        ? Colors.light.warning 
+                                        : Colors.light.error
+                                  }
+                                ]} 
+                              />
+                            </View>
+                            <Caption style={styles.progressText}>
+                              {activeSubscription.remaining_classes} / {activeSubscription.subscription_plans.monthly_classes} remaining
+                            </Caption>
+                          </View>
+                        )}
+                      </PaperCard.Content>
+                    </PaperCard>
+                  ) : (
+                    <PaperCard style={styles.infoCard}>
+                      <PaperCard.Content>
+                        <H3 style={styles.sectionTitle}>Package Plan</H3>
+                        <View style={styles.noPackageContainer}>
+                          <WebCompatibleIcon name="info" size={24} color={Colors.light.textSecondary} />
+                          <Body style={styles.noPackageText}>
+                            No active package plan found for this client
+                          </Body>
+                        </View>
+                      </PaperCard.Content>
+                    </PaperCard>
+                  );
+                })()}
               </View>
             )}
 
@@ -862,6 +989,41 @@ function MyClients() {
       case 'moderate': return Colors.light.secondary + '20';
       default: return Colors.light.success + '20';
     }
+  };
+
+  // Helper function to get active subscription data - using same logic as client profile
+  const getActiveSubscription = (client: InstructorClientAssignment) => {
+    if (!client.user_subscriptions || client.user_subscriptions.length === 0) {
+      return null;
+    }
+    
+    // Find active subscription that hasn't expired (using same logic as client profile)
+    return client.user_subscriptions.find(sub => {
+      const isStatusActive = sub.status === 'active';
+      
+      // Calculate days until expiration (same logic as SimpleDateCalculator.daysUntilExpiration)
+      const endDate = new Date(sub.end_date);
+      const now = new Date();
+      const timeDiff = endDate.getTime() - now.getTime();
+      const daysUntilEnd = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+      
+      // Subscription is valid if status is active AND not expired (daysUntilEnd >= 0)
+      const isNotExpired = daysUntilEnd >= 0;
+      
+      // Debug log for the specific user
+      if (client.client_name?.toLowerCase().includes('argjend')) {
+        console.log('🔍 [DEBUG] Subscription check for', client.client_name, {
+          status: sub.status,
+          endDate: sub.end_date,
+          daysUntilEnd,
+          isStatusActive,
+          isNotExpired,
+          shouldShow: isStatusActive && isNotExpired
+        });
+      }
+      
+      return isStatusActive && isNotExpired;
+    }) || null;
   };
 
   if (loading) {
@@ -1420,6 +1582,66 @@ const styles = StyleSheet.create({
   },
   notesText: {
     color: Colors.light.textSecondary,
+    fontStyle: 'italic',
+  },
+  packageInfo: {
+    marginVertical: spacing.xs,
+    gap: spacing.xs,
+  },
+  packageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  packageText: {
+    color: Colors.light.primary,
+    fontWeight: '600',
+    fontSize: 12,
+  },
+  packagePlanText: {
+    color: Colors.light.textSecondary,
+    fontSize: 12,
+  },
+  creditsChip: {
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  progressContainer: {
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.light.border,
+  },
+  progressLabel: {
+    color: Colors.light.text,
+    fontWeight: '600',
+    marginBottom: spacing.sm,
+  },
+  progressBar: {
+    height: 8,
+    backgroundColor: Colors.light.border,
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: spacing.sm,
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  progressText: {
+    color: Colors.light.textSecondary,
+    textAlign: 'center',
+  },
+  noPackageContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.lg,
+    gap: spacing.sm,
+  },
+  noPackageText: {
+    color: Colors.light.textSecondary,
+    textAlign: 'center',
     fontStyle: 'italic',
   },
   emptyState: {

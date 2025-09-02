@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
+import { SchedulableTriggerInputTypes } from 'expo-notifications';
 import { Alert, Platform } from 'react-native';
 import { supabase } from '../config/supabase.config';
 
@@ -93,6 +94,16 @@ class PushNotificationService {
       }
 
       //console.log('✅ [initialize] Notification permissions granted');
+
+      // Create Android notification channels for production builds
+      if (Platform.OS === 'android') {
+        try {
+          await this.createAndroidNotificationChannels();
+        } catch (channelError) {
+          console.error('❌ [initialize] Failed to create Android channels:', channelError);
+          // Continue with token registration even if channels fail
+        }
+      }
 
       // Get push token with maximum safety
       const token = await this.getPushTokenSafely();
@@ -217,6 +228,125 @@ class PushNotificationService {
     }
   }
 
+  // Create Android notification channels for proper notification display
+  private async createAndroidNotificationChannels(): Promise<void> {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    try {
+      // Main notification channel for general notifications
+      await Notifications.setNotificationChannelAsync('animo-notifications', {
+        name: 'ANIMO Notifications',
+        description: 'General notifications from ANIMO Pilates Studio',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#F5F2B8',
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        bypassDnd: false,
+        enableVibrate: true,
+        enableLights: true,
+        showBadge: true,
+      });
+
+      // Class reminder channel
+      await Notifications.setNotificationChannelAsync('class-reminders', {
+        name: 'Class Reminders',
+        description: 'Reminders for upcoming pilates classes',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#F5F2B8',
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        bypassDnd: false,
+        enableVibrate: true,
+        enableLights: true,
+        showBadge: true,
+      });
+
+      // Class updates channel
+      await Notifications.setNotificationChannelAsync('class-updates', {
+        name: 'Class Updates',
+        description: 'Updates about class cancellations, changes, and waitlist promotions',
+        importance: Notifications.AndroidImportance.DEFAULT,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#F5F2B8',
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        bypassDnd: false,
+        enableVibrate: true,
+        enableLights: true,
+        showBadge: true,
+      });
+
+      // Subscription updates channel
+      await Notifications.setNotificationChannelAsync('subscription-updates', {
+        name: 'Subscription Updates',
+        description: 'Updates about your subscription status and payments',
+        importance: Notifications.AndroidImportance.DEFAULT,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#F5F2B8',
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        bypassDnd: false,
+        enableVibrate: true,
+        enableLights: true,
+        showBadge: true,
+      });
+
+      console.log('✅ Android notification channels created successfully');
+    } catch (error) {
+      console.error('❌ Failed to create Android notification channels:', error);
+      throw error;
+    }
+  }
+
+  // Get the appropriate channel ID for different notification types
+  private getChannelIdForNotificationType(type: string): string | undefined {
+    if (Platform.OS !== 'android') {
+      return undefined;
+    }
+
+    switch (type) {
+      case 'class_reminder':
+        return 'class-reminders';
+      case 'class_cancellation':
+      case 'class_update':
+      case 'waitlist_promotion':
+        return 'class-updates';
+      case 'subscription_update':
+      case 'payment_reminder':
+        return 'subscription-updates';
+      default:
+        return 'animo-notifications';
+    }
+  }
+
+  // Send notification with proper channel selection
+  async sendNotificationWithChannel(
+    title: string,
+    body: string,
+    data: any,
+    type: string = 'general'
+  ): Promise<void> {
+    try {
+      const channelId = this.getChannelIdForNotificationType(type);
+      
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title,
+          body,
+          data,
+          sound: true,
+          badge: 1,
+          ...(channelId && { channelId })
+        },
+        trigger: null // Send immediately
+      });
+      
+      console.log(`✅ Notification sent with channel: ${channelId || 'default'}`);
+    } catch (error) {
+      console.error('❌ Failed to send notification with channel:', error);
+    }
+  }
+
   async sendTestNotification(): Promise<void> {
     try {
       //console.log('📬 Sending a test push notification...');
@@ -252,9 +382,6 @@ class PushNotificationService {
       const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
       
       if (isWeb) {
-        console.log('🌐 Web platform detected - cannot send push notifications directly');
-        //console.log('📱 Test notification would be sent to:', this.pushToken);
-        //console.log('📱 Message: 📬 Test Notification - If you see this, your push notifications are working!');
         return;
       }
 
@@ -266,11 +393,11 @@ class PushNotificationService {
         data: { testData: 'this is a test' },
         sound: 'default',
         priority: 'high',
-        channelId: 'animo-notifications',
+        channelId: Platform.OS === 'android' ? 'animo-notifications' : undefined,
         badge: 1,
       };
 
-      console.log('📤 Sending notification payload:', JSON.stringify(notificationPayload, null, 2));
+
 
       const response = await fetch('https://exp.host/--/api/v2/push/send', {
         method: 'POST',
@@ -298,13 +425,7 @@ class PushNotificationService {
       }
 
       if (response.ok) {
-        //console.log('✅ Test push notification sent successfully to Expo');
-        //console.log('📱 Expo response indicates success, but notification may not be delivered to device');
-        //console.log('📱 This could be due to:');
-        console.log('   - Device not properly registered with APNs');
-        console.log('   - Provisioning profile issues');
-        console.log('   - Apple APNs configuration problems');
-        console.log('   - Device notification settings');
+        // Success
       } else {
         console.error('❌ Failed to send test push notification to Expo');
         console.error('❌ Status:', response.status);
@@ -367,9 +488,6 @@ class PushNotificationService {
       const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
       
       if (isWeb) {
-        console.log('🌐 Web platform detected - cannot send push notifications directly');
-        //console.log('📱 Remote test notification would be sent to:', this.pushToken);
-        //console.log('📱 Message: 🚀 Remote Test Notification - If you see this, your remote push notifications are working!');
         return;
       }
 
@@ -446,9 +564,6 @@ class PushNotificationService {
       const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
       
       if (isWeb) {
-        console.log('🌐 Web platform detected - cannot send push notifications directly');
-        //console.log('📱 Notification would be sent to:', this.pushToken);
-        //console.log('📱 Message:', title, '-', body);
         return;
       }
 
@@ -486,7 +601,7 @@ class PushNotificationService {
     try {
       // If userId is provided, check their notification preferences
       if (userId) {
-        console.log(`🔍 [pushNotificationService] Checking notification preferences for user ${userId}`);
+        // Checking notification preferences
         
         const { data: userSettings } = await supabase
           .from('notification_settings')
@@ -494,27 +609,24 @@ class PushNotificationService {
           .eq('user_id', userId)
           .single();
         
-        // Default to enabled if no settings found, or check if reminders are disabled
-        const shouldSendReminder = !userSettings || 
-          (userSettings.enable_notifications && 
-           userSettings.enable_push_notifications && 
-           userSettings.class_reminders !== false);
+        // Check if reminders are enabled (default true if no settings)
+        const shouldSendReminder = userSettings ? 
+          ((userSettings.enable_notifications ?? true) && 
+           (userSettings.enable_push_notifications ?? true) && 
+           (userSettings.class_reminders ?? true)) : true;
         
         if (!shouldSendReminder) {
-          console.log(`❌ [pushNotificationService] User ${userId} has disabled class reminders`);
-          return;
-        }
-        
-        console.log(`✅ [pushNotificationService] User ${userId} will receive class reminder`);
+                  // User has disabled class reminders
+        return;
+      }
+      
+      // User will receive class reminder
       }
       
       const title = '⏰ Class Reminder';
       const body = `${className} with ${instructorName} starts in ${minutesBeforeClass} minutes!`;
       
-      console.log(`📬 Sending class reminder: ${body}`);
-      
       if (!this.pushToken) {
-        //console.log('⚠️ No push token available for class reminder');
         return;
       }
 
@@ -522,9 +634,6 @@ class PushNotificationService {
       const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
       
       if (isWeb) {
-        console.log('🌐 Web platform detected - cannot send push notifications directly');
-        //console.log('📱 Class reminder would be sent to:', this.pushToken);
-        //console.log('📱 Message:', title, '-', body);
         return;
       }
 
@@ -554,7 +663,7 @@ class PushNotificationService {
       });
 
       if (response.ok) {
-        //console.log('✅ Class reminder push notification sent');
+        // Success
       } else {
         console.error('❌ Failed to send class reminder push notification');
       }
@@ -566,27 +675,27 @@ class PushNotificationService {
   // Schedule reminders for all user's upcoming classes based on their preferences
   async scheduleClassReminders(userId: string): Promise<void> {
     try {
-      console.log(`🗓️ [pushNotificationService] Scheduling class reminders for user ${userId}`);
+              // Scheduling class reminders
       
-      // Get user's notification settings
-      const { data: userSettings } = await supabase
+      // First, cancel ALL existing class reminders for this user to prevent duplicates
+      await this.cancelAllClassReminders(userId);
+      
+      // Get user's notification settings from the notification_settings table
+      const { data: userSettings, error: settingsError } = await supabase
         .from('notification_settings')
-        .select('enable_notifications, enable_push_notifications, class_reminders, default_reminder_minutes')
+        .select('enable_notifications, default_reminder_minutes')
         .eq('user_id', userId)
         .single();
       
-      // Default to enabled if no settings found
-      const shouldScheduleReminders = !userSettings || 
-        (userSettings.enable_notifications && 
-         userSettings.enable_push_notifications && 
-         userSettings.class_reminders !== false);
+      // Check if reminders are enabled (default true if no settings)
+      const shouldScheduleReminders = userSettings ? (userSettings.enable_notifications ?? true) : true;
       
       if (!shouldScheduleReminders) {
-        console.log(`❌ [pushNotificationService] User ${userId} has disabled class reminders`);
+        // User has disabled class reminders
         return;
       }
       
-      const reminderMinutes = userSettings?.default_reminder_minutes || 30; // Default 30 minutes before
+      const reminderMinutes = userSettings?.default_reminder_minutes || 15; // Default 15 minutes before
       
       // Get user's upcoming bookings
       const { data: bookings } = await supabase
@@ -606,11 +715,9 @@ class PushNotificationService {
         .gte('classes.date', new Date().toISOString().split('T')[0]); // Today or future
       
       if (!bookings || bookings.length === 0) {
-        console.log(`📭 [pushNotificationService] No upcoming classes found for user ${userId}`);
+        // No upcoming classes found
         return;
       }
-      
-      console.log(`📅 [pushNotificationService] Found ${bookings.length} upcoming classes for user ${userId}`);
       
       // Get user's push token
       const { data: userData } = await supabase
@@ -620,7 +727,6 @@ class PushNotificationService {
         .single();
 
       if (!userData?.push_token) {
-        console.log(`⚠️ No push token found for user ${userId} - cannot schedule reminders`);
         return;
       }
 
@@ -631,46 +737,230 @@ class PushNotificationService {
           const reminderTime = new Date(classDateTime.getTime() - (reminderMinutes * 60 * 1000));
           const now = new Date();
           
-          // Only schedule if reminder time is in the future
+          // Schedule iOS local notification for the user's chosen time
           if (reminderTime > now) {
-            console.log(`⏰ [pushNotificationService] Scheduling reminder for "${classInfo.name}" on ${classInfo.date} at ${classInfo.time} (${reminderMinutes} min before)`);
+                    // Scheduling iOS local notification
             
-            // Store notification in Supabase for Vercel cron job to process
-            const { error } = await supabase
-              .from('notifications')
-              .insert({
-                user_id: userId,
-                title: '🧘‍♀️ Class Reminder',
-                message: `${classInfo.name} with ${classInfo.users?.name || 'your instructor'} starts in ${reminderMinutes} minutes!`,
-                type: 'class_reminder',
-                scheduled_for: reminderTime.toISOString(),
-                metadata: {
-                  type: 'class_reminder',
-                  classId: classInfo.id,
-                  bookingId: booking.id,
-                  userId,
-                  push_token: userData.push_token,
-                  className: classInfo.name,
-                  instructorName: classInfo.users?.name
+            try {
+              // Schedule iOS local notification (works even when app is closed)
+              await Notifications.scheduleNotificationAsync({
+                content: {
+                  title: '🧘‍♀️ Class Reminder',
+                  body: `${classInfo.name} with ${classInfo.users?.name || 'your instructor'} starts in ${reminderMinutes} minutes!`,
+                  sound: true,
+                  badge: 1,
+                  data: {
+                    type: 'class_reminder',
+                    classId: classInfo.id,
+                    className: classInfo.name,
+                    userId: userId
+                  }
                 },
-                is_read: false
-                // sent_at and created_at will be handled by database defaults
+                trigger: { type: SchedulableTriggerInputTypes.DATE, date: reminderTime }
               });
-
-            if (error) {
-              console.error(`❌ Failed to schedule reminder for class ${classInfo.name}:`, error);
-            } else {
-              console.log(`✅ Reminder scheduled for "${classInfo.name}"`);
+              
+              // iOS local notification scheduled
+              
+              // Also store in database for record keeping
+              await supabase
+                .from('notifications')
+                .insert({
+                  user_id: userId,
+                  title: '🧘‍♀️ Class Reminder',
+                  message: `${classInfo.name} with ${classInfo.users?.name || 'your instructor'} starts in ${reminderMinutes} minutes!`,
+                  type: 'class_reminder',
+                  scheduled_for: reminderTime.toISOString(),
+                  metadata: {
+                    type: 'class_reminder',
+                    classId: classInfo.id,
+                    bookingId: booking.id,
+                    userId,
+                    className: classInfo.name,
+                    instructorName: classInfo.users?.name,
+                    localNotificationScheduled: true
+                  },
+                  is_read: false
+                });
+                
+            } catch (notificationError) {
+              console.error(`❌ Failed to schedule iOS notification for class ${classInfo.name}:`, notificationError);
             }
           }
         }
       }
       
-      console.log(`✅ [pushNotificationService] Finished scheduling reminders for user ${userId}`);
+              // Finished scheduling reminders
     } catch (error) {
       console.error(`❌ [pushNotificationService] Failed to schedule class reminders for user ${userId}:`, error);
     }
   }
+
+  // Cancel ALL class reminder notifications for a user to prevent duplicates
+  async cancelAllClassReminders(userId: string): Promise<void> {
+    try {
+              // Canceling all existing reminders
+      
+      // Get all scheduled notifications for this user
+      const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
+      const userReminders = scheduledNotifications.filter(notification => 
+        notification.content.data?.type === 'class_reminder' &&
+        notification.content.data?.userId === userId
+      );
+      
+      // Cancel each matching notification
+      for (const notification of userReminders) {
+        await Notifications.cancelScheduledNotificationAsync(notification.identifier);
+      }
+      
+      // Also remove from database
+      await supabase
+        .from('notifications')
+        .delete()
+        .eq('user_id', userId)
+        .eq('type', 'class_reminder');
+    } catch (error) {
+      console.error(`❌ [pushNotificationService] Error canceling all reminders:`, error);
+    }
+  }
+
+  // Cancel existing class reminder notifications to prevent duplicates
+  async cancelClassReminder(userId: string, classId: string | number): Promise<void> {
+    try {
+              // Canceling existing reminders
+      
+      // Get all scheduled notifications for this user and class
+      const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
+      const classReminders = scheduledNotifications.filter(notification => 
+        notification.content.data?.type === 'class_reminder' &&
+        notification.content.data?.userId === userId &&
+        notification.content.data?.classId?.toString() === classId.toString()
+      );
+      
+      // Cancel each matching notification
+      for (const notification of classReminders) {
+        await Notifications.cancelScheduledNotificationAsync(notification.identifier);
+      }
+      
+      // Also remove from database
+      await supabase
+        .from('notifications')
+        .delete()
+        .eq('user_id', userId)
+        .eq('type', 'class_reminder')
+        .match({ 'metadata->>classId': classId.toString() });
+    } catch (error) {
+      console.error(`❌ [pushNotificationService] Error canceling reminders:`, error);
+    }
+  }
+
+  // Schedule reminder for a specific class only (performance optimization)
+  async scheduleClassReminder(userId: string, classId: string | number): Promise<void> {
+    try {
+      // First, cancel any existing notifications for this user and class to prevent duplicates
+      await this.cancelClassReminder(userId, classId);
+      
+      // Get user's notification settings
+      const { data: userSettings, error: settingsError } = await supabase
+        .from('notification_settings')
+        .select('enable_notifications, default_reminder_minutes')
+        .eq('user_id', userId)
+        .single();
+      
+      // Check if reminders are enabled (default true if no settings)
+      const shouldScheduleReminders = userSettings ? (userSettings.enable_notifications ?? true) : true;
+      
+      if (!shouldScheduleReminders) {
+        // User has disabled class reminders
+        return;
+      }
+
+      // Get the specific class booking
+      const { data: booking } = await supabase
+        .from('bookings')
+        .select(`
+          id,
+          classes (
+            id, name, date, time, instructor_id,
+            users!classes_instructor_id_fkey (name)
+          )
+        `)
+        .eq('user_id', userId)
+        .eq('class_id', classId)
+        .eq('status', 'confirmed')
+        .single();
+
+      if (!booking || !booking.classes) {
+        // No confirmed booking found
+        return;
+      }
+      
+      // Type assertion to fix TypeScript error - classes is a single object, not an array
+      const classInfo = booking.classes as any;
+      const classDateTime = new Date(`${classInfo.date} ${classInfo.time}`);
+      const now = new Date();
+
+      // Only schedule if class is in the future
+      if (classDateTime <= now) {
+        // Class is in the past, skipping reminder
+        return;
+      }
+
+      const reminderMinutes = userSettings?.default_reminder_minutes || 15;
+      
+      const reminderTime = new Date(classDateTime.getTime() - (reminderMinutes * 60 * 1000));
+
+      if (reminderTime > now) {
+        // Scheduling iOS local notification
+
+        try {
+          // Schedule local notification (works even when app is closed)
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title: '🧘‍♀️ Class Reminder',
+              body: `${classInfo.name} with ${classInfo.users?.name || 'your instructor'} starts in ${reminderMinutes} minutes!`,
+              sound: true,
+              badge: 1,
+              data: {
+                type: 'class_reminder',
+                classId: classInfo.id,
+                className: classInfo.name,
+                userId: userId
+              }
+            },
+            trigger: { type: SchedulableTriggerInputTypes.DATE, date: reminderTime }
+          });
+
+          // Also store in database for record keeping
+          await supabase
+            .from('notifications')
+            .insert({
+              user_id: userId,
+              title: '🧘‍♀️ Class Reminder',
+              message: `${classInfo.name} with ${classInfo.users?.name || 'your instructor'} starts in ${reminderMinutes} minutes!`,
+              type: 'class_reminder',
+              scheduled_for: reminderTime.toISOString(),
+              metadata: {
+                type: 'class_reminder',
+                classId: classInfo.id,
+                bookingId: booking.id,
+                userId,
+                className: classInfo.name,
+                instructorName: classInfo.users?.name,
+                localNotificationScheduled: true
+              },
+              is_read: false
+            });
+                
+        } catch (notificationError) {
+          console.error(`❌ Failed to schedule iOS notification for class ${classInfo.name}:`, notificationError);
+        }
+      }
+
+    } catch (error) {
+      console.error(`❌ [pushNotificationService] Error scheduling reminder for user ${userId}, class ${classId}:`, error);
+    }
+  }
+
 }
 
 export const pushNotificationService = new PushNotificationService(); 

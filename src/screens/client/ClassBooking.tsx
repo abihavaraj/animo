@@ -69,7 +69,11 @@ function ClassBooking() {
   const { isLoading: bookingLoading, waitlist, bookings, isWaitlistLoading } = useSelector((state: RootState) => state.bookings);
 
   useEffect(() => {
-    dispatch(fetchClasses({}));
+    // Load all classes for clients (service will apply 2-month rule automatically)
+    dispatch(fetchClasses({ 
+      userRole: 'client'
+      // No date_from, date_to, or limit - let service handle client restrictions
+    }));
     dispatch(fetchCurrentSubscription());
     dispatch(fetchUserWaitlist());
     dispatch(fetchBookings({ status: 'confirmed' })); // Only fetch confirmed bookings
@@ -114,18 +118,18 @@ function ClassBooking() {
   });
 
   // Helper function to check if user has already booked a class
-  const isAlreadyBooked = (classId: number) => {
+  const isAlreadyBooked = (classId: number | string) => {
     return userBookings.some(booking => {
       const bookingClassId = booking.class_id;
-      return bookingClassId === classId && ['confirmed', 'waitlist'].includes(booking.status);
+      return String(bookingClassId) === String(classId) && ['confirmed', 'waitlist'].includes(booking.status);
     });
   };
 
   // Helper function to get booking for a class
-  const getBookingForClass = (classId: number) => {
+  const getBookingForClass = (classId: number | string) => {
     return userBookings.find(booking => {
       const bookingClassId = booking.class_id;
-      return bookingClassId === classId && ['confirmed', 'waitlist'].includes(booking.status);
+      return String(bookingClassId) === String(classId) && ['confirmed', 'waitlist'].includes(booking.status);
     });
   };
 
@@ -222,8 +226,8 @@ function ClassBooking() {
     return { canBook: true, reason: '' };
   };
 
-  const handleBookClass = async (classId: number) => {
-    const class_ = classes.find(c => c.id === classId);
+  const handleBookClass = async (classId: number | string) => {
+    const class_ = classes.find(c => String(c.id) === String(classId));
     if (!class_) return;
 
     // Double-check if already booked before making API call
@@ -258,7 +262,10 @@ function ClassBooking() {
                 `You have successfully booked "${class_.name}".`
               );
               // Refresh data
-              dispatch(fetchClasses({}));
+              dispatch(fetchClasses({ 
+                userRole: 'client'
+                // No limits - service handles client restrictions automatically
+              }));
               dispatch(fetchCurrentSubscription());
               dispatch(fetchBookings({ status: 'confirmed' })); // Refresh bookings
             } catch (error) {
@@ -271,7 +278,10 @@ function ClassBooking() {
               } else if (errorMessage.includes('past class')) {
                 Alert.alert('Cannot Book Past Class', 'This class has already started or passed.');
                 // Refresh classes to update the list
-                dispatch(fetchClasses({}));
+                dispatch(fetchClasses({ 
+                userRole: 'client'
+                // No limits - service handles client restrictions automatically
+              }));
               } else {
                 Alert.alert('Booking Failed', errorMessage);
               }
@@ -282,8 +292,8 @@ function ClassBooking() {
     );
   };
 
-  const handleJoinWaitlist = async (classId: number) => {
-    const class_ = classes.find(c => c.id === classId);
+  const handleJoinWaitlist = async (classId: number | string) => {
+    const class_ = classes.find(c => String(c.id) === String(classId));
     if (!class_) return;
 
     Alert.alert(
@@ -303,7 +313,10 @@ You&apos;ll be notified if a spot becomes available.`,
                 `You are #${result.position} on the waitlist for "${class_.name}".`
               );
               // Refresh data
-              dispatch(fetchClasses({}));
+              dispatch(fetchClasses({ 
+                userRole: 'client'
+                // No limits - service handles client restrictions automatically
+              }));
               dispatch(fetchUserWaitlist());
             } catch (error) {
               Alert.alert('Failed to Join Waitlist', error as string);
@@ -314,12 +327,12 @@ You&apos;ll be notified if a spot becomes available.`,
     );
   };
 
-  const isOnWaitlist = (classId: number) => {
-    return availableWaitlist.some(w => w.classId === classId);
+  const isOnWaitlist = (classId: number | string) => {
+    return availableWaitlist.some(w => String(w.classId) === String(classId));
   };
 
-  const getWaitlistPosition = (classId: number) => {
-    const entry = availableWaitlist.find(w => w.classId === classId);
+  const getWaitlistPosition = (classId: number | string) => {
+    const entry = availableWaitlist.find(w => String(w.classId) === String(classId));
     return entry?.position || 0;
   };
 

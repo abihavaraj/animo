@@ -31,7 +31,8 @@ export const updateCompletedClassStatus = createAsyncThunk(
 
 export const fetchClasses = createAsyncThunk(
   'classes/fetchClasses',
-  async (filters: ClassFilters = {}, { rejectWithValue, dispatch }) => {
+  async (filters: ClassFilters & { userRole?: string } = {}, { rejectWithValue, dispatch }) => {
+    // console.log('🔍 [Redux] fetchClasses called with filters:', filters);
     // First update any completed class statuses
     await dispatch(updateCompletedClassStatus());
     
@@ -123,6 +124,8 @@ const classSlice = createSlice({
         state.isLoading = false;
         state.classes = action.payload;
         state.error = null;
+        // console.log('🔍 [Redux] Classes stored in state:', action.payload.length);
+        // console.log('🔍 [Redux] September 2025 classes:', action.payload.filter((c: any) => c.date >= '2025-09-01' && c.date < '2025-10-01').length);
       })
       .addCase(fetchClasses.rejected, (state, action) => {
         state.isLoading = false;
@@ -191,8 +194,8 @@ const classSlice = createSlice({
       })
       .addCase(deleteClass.fulfilled, (state, action) => {
         state.isLoading = false;
-        state.classes = state.classes.filter(c => c.id !== action.payload);
-        if (state.currentClass && state.currentClass.id === action.payload) {
+        state.classes = state.classes.filter(c => String(c.id) !== String(action.payload));
+        if (state.currentClass && String(state.currentClass.id) === String(action.payload)) {
           state.currentClass = null;
         }
         state.error = null;

@@ -1,5 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import * as Notifications from 'expo-notifications';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Dimensions, Linking, RefreshControl, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { Avatar, Button, Card, Chip, Modal, Portal, ProgressBar, Surface } from 'react-native-paper';
@@ -11,6 +12,7 @@ import { notificationService } from '../../services/notificationService';
 import { RootState, useAppDispatch } from '../../store';
 import { logoutUser } from '../../store/authSlice';
 import { fetchCurrentSubscription } from '../../store/subscriptionSlice';
+import { getResponsiveModalDimensions } from '../../utils/responsiveUtils';
 import { SimpleDateCalculator } from '../../utils/simpleDateCalculator';
 import { getFormattedAppVersion } from '../../utils/versionUtils';
 
@@ -19,14 +21,15 @@ const { width } = Dimensions.get('window');
 interface NotificationSettings {
   enableNotifications: boolean;
   defaultReminderMinutes: number;
-  enablePushNotifications: boolean;
-  enableEmailNotifications: boolean;
 }
 
 function ClientProfile({ navigation }: any) {
   const { user } = useSelector((state: RootState) => state.auth);
   const { currentSubscription, isLoading } = useSelector((state: RootState) => state.subscriptions);
   const dispatch = useAppDispatch();
+  
+  // Get responsive dimensions for modal
+  const modalDimensions = getResponsiveModalDimensions('small');
   
   // Theme colors
   const backgroundColor = useThemeColor({}, 'background');
@@ -42,12 +45,10 @@ function ClientProfile({ navigation }: any) {
   
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
     enableNotifications: true,
-    defaultReminderMinutes: 5,
-    enablePushNotifications: true,
-    enableEmailNotifications: true,
+    defaultReminderMinutes: 15,
   });
   const [reminderModalVisible, setReminderModalVisible] = useState(false);
-  const [savingSettings, setSavingSettings] = useState(false);
+
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
@@ -61,7 +62,12 @@ function ClientProfile({ navigation }: any) {
   // Add focus listener to refresh data when screen is focused (always refresh to catch reception changes)
   useFocusEffect(
     useCallback(() => {
-      console.log('🔄 ClientProfile focused - refreshing subscription data');
+      // Clear badge when profile is focused
+      try {
+        Notifications.setBadgeCountAsync(0);
+      } catch (error) {
+        console.error('Failed to clear badge count on profile focus:', error);
+      }
       
       // Always fetch the latest subscription data to catch any changes made by reception
       dispatch(fetchCurrentSubscription());
@@ -73,8 +79,6 @@ function ClientProfile({ navigation }: any) {
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      console.log('🚀 ClientProfile: Starting optimized parallel refresh...');
-      
       // Use parallel loading for better performance
       const [subscriptionResult, notificationResult] = await Promise.allSettled([
         dispatch(fetchCurrentSubscription()).unwrap(),
@@ -87,8 +91,6 @@ function ClientProfile({ navigation }: any) {
       if (notificationResult.status === 'rejected') {
         console.error('❌ Failed to refresh notifications:', notificationResult.reason);
       }
-      
-      console.log('✅ Optimized data refresh completed');
     } catch (error) {
       console.error('❌ Error refreshing data:', error);
     } finally {
@@ -103,7 +105,6 @@ function ClientProfile({ navigation }: any) {
     // If subscription is expired (negative days until end), don't show it
     // Day 0 means expires today and should still be valid
     if (daysUntilEnd < 0) {
-      console.log('🚫 Subscription expired, hiding from profile');
       return null;
     }
     
@@ -163,20 +164,9 @@ function ClientProfile({ navigation }: any) {
     const message = 'Hello! I would like to inquire about my subscription and services at Animo Pilates.';
     const whatsappUrl = `whatsapp://send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
     
-    Linking.canOpenURL(whatsappUrl)
-      .then((supported) => {
-        if (supported) {
-          return Linking.openURL(whatsappUrl);
-        } else {
-          // Fallback to web WhatsApp if app is not installed
-          const webWhatsappUrl = `https://api.whatsapp.com/send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
-          return Linking.openURL(webWhatsappUrl);
-        }
-      })
-      .catch((err) => {
-        console.error('Error opening WhatsApp:', err);
-        Alert.alert('Error', 'Could not open WhatsApp. Please contact us directly at +355689400040');
-      });
+    Linking.openURL(whatsappUrl).catch(() => {
+      Alert.alert('Error', 'WhatsApp is not installed or cannot be opened. Please contact us directly at +355689400040');
+    });
   };
 
   const handlePhoneCall = () => {
@@ -234,38 +224,45 @@ function ClientProfile({ navigation }: any) {
 
   const loadNotificationSettings = async () => {
     try {
-      console.log('📱 Loading notification settings...');
       const response = await notificationService.getNotificationSettings();
       if (response.success && response.data) {
         setNotificationSettings(response.data as NotificationSettings);
       }
-      console.log('✅ Notification settings loaded successfully');
     } catch (error) {
       console.error('❌ Error loading notification settings:', error);
     }
   };
 
-  const saveNotificationSettings = async () => {
-    setSavingSettings(true);
-    try {
-      const response = await notificationService.updateNotificationSettings(notificationSettings);
-      if (response.success) {
-        Alert.alert('Success', 'Notification preferences saved successfully');
-      } else {
-        throw new Error(response.error || 'Failed to save settings');
-      }
-    } catch (error) {
-      Alert.alert('Error', `Failed to save notification preferences: ${error}`);
-    } finally {
-      setSavingSettings(false);
-    }
-  };
 
-  const updateNotificationSetting = (key: keyof NotificationSettings, value: boolean | number) => {
+
+  const updateNotificationSetting = async (key: keyof NotificationSettings, value: boolean | number) => {
+    // Update local state immediately
     setNotificationSettings(prev => ({
       ...prev,
       [key]: value
     }));
+
+    // Auto-save to database immediately
+    try {
+      const updatedSettings = {
+        ...notificationSettings,
+        [key]: value
+      };
+      
+      const response = await notificationService.updateNotificationSettings(updatedSettings);
+      
+      if (!response.success) {
+        console.error('Failed to save notification setting:', response.error);
+        Alert.alert('Error', 'Failed to save notification preference');
+        // Revert local state on error
+        setNotificationSettings(prev => ({
+          ...prev,
+          [key]: key === 'defaultReminderMinutes' ? notificationSettings.defaultReminderMinutes : !value
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to save notification setting:', error);
+    }
   };
 
   if (isLoading) {
@@ -526,6 +523,8 @@ function ClientProfile({ navigation }: any) {
         </Card>
       )}
 
+
+
       {/* Enhanced Notification Settings */}
       <Card style={[styles.cardImproved, { backgroundColor: surfaceColor }]}>
         <Card.Content style={styles.cardContentImproved}>
@@ -552,23 +551,6 @@ function ClientProfile({ navigation }: any) {
               />
             </View>
             
-            <View style={styles.settingsRow}>
-              <View style={styles.settingInfo}>
-                <Body style={{ ...styles.settingTitle, color: textColor }}>📧 Email Notifications</Body>
-                <Caption style={{ ...styles.settingDescription, color: textSecondaryColor }}>
-                  Receive class confirmations and updates via email
-                </Caption>
-              </View>
-              <Switch
-                value={notificationSettings.enableEmailNotifications}
-                onValueChange={(value) => updateNotificationSetting('enableEmailNotifications', value)}
-                trackColor={{ false: textSecondaryColor, true: `${accentColor}60` }}
-                thumbColor={notificationSettings.enableEmailNotifications ? accentColor : textMutedColor}
-              />
-            </View>
-            
-
-            
             {notificationSettings.enableNotifications && (
               <View style={[styles.settingsRow, styles.reminderSection, { backgroundColor: `${accentColor}04` }]}>
                 <View style={styles.settingInfo}>
@@ -591,17 +573,9 @@ function ClientProfile({ navigation }: any) {
           
           <View style={[styles.divider, { backgroundColor: textMutedColor }]} />
           
-          <Button
-            mode="contained"
-            onPress={saveNotificationSettings}
-            style={{ ...styles.saveButton, backgroundColor: accentColor }}
-            loading={savingSettings}
-            disabled={savingSettings}
-            icon={savingSettings ? undefined : "check"}
-            labelStyle={{ color: backgroundColor }}
-          >
-            {savingSettings ? 'Saving...' : 'Save Preferences'}
-          </Button>
+          <Caption style={{ ...styles.autoSaveText, color: textSecondaryColor, textAlign: 'center', marginTop: 8 }}>
+            💾 Settings are automatically saved when changed
+          </Caption>
         </Card.Content>
       </Card>
 
@@ -658,7 +632,15 @@ function ClientProfile({ navigation }: any) {
       </Card>
 
       <Portal>
-        <Modal visible={reminderModalVisible} onDismiss={() => setReminderModalVisible(false)} contentContainerStyle={styles.modalContainer}>
+        <Modal visible={reminderModalVisible} onDismiss={() => setReminderModalVisible(false)} contentContainerStyle={[
+          styles.modalContainer,
+          {
+            width: modalDimensions.width,
+            maxWidth: modalDimensions.maxWidth,
+            padding: modalDimensions.padding,
+            margin: modalDimensions.margin
+          }
+        ]}>
           <H2 style={{ ...styles.modalTitle, color: textColor }}>Reminder Time</H2>
           <Body style={{ ...styles.modalText, color: textSecondaryColor }}>
             Choose how many minutes before your class you&apos;d like to be reminded:
@@ -973,9 +955,12 @@ const styles = StyleSheet.create({
   },
   modalContainer: { 
     backgroundColor: AppColors.light.surface, 
-    margin: 20, 
-    borderRadius: 16, 
-    padding: 24 
+    borderRadius: 16,
+    alignSelf: 'center',
+    elevation: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8
   },
   modalTitle: { 
     fontSize: 20, 
@@ -995,6 +980,11 @@ const styles = StyleSheet.create({
   modalButton: { 
     marginTop: 16 
   },
+  autoSaveText: {
+    fontSize: 12,
+    fontStyle: 'italic',
+  },
+
 });
 
 export default ClientProfile; 

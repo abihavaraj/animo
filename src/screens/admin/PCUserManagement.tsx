@@ -159,6 +159,12 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
     (currentPage - 1) * usersPerPage,
     currentPage * usersPerPage
   );
+  const allCurrentPageSelected = paginatedUsers.length > 0 && paginatedUsers.every(u => selectedUsers.has(u.id));
+
+  // Reset to first page when filters/search change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, filterRole, filterStatus]);
 
   const handleSort = (field: keyof BackendUser) => {
     if (sortField === field) {
@@ -990,8 +996,7 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
             <div style={webStyles.checkboxHeader}>
               <button onClick={handleSelectAll}>
                 <WebCompatibleIcon 
-                  name={selectedUsers.size === processedUsers.length && processedUsers.length > 0 
-                    ? "check-box" : "check-box-outline-blank"} 
+                  name={allCurrentPageSelected ? "check-box" : "check-box-outline-blank"} 
                   size={20} 
                   color="#666666" 
                 />
@@ -1019,7 +1024,7 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
 
           {/* Table Body */}
           <div style={webStyles.tableBody}>
-            {processedUsers.map((user) => (
+            {paginatedUsers.map((user) => (
               <div key={user.id} style={webStyles.tableRow}>
                 <div style={webStyles.checkbox}>
                   <button onClick={() => handleSelectUser(user.id)}>
@@ -1518,7 +1523,7 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
               </View>
             </ScrollView>
 
-            <View style={styles.modalButtons}>
+            <View style={styles.modalButtonContainer}>
               <TouchableOpacity
                 style={[styles.modalButton, styles.modalButtonSecondary]}
                 onPress={() => setShowInstructorAssignmentModal(false)}
@@ -2016,6 +2021,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     minWidth: 100,
     alignItems: 'center',
+  },
+  modalButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+    paddingHorizontal: 16,
   },
   modalButtonPrimary: {
     backgroundColor: '#6B8E7F',

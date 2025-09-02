@@ -1,11 +1,10 @@
 const { getDefaultConfig } = require('expo/metro-config');
-const path = require('path');
 
 /** @type {import('expo/metro-config').MetroConfig} */
-const config = getDefaultConfig(__dirname, {
-  // Enable CSS support for web fonts
-  isCSSEnabled: true,
-});
+const config = getDefaultConfig(__dirname);
+
+// Enable CSS support for web fonts
+config.transformer.isCSSEnabled = true;
 
 // Add font file extensions
 config.resolver.assetExts.push(
@@ -31,4 +30,4 @@ if (process.env.EXPO_PLATFORM === 'web') {
   ];
 }
 
-module.exports = config; 
+module.exports = config;

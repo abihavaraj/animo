@@ -1,12 +1,12 @@
-import StatusChip from '@/components/ui/StatusChip';
-import { Body, Caption, H1, H2, H3 } from '@/components/ui/Typography';
-import { useThemeColor } from '@/hooks/useThemeColor';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Modal, Button as PaperButton, Card as PaperCard, Portal } from 'react-native-paper';
 import { useSelector } from 'react-redux';
+import StatusChip from '../../components/ui/StatusChip';
+import { Body, Caption, H1, H2, H3 } from '../../components/ui/Typography';
 import { layout, spacing } from '../../constants/Spacing';
+import { useThemeColor } from '../../hooks/useThemeColor';
 import { RootState, useAppDispatch } from '../store';
 import { logoutUser } from '../store/authSlice';
 import { shadows } from '../utils/shadows';

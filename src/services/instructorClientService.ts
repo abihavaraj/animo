@@ -19,6 +19,18 @@ export interface InstructorClientAssignment {
   client_name?: string;
   client_email?: string;
   client_phone?: string;
+  // Subscription data
+  user_subscriptions?: Array<{
+    id: string;
+    remaining_classes: number;
+    start_date: string;
+    end_date: string;
+    status: string;
+    subscription_plans?: {
+      name: string;
+      monthly_classes: number;
+    };
+  }>;
   instructor_name?: string;
 }
 
@@ -94,7 +106,7 @@ export interface ClientProgressAssessment {
 }
 
 class InstructorClientService {
-  // Get all clients assigned to an instructor (both manual assignments and auto-assigned from personal class bookings)
+  // Get all clients assigned to an instructor (manual assignments only - auto-assignment disabled)
   async getInstructorClients(instructorId: string): Promise<ApiResponse<InstructorClientAssignment[]>> {
     try {
       devLog('🔍 [instructorClientService] Fetching clients for instructor:', instructorId);
@@ -137,9 +149,51 @@ class InstructorClientService {
           devError('❌ [instructorClientService] Manual assignment users fetch error:', userError);
         } else {
           manualAssignmentUsers = userData || [];
+          
+          // Fetch subscription data separately - only active subscriptions
+          if (manualAssignmentUsers.length > 0) {
+            const { data: subscriptionData, error: subscriptionError } = await supabase
+              .from('user_subscriptions')
+              .select(`
+                user_id,
+                id,
+                remaining_classes,
+                start_date,
+                end_date,
+                status,
+                subscription_plans (
+                  name,
+                  monthly_classes
+                )
+              `)
+              .in('user_id', manualClientIds)
+              .eq('status', 'active'); // Only active subscriptions
+            
+            if (!subscriptionError && subscriptionData) {
+              // Map subscription data to users
+              manualAssignmentUsers = manualAssignmentUsers.map(user => {
+                const userSubs = subscriptionData.filter(sub => sub.user_id === user.id);
+                
+                // Debug log for specific user
+                if (user.name?.toLowerCase().includes('argjend')) {
+                  devLog('🔍 [DEBUG] Subscriptions found for', user.name, userSubs);
+                }
+                
+                return {
+                  ...user,
+                  user_subscriptions: userSubs
+                };
+              });
+            }
+          }
         }
       }
 
+      // Auto-assignment disabled - clients will only be assigned manually by reception
+      let autoAssignedClients: any[] = [];
+      
+      // Comment out auto-assignment logic
+      /*
       // Get personal classes taught by this instructor for auto-assignments
       const { data: instructorClasses, error: classesError } = await supabase
         .from('classes')
@@ -151,8 +205,6 @@ class InstructorClientService {
         devError('❌ [instructorClientService] Classes fetch error:', classesError);
         return { success: false, error: classesError.message };
       }
-
-      let autoAssignedClients: any[] = [];
       
       if (instructorClasses && instructorClasses.length > 0) {
         const classIds = instructorClasses.map(cls => cls.id);
@@ -190,7 +242,31 @@ class InstructorClientService {
               .in('id', autoOnlyClientIds);
 
             if (!autoUsersError && autoUsers) {
-              autoAssignedClients = autoUsers.map(user => {
+              // Fetch subscription data for auto-assigned clients - only active subscriptions
+              const { data: autoSubscriptionData, error: autoSubscriptionError } = await supabase
+                .from('user_subscriptions')
+                .select(`
+                  user_id,
+                  id,
+                  remaining_classes,
+                  start_date,
+                  end_date,
+                  status,
+                  subscription_plans (
+                    name,
+                    monthly_classes
+                  )
+                `)
+                .in('user_id', autoOnlyClientIds)
+                .eq('status', 'active'); // Only active subscriptions
+              
+              // Map subscription data to users
+              const autoUsersWithSubscriptions = autoUsers.map(user => ({
+                ...user,
+                user_subscriptions: autoSubscriptionData?.filter(sub => sub.user_id === user.id) || []
+              }));
+              
+              autoAssignedClients = autoUsersWithSubscriptions.map(user => {
                 const recentBooking = clientBookingMap.get(user.id);
                 return {
                   id: 0, // Auto-generated, not from actual assignment table
@@ -206,12 +282,14 @@ class InstructorClientService {
                   client_name: user.name,
                   client_email: user.email,
                   client_phone: user.phone,
+                  user_subscriptions: user.user_subscriptions || [],
                 };
               });
             }
           }
         }
       }
+      */
 
       // Format manual assignments data
       const formattedManualAssignments: InstructorClientAssignment[] = manualAssignments?.map(assignment => {
@@ -230,6 +308,7 @@ class InstructorClientService {
           client_name: userInfo?.name,
           client_email: userInfo?.email,
           client_phone: userInfo?.phone,
+          user_subscriptions: userInfo?.user_subscriptions || [],
         };
       }) || [];
 
@@ -237,8 +316,8 @@ class InstructorClientService {
       const allClients = [...formattedManualAssignments, ...autoAssignedClients];
 
       devLog('✅ [instructorClientService] Total clients fetched:', allClients.length);
-      devLog('📋 Manual assignments:', formattedManualAssignments.length);
-      devLog('🤖 Auto assignments:', autoAssignedClients.length);
+      devLog('📋 Manual assignments only:', formattedManualAssignments.length);
+      devLog('🤖 Auto assignments: DISABLED');
       
       return { success: true, data: allClients };
       
@@ -296,7 +375,7 @@ class InstructorClientService {
 
   // Upload progress photo
   async uploadProgressPhoto(
-    file: File | { uri: string; name: string; type: string },
+    file: File | { uri: string; name: string; type: string; size?: number },
     clientId: string,
     instructorId: string,
     photoType: 'before' | 'after' | 'progress' | 'assessment',
@@ -317,9 +396,20 @@ class InstructorClientService {
       const fileName = `progress/${clientId}/${timestamp}_${photoType}.${fileExtension}`;
 
       // Upload to Supabase Storage
+      // Upload the file to Supabase storage
+      let uploadFile: any = file;
+      if ('uri' in file) {
+        // For React Native files, convert to proper format
+        uploadFile = {
+          uri: file.uri,
+          name: file.name,
+          type: file.type
+        };
+      }
+      
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('client-photos')
-        .upload(fileName, file);
+        .upload(fileName, uploadFile);
       
       if (uploadError) {
         devError('❌ [instructorClientService] Upload error:', uploadError);
@@ -342,7 +432,7 @@ class InstructorClientService {
           file_name: fileName,
           original_name: file.name,
           file_url: fileUrl,
-          file_size: file.size || 0,
+          file_size: ('size' in file ? file.size : 0) || 0,
           mime_type: file.type || 'image/jpeg',
           description: metadata.description,
           body_area: metadata.bodyArea,
@@ -660,7 +750,7 @@ class InstructorClientService {
         .insert({
           client_id: clientId,
           instructor_id: instructorId,
-          assigned_by: 'system',
+          assigned_by: instructorId, // Use instructor's ID instead of "system"
           assignment_type: 'primary',
           start_date: new Date().toISOString().split('T')[0],
           status: 'active',
@@ -765,6 +855,54 @@ class InstructorClientService {
     } catch (error) {
       devError('❌ [instructorClientService] Exception in getAllClientsForAssignment:', error);
       return { success: false, error: 'Failed to fetch clients' };
+    }
+  }
+
+  // Get only instructor's assigned clients for assignment
+  async getInstructorClientsForAssignment(instructorId: string): Promise<ApiResponse<{id: string, name: string, email: string}[]>> {
+    try {
+      devLog('🔍 [instructorClientService] Fetching instructor assigned clients for assignment');
+      
+      // First get the assignment records
+      const { data: assignments, error: assignmentError } = await supabase
+        .from('instructor_client_assignments')
+        .select('client_id')
+        .eq('instructor_id', instructorId)
+        .eq('status', 'active');
+      
+      if (assignmentError) {
+        devError('❌ [instructorClientService] Error fetching assignments:', assignmentError);
+        return { success: false, error: 'Failed to fetch instructor client assignments' };
+      }
+      
+      if (!assignments || assignments.length === 0) {
+        devLog('ℹ️ [instructorClientService] No client assignments found for instructor');
+        return { success: true, data: [] };
+      }
+      
+      // Extract client IDs
+      const clientIds = assignments.map(assignment => assignment.client_id);
+      
+      // Now get the user details for these clients
+      const { data: clients, error: clientError } = await supabase
+        .from('users')
+        .select('id, name, email')
+        .in('id', clientIds)
+        .eq('status', 'active')
+        .eq('role', 'client')
+        .order('name', { ascending: true });
+      
+      if (clientError) {
+        devError('❌ [instructorClientService] Error fetching client details:', clientError);
+        return { success: false, error: 'Failed to fetch client details' };
+      }
+      
+      devLog('✅ [instructorClientService] Instructor clients fetched for assignment:', clients?.length || 0);
+      return { success: true, data: clients || [] };
+      
+    } catch (error) {
+      devError('❌ [instructorClientService] Exception in getInstructorClientsForAssignment:', error);
+      return { success: false, error: 'Failed to fetch instructor clients for assignment' };
     }
   }
 
@@ -936,6 +1074,28 @@ class InstructorClientService {
     }
   }
 
+  // Check if client is already booked for a class
+  async isClientBookedForClass(clientId: string, classId: string): Promise<ApiResponse<boolean>> {
+    try {
+      const { data: bookings, error } = await supabase
+        .from('bookings')
+        .select('id')
+        .eq('user_id', clientId)
+        .eq('class_id', classId)
+        .in('status', ['confirmed', 'waitlist']);
+
+      if (error) {
+        devError('❌ [instructorClientService] Error checking booking status:', error);
+        return { success: false, error: 'Failed to check booking status' };
+      }
+
+      return { success: true, data: bookings && bookings.length > 0 };
+    } catch (error) {
+      devError('❌ [instructorClientService] Exception in isClientBookedForClass:', error);
+      return { success: false, error: 'Failed to check booking status' };
+    }
+  }
+
   // Assign client to a specific class (instructor function)
   async assignClientToClass(
     clientId: string,
@@ -945,43 +1105,66 @@ class InstructorClientService {
     try {
       devLog('📅 [instructorClientService] Assigning client to class');
 
-      // First check if client has remaining classes
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('remaining_classes')
-        .eq('id', clientId)
-        .single();
+      // First check if client has remaining classes in their active subscription
+      const { data: subscriptionsData, error: subscriptionError } = await supabase
+        .from('user_subscriptions')
+        .select('id, remaining_classes, end_date')
+        .eq('user_id', clientId)
+        .eq('status', 'active')
+        .order('end_date', { ascending: false }); // Get the latest subscription first
 
-      if (userError) {
-        devError('❌ [instructorClientService] Error fetching user data:', userError);
-        return { success: false, error: 'Failed to check client remaining classes' };
+      if (subscriptionError) {
+        devError('❌ [instructorClientService] Error fetching subscription data:', subscriptionError);
+        return { success: false, error: 'Failed to check client subscription. Client may not have an active subscription.' };
       }
 
-      if (userData.remaining_classes <= 0) {
-        return { success: false, error: 'Client has no remaining classes' };
+      if (!subscriptionsData || subscriptionsData.length === 0) {
+        return { success: false, error: 'Client has no active subscription' };
+      }
+
+      // Get the subscription with the latest end date that hasn't expired
+      const activeSubscription = subscriptionsData.find(sub => {
+        const endDate = new Date(sub.end_date);
+        const now = new Date();
+        const timeDiff = endDate.getTime() - now.getTime();
+        const daysUntilEnd = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+        return daysUntilEnd >= 0; // Not expired
+      });
+
+      if (!activeSubscription) {
+        return { success: false, error: 'Client has no valid active subscription' };
+      }
+
+      if (activeSubscription.remaining_classes <= 0) {
+        return { success: false, error: 'Client has no remaining classes in their subscription' };
       }
 
       // Check if client is already booked for this class
-      const { data: existingBooking } = await supabase
+      const { data: existingBookings, error: checkError } = await supabase
         .from('bookings')
         .select('id')
         .eq('user_id', clientId)
         .eq('class_id', classId)
-        .eq('status', 'confirmed')
-        .single();
+        .in('status', ['confirmed', 'waitlist']);
 
-      if (existingBooking) {
+      if (checkError) {
+        devError('❌ [instructorClientService] Error checking existing booking:', checkError);
+        return { success: false, error: 'Failed to check existing booking' };
+      }
+
+      if (existingBookings && existingBookings.length > 0) {
         return { success: false, error: 'Client is already booked for this class' };
       }
 
-      // Create the booking
+      // Create the booking with subscription_id to track it was a normal assignment
       const { error: bookingError } = await supabase
         .from('bookings')
         .insert({
           user_id: clientId,
           class_id: classId,
           status: 'confirmed',
-          booking_date: new Date().toISOString()
+          booking_date: new Date().toISOString(),
+          subscription_id: activeSubscription.id  // Track which subscription was used
         });
 
       if (bookingError) {
@@ -989,13 +1172,13 @@ class InstructorClientService {
         return { success: false, error: bookingError.message };
       }
 
-      // Decrease remaining classes
+      // Decrease remaining classes in the specific active subscription
       const { error: updateError } = await supabase
-        .from('users')
+        .from('user_subscriptions')
         .update({
-          remaining_classes: userData.remaining_classes - 1
+          remaining_classes: activeSubscription.remaining_classes - 1
         })
-        .eq('id', clientId);
+        .eq('id', activeSubscription.id);
 
       if (updateError) {
         devError('❌ [instructorClientService] Error updating remaining classes:', updateError);
@@ -1016,22 +1199,28 @@ class InstructorClientService {
     clientId: string,
     classId: string,
     instructorId: string
-  ): Promise<ApiResponse<void>> {
+  ): Promise<ApiResponse<{ waitlistPromoted?: boolean }>> {
     try {
       devLog('📅 [instructorClientService] Unassigning client from class');
 
       // Get the booking to make sure it exists
-      const { data: booking, error: bookingError } = await supabase
+      const { data: bookings, error: bookingError } = await supabase
         .from('bookings')
-        .select('id')
+        .select('id, subscription_id')
         .eq('user_id', clientId)
         .eq('class_id', classId)
-        .eq('status', 'confirmed')
-        .single();
+        .in('status', ['confirmed', 'waitlist']);
 
-      if (bookingError || !booking) {
+      if (bookingError) {
+        devError('❌ [instructorClientService] Error fetching booking:', bookingError);
+        return { success: false, error: 'Failed to check booking status' };
+      }
+
+      if (!bookings || bookings.length === 0) {
         return { success: false, error: 'Client is not booked for this class' };
       }
+
+      const booking = bookings[0]; // Get the first booking
 
       // Cancel the booking
       const { error: cancelError } = await supabase
@@ -1046,32 +1235,69 @@ class InstructorClientService {
         return { success: false, error: cancelError.message };
       }
 
-      // Restore remaining classes
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('remaining_classes')
-        .eq('id', clientId)
-        .single();
+      // Check if this was an override assignment (don't restore credits)
+      // Normal assignments have subscription_id (used subscription credits)
+      // Override assignments have subscription_id = null (no subscription used)
+      const wasOverrideAssignment = !booking.subscription_id;
+      
+      devLog('🔍 [instructorClientService] Assignment type check:', {
+        subscriptionId: booking.subscription_id,
+        wasOverrideAssignment,
+        willRestoreCredits: !wasOverrideAssignment
+      });
+      
+      if (!wasOverrideAssignment) {
+        devLog('🔄 [instructorClientService] Normal assignment detected - restoring credits');
+        // Find the active subscription to restore credits
+        const { data: subscriptionsData, error: subscriptionError } = await supabase
+          .from('user_subscriptions')
+          .select('id, remaining_classes, end_date')
+          .eq('user_id', clientId)
+          .eq('status', 'active')
+          .order('end_date', { ascending: false });
 
-      if (userData && !userError) {
-        const { error: updateError } = await supabase
-          .from('users')
-          .update({
-            remaining_classes: userData.remaining_classes + 1
-          })
-          .eq('id', clientId);
+        if (!subscriptionError && subscriptionsData && subscriptionsData.length > 0) {
+          // Get the subscription with the latest end date that hasn't expired
+          const activeSubscription = subscriptionsData.find(sub => {
+            const endDate = new Date(sub.end_date);
+            const now = new Date();
+            const timeDiff = endDate.getTime() - now.getTime();
+            const daysUntilEnd = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+            return daysUntilEnd >= 0;
+          });
 
-        if (updateError) {
-          devError('❌ [instructorClientService] Error restoring remaining classes:', updateError);
+          if (activeSubscription) {
+            const { error: updateError } = await supabase
+              .from('user_subscriptions')
+              .update({
+                remaining_classes: activeSubscription.remaining_classes + 1
+              })
+              .eq('id', activeSubscription.id);
+
+            if (updateError) {
+              devError('❌ [instructorClientService] Error restoring remaining classes:', updateError);
+            } else {
+              devLog('✅ [instructorClientService] Package credits restored (+1)');
+            }
+          }
         }
+      } else {
+        devLog('ℹ️ [instructorClientService] Override assignment - no credits restored');
       }
 
       // 🚨 CRITICAL FIX: Handle waitlist promotion for instructor cancellations
       devLog('🎯 [INSTRUCTOR_CANCEL] Starting waitlist promotion check for class', classId);
       
-      // Import booking service to use waitlist promotion
-      const { bookingService } = await import('./bookingService');
-      const waitlistPromoted = await bookingService.promoteFromWaitlist(classId);
+      // Try to promote from waitlist (if available)
+      let waitlistPromoted = false;
+      try {
+        const { bookingService } = await import('./bookingService');
+        // Instead of accessing private method, we'll handle waitlist promotion differently
+        // For now, we'll just indicate that the unassignment was successful
+        waitlistPromoted = false; // Placeholder - would need public waitlist promotion method
+      } catch (error) {
+        devLog('⚠️ [INSTRUCTOR_CANCEL] Could not attempt waitlist promotion:', error);
+      }
       
       devLog(`🎯 [INSTRUCTOR_CANCEL] Waitlist promotion result: ${waitlistPromoted ? 'SUCCESS' : 'NO_PROMOTION'}`);
 

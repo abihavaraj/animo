@@ -1,7 +1,8 @@
 import { MaterialIcons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, AppState, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
 import { Button, Card, Chip, FAB, Paragraph, SegmentedButtons, Surface } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
@@ -14,6 +15,7 @@ import { AppDispatch, RootState } from '../../store';
 import { cancelBooking, createBooking, fetchBookings } from '../../store/bookingSlice';
 import { fetchClasses } from '../../store/classSlice';
 import { fetchCurrentSubscription } from '../../store/subscriptionSlice';
+import { getResponsiveFontSize, getResponsiveModalDimensions, getResponsiveSpacing } from '../../utils/responsiveUtils';
 
 // Helper function to check equipment access validation
 const isEquipmentAccessAllowed = (userAccess: string, classEquipment: string): boolean => {
@@ -60,7 +62,7 @@ interface ClassItem {
   startTime: string;
   endTime: string;
   instructorName: string;
-  level: string;
+  // level: removed from schema
   capacity: number;
   enrolled: number;
   equipmentType: string;
@@ -68,7 +70,7 @@ interface ClassItem {
   description: string;
   category: 'personal' | 'group';
   isBooked?: boolean;
-  bookingId?: number;
+  bookingId?: string;
   room?: string;
   waitlistPosition?: number;
   waitlistId?: number;
@@ -80,7 +82,7 @@ interface DayClassesModalProps {
   classes: ClassItem[];
   onDismiss: () => void;
   onBookClass: (classId: string) => void;
-  onCancelBooking: (bookingId: number) => void;
+  onCancelBooking: (bookingId: string) => void;
   onJoinWaitlist: (classId: string) => void;
   onLeaveWaitlist: (waitlistId: number) => void;
 }
@@ -103,8 +105,8 @@ const mapBackendClassToClassItem = (backendClass: BackendClass, userBooking?: an
     date: backendClass.date,
     startTime: backendClass.time,
     endTime: calculateEndTime(backendClass.time, backendClass.duration),
-    instructorName: backendClass.instructor_name,
-    level: backendClass.level || 'beginner',
+    instructorName: backendClass.instructor_name || 'TBD',
+    // level: removed from schema
     capacity: backendClass.capacity,
     enrolled: backendClass.enrolled || 0,
     equipmentType: backendClass.equipment_type,
@@ -131,6 +133,12 @@ function DayClassesModal({
 }: DayClassesModalProps) {
   // Get subscription state from Redux
   const { currentSubscription } = useSelector((state: RootState) => state.subscriptions);
+  
+  // Get responsive dimensions for modal
+  const modalDimensions = getResponsiveModalDimensions('large');
+  const responsiveSpacing = getResponsiveSpacing(spacing.md);
+  const responsiveFontSize = getResponsiveFontSize(16);
+  const isAndroid = Platform.OS === 'android';
   
   // Theme colors for modal
   const backgroundColor = useThemeColor({}, 'background');
@@ -374,84 +382,106 @@ function DayClassesModal({
   if (!visible) return null;
 
   return (
-    <View style={styles.modalOverlay}>
+    <View style={[
+             styles.modalOverlay,
+       Platform.OS === 'android' && styles.modalOverlayAndroid
+    ]}>
       <Pressable style={StyleSheet.absoluteFill} onPress={onDismiss} />
-      <View style={[styles.modalSurface, { backgroundColor: surfaceColor }]}>
+      <View style={[
+        styles.modalSurface, 
+        { backgroundColor: surfaceColor },
+        Platform.OS === 'android' && styles.modalSurfaceAndroid
+      ]}>
         <ScrollView 
           style={styles.modalContent} 
           contentContainerStyle={styles.modalScrollContent}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.modalHeader}>
-            <H2 style={{ color: textColor }}>{formatDate(selectedDate)}</H2>
-            <Button mode="text" onPress={onDismiss}>
-              <MaterialIcons name="close" size={24} color={textSecondaryColor} />
+          <View style={[styles.modalHeader, isAndroid && { marginBottom: responsiveSpacing }]}>
+            <H2 style={{ 
+              color: textColor,
+              ...(isAndroid && {
+                fontSize: responsiveFontSize + 4,
+                textAlign: 'center',
+                flex: 1
+              })
+            }}>{formatDate(selectedDate)}</H2>
+            <Button mode="text" onPress={onDismiss} style={isAndroid ? { minWidth: 40 } : undefined}>
+              <MaterialIcons name="close" size={isAndroid ? 20 : 24} color={textSecondaryColor} />
             </Button>
           </View>
 
           {classes.length === 0 ? (
             <View style={styles.emptyState}>
-              <MaterialIcons name="event-busy" size={48} color={textMutedColor} />
-              <Paragraph style={{ color: textColor, textAlign: 'center', marginTop: spacing.md }}>
+              <MaterialIcons name="event-busy" size={isAndroid ? 40 : 48} color={textMutedColor} />
+              <Paragraph style={{ 
+                color: textColor, 
+                textAlign: 'center', 
+                marginTop: spacing.md,
+                ...(isAndroid && { fontSize: responsiveFontSize })
+              }}>
                 No classes available on this date
               </Paragraph>
             </View>
           ) : (
-            classes.map((classItem) => {
+            classes.map((classItem, index) => {
               const canBook = isBookable(classItem);
               const isCancellable = isBookingCancellable(classItem);
               const isPast = isClassEnded(classItem); // Use class end time instead of just date
 
               return (
-                <Surface key={classItem.id} style={[
-                  styles.classModalItemImproved,
-                  { 
-                    backgroundColor: textColor + '15',
+                <View key={`modal-class-${classItem.id}-${selectedDate}-${index}`} style={[
+                  styles.classModalItemContainer,
+                  {
+                    marginBottom: 12,
+                    backgroundColor: surfaceColor, // Use surface color for full card background
                     borderColor: textColor + '80',
-                    borderWidth: 3,
-                    shadowColor: textColor,
-                    shadowOffset: { width: 0, height: 3 },
-                    shadowOpacity: 0.2,
-                    shadowRadius: 6,
-                    elevation: 5
+                    width: '100%' // Make cards full width
                   },
-                  classItem.isBooked ? { backgroundColor: `${successColor}20` } : {},
-                  classItem.waitlistPosition ? { backgroundColor: `${warningColor}20` } : {}
+                  isAndroid && styles.classModalItemAndroid,
+                  !isAndroid && styles.classModalItemIOS
                 ]}>
-                  <View>
+                  {/* Simplified content container - no conditional rendering */}
+                  <View style={styles.classModalContent}>
                     <View style={styles.classModalHeader}>
                       <View style={[styles.timeSection, { 
                         backgroundColor: availableColor + '90',
-                        borderRadius: 12,
-                        padding: 12,
-                        borderWidth: 2,
+                        borderRadius: 12, // Keep iPhone border radius on both platforms
+                        padding: 12, // Keep iPhone padding on both platforms
+                        borderWidth: 2, // Use iPhone border width on both platforms
                         borderColor: availableColor,
-                        minWidth: 80,
+                        minWidth: 80, // Keep iPhone minWidth on both platforms
                         alignItems: 'center'
                       }]}>
                         <H2 style={{ 
                           color: backgroundColor, 
                           fontWeight: 'bold',
-                          fontSize: 20,
+                          fontSize: 20, // Use iPhone font size on both platforms
                           textAlign: 'center'
                         }}>{formatTime(classItem.startTime)}</H2>
                         <Caption style={{ 
                           color: backgroundColor, 
                           fontWeight: '600',
                           textAlign: 'center',
-                          fontSize: 12
+                          fontSize: 12 // Use iPhone font size on both platforms
                         }}>
                           to {formatTime(classItem.endTime)}
                         </Caption>
                       </View>
                       <View style={styles.classModalTitleRow}>
                         <View style={styles.classNameSection}>
-                          <H2 style={{ color: textColor }}>{classItem.name}</H2>
-                          <Caption style={{ color: textSecondaryColor }}>
+                          <H2 style={{ 
+                            color: textColor
+                          }}>{classItem.name}</H2>
+                          <Caption style={{ 
+                            color: textSecondaryColor
+                          }}>
                             with {classItem.instructorName}
                           </Caption>
                           {classItem.room && (
-                            <Caption style={{ color: textSecondaryColor }}>
+                            <Caption style={{ 
+                              color: textSecondaryColor
+                            }}>
                               📍 {classItem.room}
                             </Caption>
                           )}
@@ -459,8 +489,15 @@ function DayClassesModal({
                         <View style={styles.classModalBadges}>
                           {classItem.isBooked && (
                             <Chip 
-                              style={[styles.statusChip, { backgroundColor: successColor }]}
-                              textStyle={{ ...styles.statusChipText, color: backgroundColor }}
+                              style={[
+                                styles.statusChip, 
+                                { backgroundColor: successColor },
+
+                              ]}
+                              textStyle={{ 
+                                ...styles.statusChipText, 
+                                color: backgroundColor
+                              }}
                               icon="check-circle"
                             >
                               Booked
@@ -468,8 +505,15 @@ function DayClassesModal({
                           )}
                           {classItem.waitlistPosition && (
                             <Chip 
-                              style={[styles.statusChip, { backgroundColor: warningColor }]}
-                              textStyle={{ ...styles.statusChipText, color: backgroundColor }}
+                              style={[
+                                styles.statusChip, 
+                                { backgroundColor: warningColor },
+
+                              ]}
+                              textStyle={{ 
+                                ...styles.statusChipText, 
+                                color: backgroundColor
+                              }}
                               icon="queue"
                             >
                               Waitlist #{classItem.waitlistPosition}
@@ -483,7 +527,7 @@ function DayClassesModal({
                       {renderBookingButton(classItem, canBook, isCancellable, isPast)}
                     </View>
                   </View>
-                </Surface>
+                </View>
               );
             })
           )}
@@ -666,12 +710,20 @@ function ClassesView() {
     loadData();
   }, [dispatch]);
 
+  // Clear badge when classes screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      try {
+        Notifications.setBadgeCountAsync(0);
+      } catch (error) {
+        console.error('Failed to clear badge count on classes focus:', error);
+      }
+    }, [])
+  );
+
   useEffect(() => {
-    console.log('🔄 [ClassesView] Classes updated, total classes:', classes?.length || 0);
     if (classes && classes.length > 0) {
       const dates = classes.map(c => c.date).sort();
-      console.log('📅 [ClassesView] Class dates range:', dates[0], 'to', dates[dates.length - 1]);
-      console.log('📋 [ClassesView] Sample classes:', classes.slice(0, 3).map(c => ({ name: c.name, date: c.date, status: c.status })));
     }
     generateMarkedDates();
   }, [classes, bookings, userWaitlist]);
@@ -680,7 +732,6 @@ function ClassesView() {
   useEffect(() => {
     const handleAppStateChange = (nextAppState: string) => {
       if (nextAppState === 'active') {
-        console.log('📱 App became active, refreshing classes data');
         loadData();
       }
     };
@@ -695,10 +746,8 @@ function ClassesView() {
 
   // Add effect to log when view mode changes
   useEffect(() => {
-    console.log(`🔄 View mode changed to: ${viewMode}`);
     if (viewMode === 'list') {
       const upcomingCount = getAllUpcomingClasses().length;
-      console.log(`📋 List view: ${upcomingCount} upcoming classes`);
     }
   }, [viewMode, classes, bookings]);
 
@@ -709,11 +758,12 @@ function ClassesView() {
       
       // Refresh classes view when waitlist-related notifications are received
       if (data?.type === 'class_notification' && user?.id === data?.userId) {
-        console.log('🔄 [ClassesView] Auto-refreshing due to waitlist notification');
         setTimeout(() => {
-          console.log('🔄 [ClassesView] Starting delayed refresh for waitlist update...');
           // Dispatch the store actions directly instead of calling loadData
-          dispatch(fetchClasses({}));
+          dispatch(fetchClasses({ 
+            userRole: 'client'
+            // No limits - service handles client restrictions automatically
+          }));
           dispatch(fetchBookings({}));
           dispatch(fetchCurrentSubscription());
         }, 2000); // Increased delay to ensure all backend updates are complete
@@ -727,9 +777,12 @@ function ClassesView() {
 
   const loadData = async () => {
     try {
-      console.log('🔄 [ClassesView] Loading all classes (including past classes)...');
+      // Load all classes for clients (service will apply 2-month rule automatically)
       await Promise.all([
-        dispatch(fetchClasses({})),
+        dispatch(fetchClasses({ 
+          userRole: 'client'
+          // No date_from, date_to, or limit - truly unlimited classes
+        })),
         dispatch(fetchBookings({})),
         dispatch(fetchCurrentSubscription())
       ]);
@@ -777,11 +830,10 @@ function ClassesView() {
       sixtyDaysAgo.setDate(today.getDate() - 60);
       
       if (classDate < sixtyDaysAgo) {
-        console.log(`⏰ Skipping old date: ${date} (${classItem.name}) - older than 60 days`);
         return;
       }
       
-      console.log(`📅 Marking date: ${date} (${classItem.name}) - status: ${classItem.status}`);
+
       
       const userBooking = bookingsArray.find((booking: any) => 
         booking.class_id === classItem.id && 
@@ -823,16 +875,11 @@ function ClassesView() {
     const classesArray = Array.isArray(classes) ? classes : [];
     const bookingsArray = Array.isArray(bookings) ? bookings : [];
     
-
-    
     const dayClasses = classesArray
       .filter((classItem: BackendClass) => {
         // Ensure consistent date comparison
         const classDate = classItem.date;
         const matches = classDate === date;
-        if (matches) {
-          // Class found for date
-        }
         return matches;
       })
       .map((classItem: BackendClass) => {
@@ -851,7 +898,6 @@ function ClassesView() {
         return a.startTime.localeCompare(b.startTime);
       });
     
-
     return dayClasses;
   };
 
@@ -1022,7 +1068,7 @@ function ClassesView() {
     );
   };
 
-  const handleCancelBooking = async (bookingId: number) => {
+  const handleCancelBooking = async (bookingId: string) => {
     try {
       Alert.alert(
         'Cancel Booking',
@@ -1118,14 +1164,7 @@ function ClassesView() {
     return timeString;
   };
 
-  const getLevelColor = (level: string) => {
-    switch (level?.toLowerCase()) {
-      case 'beginner': return successColor;
-      case 'intermediate': return warningColor;
-      case 'advanced': return errorColor;
-      default: return textSecondaryColor;
-    }
-  };
+  // getLevelColor function removed - level field no longer exists
 
   const getEquipmentIcon = (type: string) => {
     switch (type?.toLowerCase()) {
@@ -1261,16 +1300,16 @@ function ClassesView() {
             theme={{
               backgroundColor: surfaceColor,
               calendarBackground: surfaceColor,
-              textSectionTitleColor: primaryColor,
+              textSectionTitleColor: textColor,
               selectedDayBackgroundColor: primaryColor,
               selectedDayTextColor: backgroundColor,
-              todayTextColor: primaryColor,
-              todayBackgroundColor: `${primaryColor}08`,
+              todayTextColor: '#FFFFFF',
+              todayBackgroundColor: accentColor,
               dayTextColor: textColor,
               textDisabledColor: textMutedColor,
               dotColor: primaryColor,
-              selectedDotColor: backgroundColor,
-              arrowColor: primaryColor,
+              selectedDotColor: '#FFFFFF',
+              arrowColor: textColor,
               disabledArrowColor: textMutedColor,
               monthTextColor: textColor,
               indicatorColor: primaryColor,
@@ -1338,9 +1377,9 @@ function ClassesView() {
                     {formatDateHeader(date)}
                   </Paragraph>
                 </View>
-                {classesForDate.map((classItem) => (
+                {classesForDate.map((classItem, index) => (
                   <Pressable
-                    key={`${classItem.id}-${classItem.date}`}
+                    key={`class-list-${classItem.id}-${classItem.date}-${index}`}
                     onPressIn={() => {}}
                     onPressOut={() => {}}
                     style={({ pressed }) => [
@@ -1543,18 +1582,6 @@ function ClassesView() {
         </ScrollView>
       )}
 
-      {/* Day Classes Modal */}
-      <DayClassesModal
-        visible={dayClassesVisible}
-        selectedDate={selectedDate}
-        classes={selectedDateClasses}
-        onDismiss={() => setDayClassesVisible(false)}
-        onBookClass={handleBookClass}
-        onCancelBooking={handleCancelBooking}
-        onJoinWaitlist={handleJoinWaitlist}
-        onLeaveWaitlist={handleLeaveWaitlist}
-      />
-
       {/* FAB positioned outside ScrollView for proper click handling */}
       <FAB
         icon={() => <MaterialIcons name="today" size={24} color={backgroundColor} />}
@@ -1568,6 +1595,18 @@ function ClassesView() {
           setSelectedDateClasses(getClassesForDate(today)); // Update classes for today
           setDayClassesVisible(true);
         }}
+      />
+
+      {/* Day Classes Modal - Positioned at the very end for highest z-index */}
+      <DayClassesModal
+        visible={dayClassesVisible}
+        selectedDate={selectedDate}
+        classes={selectedDateClasses}
+        onDismiss={() => setDayClassesVisible(false)}
+        onBookClass={handleBookClass}
+        onCancelBooking={handleCancelBooking}
+        onJoinWaitlist={handleJoinWaitlist}
+        onLeaveWaitlist={handleLeaveWaitlist}
       />
     </View>
   );
@@ -1763,17 +1802,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 4,
   },
-  // Improved Level Chip Styles
-  levelChip: {
-    height: 32,
-    minWidth: 110,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    // backgroundColor will be overridden by inline style
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 16,
-  },
+  // Level chip styles removed - level field no longer exists
   chipText: {
     // color will be overridden by inline style based on theme
     fontSize: 11,
@@ -1929,7 +1958,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 1000,
+    zIndex: 999999,
+    elevation: 1000,
   },
   modalSurface: {
     borderRadius: 16,
@@ -1937,8 +1967,10 @@ const styles = StyleSheet.create({
     width: '90%',
     maxWidth: 400,
     minHeight: 580,
-    alignItems: 'stretch',
-    elevation: 8,
+    maxHeight: '85%',
+    alignSelf: 'center',
+    elevation: 1001,
+    zIndex: 1000000,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 8,
@@ -2092,10 +2124,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tinyLevelIcon: {
-    marginRight: 2,
-    opacity: 0.9,
-  },
+  // tinyLevelIcon removed - level field no longer exists
   modalCardPressable: {
     marginBottom: 20,
   },
@@ -2197,11 +2226,44 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     // color will be overridden by inline style
   },
-  // New styles for DayClassesModal
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
+     // New styles for DayClassesModal
+   emptyState: {
+     alignItems: 'center',
+     paddingVertical: 40,
+   },
+   // StrictMode-stable modal item styles
+   classModalItemContainer: {
+     borderRadius: 16,
+     borderWidth: 2,
+     padding: 16,
+   },
+           classModalItemAndroid: {
+      elevation: 3,
+      // Android-specific optimizations for StrictMode stability
+    },
+   classModalItemIOS: {
+     shadowColor: '#000',
+     shadowOffset: { width: 0, height: 3 },
+     shadowOpacity: 0.2,
+     shadowRadius: 6,
+     elevation: 5,
+     overflow: 'hidden',
+   },
+   classModalContent: {
+     // Consistent content container
+   },
+   // StrictMode-stable modal overlay styles
+   modalOverlayAndroid: {
+     elevation: 2000,
+     backgroundColor: 'rgba(0,0,0,0.5)',
+     justifyContent: 'center',
+     alignItems: 'center',
+   },
+   modalSurfaceAndroid: {
+     elevation: 2001,
+     borderRadius: 16,
+     overflow: 'visible',
+   },
   classInfo: {
     paddingBottom: 16,
   },

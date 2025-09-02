@@ -356,7 +356,7 @@ export default function NotificationTestScreen() {
             mode="contained"
             onPress={handleTestClassReminder}
             style={[styles.button, { backgroundColor: '#9C27B0' }]}
-            icon="calendar"
+            icon="calendar-today"
           >
             Test Class Reminder Push Notification
           </Button>

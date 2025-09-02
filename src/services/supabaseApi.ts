@@ -319,7 +319,11 @@ class SupabaseApiService {
   async getBookings(userId?: string) {
     let query = this.supabase
       .from(API_CONFIG.ENDPOINTS.BOOKINGS)
-      .select('*, classes(*)')
+      .select(`
+        *,
+        classes(id, name, date, time, duration, category, instructor_id),
+        users(id, name, email, phone)
+      `)
       .order('created_at', { ascending: false });
     
     if (userId) {
@@ -327,6 +331,23 @@ class SupabaseApiService {
     }
     
     const { data, error } = await query;
+    
+    // Transform the data to match expected format for activities
+    if (data && Array.isArray(data)) {
+      const transformedData = data.map(booking => ({
+        ...booking,
+        user_name: booking.users?.name,
+        user_email: booking.users?.email,
+        class_name: booking.classes?.name,
+        class_date: booking.classes?.date,
+        class_time: booking.classes?.time,
+        class_duration: booking.classes?.duration,
+        class_category: booking.classes?.category,
+        instructor_id: booking.classes?.instructor_id
+      }));
+      return this.handleResponse(transformedData, error);
+    }
+    
     return this.handleResponse(data, error);
   }
 

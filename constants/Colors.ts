@@ -72,7 +72,7 @@ export const Colors = {
     tabIconSelected: '#FFFFFF',
     
     // Brand Colors
-    primary: '#2C2C2C',
+    primary: '#FFFFFF',
     secondary: '#2C2C2C',
     accent: accent,
     

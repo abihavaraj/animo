@@ -1,13 +1,14 @@
-import { Body, Caption, H1, H2, H3 } from '@/components/ui/Typography';
-import { useThemeColor } from '@/hooks/useThemeColor';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useEffect, useState } from 'react';
 import { Alert, Dimensions, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Chip, Button as PaperButton, Card as PaperCard, SegmentedButtons } from 'react-native-paper';
+import { Chip, Button as PaperButton, Card as PaperCard, ProgressBar, SegmentedButtons } from 'react-native-paper';
 import { useDispatch } from 'react-redux';
+import { Body, Caption, H1, H2, H3 } from '../../../components/ui/Typography';
 import { spacing } from '../../../constants/Spacing';
+import { useThemeColor } from '../../../hooks/useThemeColor';
 import { dashboardService, DashboardStats, DateRange, QuickAction } from '../../services/dashboardService';
+import { realTimeDashboardService } from '../../services/realTimeDashboardService';
 import { AppDispatch } from '../../store';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -35,8 +36,23 @@ function AdminDashboard({ onNavigate }: { onNavigate?: (screenKey: string) => vo
   const [dateFilter, setDateFilter] = useState<'week' | 'month' | 'year' | 'all'>('month');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
 
+  // Real-time dashboard state
+  const [liveMetrics, setLiveMetrics] = useState<any>(null);
+  const [lastLiveUpdate, setLastLiveUpdate] = useState<Date>(new Date());
+
   useEffect(() => {
     loadDashboardData();
+
+    // Initialize real-time dashboard
+    realTimeDashboardService.startPolling((metrics) => {
+      setLiveMetrics(metrics);
+      setLastLiveUpdate(new Date());
+    }, 30000); // 30 second intervals
+
+    // Cleanup on unmount
+    return () => {
+      realTimeDashboardService.stopPolling();
+    };
   }, []);
 
   useEffect(() => {
@@ -49,29 +65,65 @@ function AdminDashboard({ onNavigate }: { onNavigate?: (screenKey: string) => vo
   }, [dateFilter]);
 
   const updateDateRange = (filter: 'week' | 'month' | 'year') => {
-    const today = new Date();
-    let start: Date;
+    // Get current date in local timezone to avoid UTC conversion issues
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const date = now.getDate();
+    
+    let startYear: number, startMonth: number, startDate: number;
+    let endYear: number, endMonth: number, endDate: number;
     
     switch (filter) {
       case 'week':
-        start = new Date(today);
-        start.setDate(today.getDate() - 7);
+        // Calculate 7 days ago
+        const weekAgo = new Date(year, month, date - 7);
+        startYear = weekAgo.getFullYear();
+        startMonth = weekAgo.getMonth();
+        startDate = weekAgo.getDate();
+        endYear = year;
+        endMonth = month;
+        endDate = date;
         break;
       case 'month':
-        start = new Date(today.getFullYear(), today.getMonth(), 1);
+        // Start from the first day of the current month
+        startYear = year;
+        startMonth = month;
+        startDate = 1;
+        // End at the current date (today)
+        endYear = year;
+        endMonth = month;
+        endDate = date;
         break;
       case 'year':
-        start = new Date(today.getFullYear(), 0, 1);
+        // Start from January 1st of current year
+        startYear = year;
+        startMonth = 0; // January
+        startDate = 1;
+        // End at the current date (today)
+        endYear = year;
+        endMonth = month;
+        endDate = date;
         break;
       default:
         return;
     }
     
+    // Format dates directly as strings to avoid timezone conversion issues
     const newDateRange = {
-      start: start.toISOString().split('T')[0],
-      end: today.toISOString().split('T')[0]
+      start: `${startYear}-${(startMonth + 1).toString().padStart(2, '0')}-${startDate.toString().padStart(2, '0')}`,
+      end: `${endYear}-${(endMonth + 1).toString().padStart(2, '0')}-${endDate.toString().padStart(2, '0')}`
     };
     
+    console.log('📅 AdminDashboard - Updated date range for filter:', filter, {
+      ...newDateRange,
+      debug: {
+        today: `${year}-${(month + 1).toString().padStart(2, '0')}-${date.toString().padStart(2, '0')}`,
+        filter,
+        startComponents: `${startYear}-${(startMonth + 1).toString().padStart(2, '0')}-${startDate.toString().padStart(2, '0')}`,
+        endComponents: `${endYear}-${(endMonth + 1).toString().padStart(2, '0')}-${endDate.toString().padStart(2, '0')}`
+      }
+    });
     setDateRange(newDateRange);
     loadDashboardData(newDateRange);
   };
@@ -122,9 +174,8 @@ function AdminDashboard({ onNavigate }: { onNavigate?: (screenKey: string) => vo
           case 'SubscriptionPlans':
             onNavigate('Plans');
             break;
-          case 'ReportsAnalytics':
           case 'RevenueAnalytics':
-            onNavigate('Reports');
+            onNavigate('Settings'); // Reports screen removed, redirect to Settings
             break;
           case 'Notifications':
             onNavigate('Notifications');
@@ -144,9 +195,8 @@ function AdminDashboard({ onNavigate }: { onNavigate?: (screenKey: string) => vo
           case 'SubscriptionPlans':
             (navigation as any).navigate('Plans');
             break;
-          case 'ReportsAnalytics':
           case 'RevenueAnalytics':
-            (navigation as any).navigate('Reports');
+            (navigation as any).navigate('Settings'); // Reports screen removed, redirect to Settings
             break;
           case 'Notifications':
             (navigation as any).navigate('Notifications');
@@ -476,6 +526,132 @@ function AdminDashboard({ onNavigate }: { onNavigate?: (screenKey: string) => vo
                 </Caption>
               </TouchableOpacity>
             </View>
+
+            {/* Real-Time Activity Section */}
+            {liveMetrics && (
+              <PaperCard style={[styles.analyticsCard, { backgroundColor: surfaceColor }]}>
+                <PaperCard.Content>
+                  <View style={styles.cardHeader}>
+                    <View style={styles.liveHeader}>
+                      <H3 style={{...styles.cardTitle, color: textColor}}>Live Activity</H3>
+                      <View style={styles.liveIndicator}>
+                        <View style={[styles.liveDot, { backgroundColor: successColor }]} />
+                        <Caption style={{...styles.liveText, color: textMutedColor}}>
+                          Updated {lastLiveUpdate.toLocaleTimeString()}
+                        </Caption>
+                      </View>
+                    </View>
+                    <TouchableOpacity>
+                      <Caption style={{...styles.viewMoreButton, color: primaryColor}}>View All →</Caption>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Live Metrics Row */}
+                  <View style={styles.liveMetricsRow}>
+                    <View style={styles.liveMetric}>
+                      <MaterialIcons name="people" size={20} color={primaryColor} />
+                      <View style={styles.liveMetricContent}>
+                        <Body style={{...styles.liveMetricNumber, color: textColor}}>
+                          {liveMetrics.activeUsers}
+                        </Body>
+                        <Caption style={{...styles.liveMetricLabel, color: textSecondaryColor}}>
+                          Active Users
+                        </Caption>
+                      </View>
+                    </View>
+
+                    <View style={styles.liveMetric}>
+                      <MaterialIcons name="attach-money" size={20} color={successColor} />
+                      <View style={styles.liveMetricContent}>
+                        <Body style={{...styles.liveMetricNumber, color: textColor}}>
+                          {formatCurrency(liveMetrics.liveRevenue.totalToday)}
+                        </Body>
+                        <Caption style={{...styles.liveMetricLabel, color: textSecondaryColor}}>
+                          Today's Revenue
+                        </Caption>
+                      </View>
+                    </View>
+
+                    <View style={styles.liveMetric}>
+                      <MaterialIcons name="event" size={20} color={accentColor} />
+                      <View style={styles.liveMetricContent}>
+                        <Body style={{...styles.liveMetricNumber, color: textColor}}>
+                          {liveMetrics.classesToday}
+                        </Body>
+                        <Caption style={{...styles.liveMetricLabel, color: textSecondaryColor}}>
+                          Classes Today
+                        </Caption>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Class Capacity & Alerts */}
+                  <View style={styles.liveDetailsRow}>
+                    {/* Current Class Capacity */}
+                    {liveMetrics.currentClassCapacity && liveMetrics.currentClassCapacity.length > 0 && (
+                      <View style={styles.liveDetailSection}>
+                        <Caption style={{...styles.liveSectionTitle, color: textSecondaryColor}}>
+                          Class Capacity
+                        </Caption>
+                        {liveMetrics.currentClassCapacity.slice(0, 2).map((classInfo: any) => (
+                          <View key={classInfo.classId} style={styles.classCapacityItem}>
+                            <View style={styles.classInfo}>
+                              <Text style={{...styles.className, color: textColor}}>
+                                {classInfo.className}
+                              </Text>
+                              <Text style={{...styles.classDetails, color: textMutedColor}}>
+                                {classInfo.instructorName} • {classInfo.startTime}
+                              </Text>
+                            </View>
+                            <View style={styles.capacityDisplay}>
+                              <Text style={{...styles.capacityText, color: textSecondaryColor}}>
+                                {classInfo.currentCapacity}/{classInfo.maxCapacity}
+                              </Text>
+                              <ProgressBar
+                                progress={
+                                  classInfo.maxCapacity > 0
+                                    ? classInfo.currentCapacity / classInfo.maxCapacity
+                                    : 0
+                                }
+                                color={
+                                  classInfo.currentCapacity >= classInfo.maxCapacity
+                                    ? errorColor
+                                    : classInfo.currentCapacity / classInfo.maxCapacity > 0.8
+                                    ? warningColor
+                                    : successColor
+                                }
+                                style={styles.capacityBar}
+                              />
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+
+                    {/* System Alerts */}
+                    {liveMetrics.systemAlerts && liveMetrics.systemAlerts.length > 0 && (
+                      <View style={styles.liveDetailSection}>
+                        <Caption style={{...styles.liveSectionTitle, color: textSecondaryColor}}>
+                          Alerts
+                        </Caption>
+                        {liveMetrics.systemAlerts.slice(0, 2).map((alert: any) => (
+                          <View key={alert.id} style={styles.alertItem}>
+                            <MaterialIcons
+                              name={alert.type === 'error' ? 'error' : alert.type === 'warning' ? 'warning' : 'info'}
+                              size={16}
+                              color={alert.type === 'error' ? errorColor : alert.type === 'warning' ? warningColor : primaryColor}
+                            />
+                            <Text style={{...styles.alertMessage, color: textColor}} numberOfLines={2}>
+                              {alert.message}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                </PaperCard.Content>
+              </PaperCard>
+            )}
 
             {/* Financial Analytics Section */}
             <PaperCard style={[styles.analyticsCard, { backgroundColor: surfaceColor }]}>
@@ -1104,6 +1280,109 @@ const styles = StyleSheet.create({
   mobileActionLabel: {
     fontSize: 14,
     fontWeight: '600',
+  },
+
+  // Live Dashboard Styles
+  liveHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  liveIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: spacing.sm,
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: spacing.xs,
+  },
+  liveText: {
+    fontSize: 11,
+  },
+  liveMetricsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  liveMetric: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.sm,
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    marginHorizontal: spacing.xs,
+  },
+  liveMetricContent: {
+    marginLeft: spacing.sm,
+    flex: 1,
+  },
+  liveMetricNumber: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  liveMetricLabel: {
+    fontSize: 12,
+  },
+  liveDetailsRow: {
+    flexDirection: 'row',
+    gap: spacing.lg,
+  },
+  liveDetailSection: {
+    flex: 1,
+  },
+  liveSectionTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  classCapacityItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  classInfo: {
+    flex: 1,
+  },
+  className: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  classDetails: {
+    fontSize: 11,
+  },
+  capacityDisplay: {
+    alignItems: 'flex-end',
+  },
+  capacityText: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  capacityBar: {
+    width: 60,
+    height: 4,
+    borderRadius: 2,
+  },
+  alertItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: spacing.xs,
+  },
+  alertMessage: {
+    fontSize: 12,
+    lineHeight: 16,
+    marginLeft: spacing.xs,
+    flex: 1,
   },
 });
 

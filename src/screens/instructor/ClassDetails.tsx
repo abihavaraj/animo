@@ -4,10 +4,10 @@ import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import { Button as PaperButton, Card as PaperCard } from 'react-native-paper';
 import { useSelector } from 'react-redux';
 
-import StatusChip from '@/components/ui/StatusChip';
-import { Body, Caption, H1, H2 } from '@/components/ui/Typography';
-import { Colors } from '@/constants/Colors';
-import { spacing } from '@/constants/Spacing';
+import StatusChip from '../../../components/ui/StatusChip';
+import { Body, Caption, H1, H2 } from '../../../components/ui/Typography';
+import { Colors } from '../../../constants/Colors';
+import { spacing } from '../../../constants/Spacing';
 import WebCompatibleIcon from '../../components/WebCompatibleIcon';
 import { bookingService } from '../../services/bookingService';
 import { BackendClass, classService } from '../../services/classService';
@@ -15,13 +15,13 @@ import { RootState } from '../../store';
 import { shadows } from '../../utils/shadows';
 
 type RouteParams = {
-  ClassDetails: {
+  params: {
     classId: string;
   };
 };
 
 function ClassDetails() {
-  const route = useRoute<RouteParams>();
+  const route = useRoute();
   const navigation = useNavigation();
   const { user } = useSelector((state: RootState) => state.auth);
   const [classData, setClassData] = useState<BackendClass | null>(null);
@@ -31,7 +31,7 @@ function ClassDetails() {
   const [loadingAttendees, setLoadingAttendees] = useState(false);
   const [loadingWaitlist, setLoadingWaitlist] = useState(false);
 
-  const classId = route.params?.classId;
+  const classId = (route.params as any)?.classId;
 
   useEffect(() => {
     if (classId) {
@@ -105,7 +105,7 @@ function ClassDetails() {
     }
   };
 
-  const handlePromoteFromWaitlist = (attendeeId: number) => {
+  const handlePromoteFromWaitlist = (attendeeId: string) => {
     Alert.alert(
       'Promote from Waitlist',
       'Are you sure you want to promote this person from the waitlist?',
@@ -116,7 +116,7 @@ function ClassDetails() {
           onPress: async () => {
             try {
               // Leave waitlist (this will trigger promotion logic)
-              const response = await bookingService.leaveWaitlist(attendeeId);
+              const response = await bookingService.leaveWaitlist(Number(attendeeId));
               
               if (response.success) {
                 Alert.alert('Success', 'Attendee promoted from waitlist');
@@ -136,7 +136,7 @@ function ClassDetails() {
     );
   };
 
-  const handleRemoveAttendee = (attendeeId: number) => {
+  const handleRemoveAttendee = (attendeeId: string) => {
     Alert.alert(
       'Remove Attendee',
       'Are you sure you want to remove this attendee from the class?',

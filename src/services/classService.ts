@@ -16,7 +16,6 @@ export interface BackendClass {
   date: string;
   time: string;
   duration: number;
-  level?: 'Beginner' | 'Intermediate' | 'Advanced';
   category: 'personal' | 'group';
   capacity: number;
   enrolled: number;
@@ -26,6 +25,7 @@ export interface BackendClass {
   notes?: string; // Add notes field
   status: 'active' | 'cancelled' | 'full';
   room?: 'Reformer Room' | 'Mat Room' | 'Cadillac Room' | 'Wall Room' | '';
+  visibility: 'public' | 'private'; // Add visibility field
   created_at: string;
   updated_at: string;
 }
@@ -43,7 +43,7 @@ export interface CreateClassRequest {
   description?: string;
   notes?: string; // Add notes field
   room?: 'Reformer Room' | 'Mat Room' | 'Cadillac Room' | 'Wall Room' | '';
-  level?: 'Beginner' | 'Intermediate' | 'Advanced';
+  visibility?: 'public' | 'private'; // Add visibility field
   enableNotifications?: boolean;
   notificationMinutes?: number;
 }
@@ -61,8 +61,8 @@ export interface UpdateClassRequest {
   description?: string;
   notes?: string; // Add notes field
   room?: 'Reformer Room' | 'Mat Room' | 'Cadillac Room' | 'Wall Room' | '';
-  level?: 'Beginner' | 'Intermediate' | 'Advanced';
   status?: 'active' | 'cancelled' | 'full';
+  visibility?: 'public' | 'private'; // Add visibility field
   enableNotifications?: boolean;
   notificationMinutes?: number;
 }
@@ -70,7 +70,6 @@ export interface UpdateClassRequest {
 export interface ClassFilters {
   date?: string;
   instructor?: string;
-  level?: string;
   category?: string;
   equipmentType?: string;
   status?: string;
@@ -163,34 +162,12 @@ class ClassService {
   }
 
   // 🚀 OPTIMIZATION 1: Single query with enrollment counts and date filtering
-  async getClasses(filters?: ClassFilters): Promise<ApiResponse<BackendClass[]>> {
+  async getClasses(filters?: ClassFilters & { userRole?: string }): Promise<ApiResponse<BackendClass[]>> {
     try {
-
+              // console.log('🔍 [ClassService] getClasses called with filters:', filters);
+      const classQueryStart = Date.now();
       
-      // Debug: Check current user authentication
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError) {
-        console.error('❌ [ClassService] Auth error:', authError);
-      } else if (user) {
-
-        
-        // Check user role in database
-        const { data: userProfile, error: profileError } = await supabase
-          .from('users')
-          .select('role, status')
-          .eq('id', user.id)
-          .single();
-          
-        if (profileError) {
-          console.error('❌ [ClassService] Profile error:', profileError);
-        } else {
-
-        }
-      } else {
-
-      }
-      
-      // 🚀 OPTIMIZATION 2: Build efficient query with proper filtering
+      // 🚀 OPTIMIZATION 2: Build efficient query with minimal fields for dashboard
       let baseQuery = supabase
         .from('classes')
         .select(`
@@ -199,24 +176,45 @@ class ClassService {
           date,
           time,
           duration,
-          category,
           capacity,
+          category,
           equipment_type,
           room,
           status,
+          visibility,
           instructor_id,
-          users!classes_instructor_id_fkey (name, email)
+          users!classes_instructor_id_fkey (name)
         `);
         
       // 🚀 OPTIMIZATION 3: Server-side filtering
       if (filters?.status) {
         baseQuery = baseQuery.eq('status', filters.status);
-        //console.log('🔍 [ClassService] Filtering by status:', filters.status);
+        // console.log('🔍 [ClassService] Filtering by status:', filters.status);
       } else {
         // Include active, full, and completed classes (clients can see all classes including past ones)
         baseQuery = baseQuery.in('status', ['active', 'full', 'completed']);
-
+        // console.log('🔍 [ClassService] Using default status filter: active, full, completed');
       }
+
+      // 🔒 PRIVACY FILTERING: Filter by visibility and date based on user role
+      console.log('🔍 [ClassService] Privacy filtering - userRole:', filters?.userRole);
+      if (filters?.userRole === 'client') {
+        // Clients can only see public classes
+        console.log('🔍 [ClassService] Client role: filtering by visibility = public');
+        baseQuery = baseQuery.eq('visibility', 'public');
+        
+        // 📅 CLIENT 1-MONTH RULE: Only show classes from 1 month ago onwards
+        if (!filters?.date_from) {
+          const today = new Date();
+          const oneMonthAgo = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate());
+          const oneMonthAgoStr = oneMonthAgo.toISOString().split('T')[0];
+          baseQuery = baseQuery.gte('date', oneMonthAgoStr);
+          console.log('🔍 [ClassService] Client role: filtering classes from', oneMonthAgoStr, 'onwards');
+        }
+      } else {
+        console.log('🔍 [ClassService] Non-client role (' + (filters?.userRole || 'undefined') + '): no visibility filtering - see ALL classes');
+      }
+      // Admin, instructor, and reception can see ALL classes (no additional filters)
       
       if (filters?.date) {
         baseQuery = baseQuery.eq('date', filters.date);
@@ -234,9 +232,7 @@ class ClassService {
         baseQuery = baseQuery.eq('instructor_id', filters.instructor);
       }
    
-      if (filters?.level) {
-        baseQuery = baseQuery.eq('level', filters.level);
-      }
+      
       
       if (filters?.equipmentType) {
         baseQuery = baseQuery.eq('equipment_type', filters.equipmentType);
@@ -248,57 +244,36 @@ class ClassService {
         baseQuery = baseQuery.gte('date', todayStr);
       }
       
-      // 🚀 OPTIMIZATION 4: Efficient ordering and limiting
+      // 🚀 OPTIMIZATION 4: Efficient ordering - NO LIMITS for unlimited future classes
+      // Only apply limit if explicitly requested in filters
       baseQuery = baseQuery
         .order('date')
-        .order('time')
-        .limit(filters?.limit || 50); // Reasonable default limit
+        .order('time');
+      
+      // Only apply limit if explicitly provided in filters
+      if (filters?.limit) {
+        baseQuery = baseQuery.limit(filters.limit);
+        // console.log('🔍 [ClassService] Applied explicit limit:', filters.limit);
+      }
+      // console.log('🔍 [ClassService] No automatic limits - unlimited classes supported');
       
 
       const { data, error } = await baseQuery;
+      const classQueryEnd = Date.now();
    
       if (error) {
         console.error('❌ ClassService: Supabase error:', error);
-        console.error('❌ Error details:', JSON.stringify(error, null, 2));
         return { success: false, error: error.message };
       }
       
-
-      if (data && data.length > 0) {
-        //console.log('📋 [ClassService] Sample class:', data[0]);
-      } else {
-        //console.log('🔍 [ClassService] No classes returned - debugging...');
-        
-        // Debug: Try a simpler query to see if it's a filtering issue
-        const { data: allClasses, error: allError } = await supabase
-          .from('classes')
-          .select('id, name, status, date, instructor_id')
-          .limit(5);
-          
-        if (allError) {
-          console.error('❌ [ClassService] Debug query failed:', allError);
-        } else {
-          //console.log('🔍 [ClassService] All classes in DB (limit 5):', allClasses);
-          
-          // Debug: Check just active classes
-          const { data: activeClasses, error: activeError } = await supabase
-            .from('classes')
-            .select('id, name, status, date')
-            .eq('status', 'active')
-            .limit(5);
-            
-          if (activeError) {
-            console.error('❌ [ClassService] Active classes query failed:', activeError);
-          } else {
-            //console.log('🔍 [ClassService] Active classes in DB:', activeClasses);
-          }
-        }
-      }
-      
       // 🚀 OPTIMIZATION 5: Simplified enrollment counting
+      const enrollmentStart = Date.now();
       const classesWithEnrollment = await this.addEnrollmentCounts(data || []);
+      const enrollmentEnd = Date.now();
       
-      //console.log('✅ [ClassService] Final result:', classesWithEnrollment.length, 'classes with enrollment data');
+      // console.log('🔍 [ClassService] Final result:', classesWithEnrollment.length, 'classes with enrollment data');
+      // console.log('🔍 [ClassService] September 2025 classes:', classesWithEnrollment.filter(c => c.date >= '2025-09-01' && c.date < '2025-10-01').length);
+      // console.log('🔍 [ClassService] Sample September classes:', classesWithEnrollment.filter(c => c.date >= '2025-09-01' && c.date < '2025-10-01').slice(0, 3));
       return { success: true, data: classesWithEnrollment };
     } catch (error) {
       console.error('❌ Error in getClasses:', error);
@@ -345,6 +320,12 @@ class ClassService {
 
   async createClass(classData: CreateClassRequest): Promise<ApiResponse<BackendClass>> {
     try {
+      console.log('🔧 [ClassService] Creating class with data:', {
+        name: classData.name,
+        visibility: classData.visibility,
+        finalVisibility: classData.visibility || 'public'
+      });
+      
       const { data, error } = await supabase
         .from('classes')
         .insert({
@@ -353,12 +334,14 @@ class ClassService {
           date: classData.date,
           time: classData.time,
           duration: classData.duration,
-          level: classData.level,
+          category: classData.category,
           capacity: classData.capacity,
           equipment_type: classData.equipmentType,
           equipment: classData.equipment,
           description: classData.description,
+          notes: classData.notes,
           room: classData.room,
+          visibility: classData.visibility || 'public',
           status: 'active'
         })
         .select(`
@@ -385,12 +368,19 @@ class ClassService {
 
   async updateClass(id: number | string, updates: UpdateClassRequest): Promise<ApiResponse<BackendClass>> {
     try {
+      // Transform camelCase fields to snake_case for database
+      const { equipmentType, instructorId, ...otherUpdates } = updates;
+      const dbUpdates = {
+        ...otherUpdates,
+        // Map camelCase frontend fields to snake_case database fields
+        ...(equipmentType && { equipment_type: equipmentType }),
+        ...(instructorId && { instructor_id: instructorId }),
+        updated_at: new Date().toISOString()
+      };
+
       const { data, error } = await supabase
         .from('classes')
-        .update({
-          ...updates,
-          updated_at: new Date().toISOString()
-        })
+        .update(dbUpdates)
         .eq('id', id)
         .select(`
           *,
@@ -464,7 +454,7 @@ class ClassService {
           
           for (const booking of bookings) {
             try {
-              await this.refundUserCredits(booking.user_id, booking.users?.name || 'Unknown User');
+              await this.refundUserCredits(booking.user_id, (booking.users as any)?.name || 'Unknown User');
               refundCount++;
             } catch (refundError) {
               console.warn(`⚠️ Failed to refund user ${booking.user_id}:`, refundError);
@@ -542,7 +532,7 @@ class ClassService {
       }
 
       // Check if it's an unlimited plan (999+ classes)
-      const monthlyClasses = subscription.subscription_plans.monthly_classes || 0;
+      const monthlyClasses = (subscription.subscription_plans as any)?.monthly_classes || 0;
       const isUnlimited = monthlyClasses >= 999;
       
       if (isUnlimited) {
@@ -565,7 +555,7 @@ class ClassService {
         throw new Error(`Failed to update subscription: ${updateError.message}`);
       }
       
-      const planName = subscription.subscription_plans.name || 'Unknown Plan';
+      const planName = (subscription.subscription_plans as any)?.name || 'Unknown Plan';
       //console.log(`✅ Refunded 1 class to ${userName} (${planName}): ${subscription.remaining_classes} → ${newRemainingClasses}`);
       
     } catch (error) {
@@ -627,9 +617,9 @@ class ClassService {
           
           for (const booking of bookings) {
             try {
-              await this.refundUserCredits(booking.user_id, booking.users?.name || 'Unknown User');
+              await this.refundUserCredits(booking.user_id, (booking.users as any)?.name || 'Unknown User');
               refundCount++;
-              //console.log(`✅ Refunded credits to ${booking.users?.name || 'Unknown User'} for cancelled class`);
+              //console.log(`✅ Refunded credits to ${(booking.users as any)?.name || 'Unknown User'} for cancelled class`);
             } catch (refundError) {
               console.warn(`⚠️ Failed to refund user ${booking.user_id}:`, refundError);
               // Continue with other refunds even if one fails
@@ -806,11 +796,7 @@ class ClassService {
           active: classes.filter(c => c.status === 'active').length,
           cancelled: classes.filter(c => c.status === 'cancelled').length,
           full: classes.filter(c => c.status === 'full').length,
-          byLevel: {
-            beginner: classes.filter(c => c.level === 'Beginner').length,
-            intermediate: classes.filter(c => c.level === 'Intermediate').length,
-            advanced: classes.filter(c => c.level === 'Advanced').length
-          },
+          
           byCategory: {
             personal: classes.filter(c => c.category === 'personal').length,
             group: classes.filter(c => c.category === 'group').length
@@ -905,7 +891,7 @@ class ClassService {
       return classes.map(cls => ({
         ...cls,
         enrolled: enrollmentMap.get(cls.id.toString()) || 0,
-        instructor_name: cls.users?.name || 'TBD'
+        instructor_name: cls.users?.name || cls.instructor_name || 'TBD'
       }));
       
     } catch (error) {
@@ -945,7 +931,7 @@ class ClassService {
     return classes.map(cls => ({
       ...cls,
       enrolled: enrollmentCounts[cls.id] || 0,
-      instructor_name: cls.users?.name || 'TBD'
+      instructor_name: cls.users?.name || cls.instructor_name || 'TBD'
     }));
   }
 

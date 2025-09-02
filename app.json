@@ -2,7 +2,8 @@
   "expo": {
     "name": "ANIMO",
     "slug": "PilatesStudioApp",
-    "version": "1.0.4",
+    "version": "1.0.5",
+    "versionCode": 1,
     "orientation": "portrait",
     "scheme": "animopilatesstudio",
     "userInterfaceStyle": "automatic",
@@ -29,6 +30,7 @@
         "NSPhotoLibraryUsageDescription": "This app may need photo library access for profile photos.",
         "NSUserNotificationsUsageDescription": "ANIMO Pilates Studio needs notification access to send you class reminders, subscription updates, and important studio announcements.",
         "UIBackgroundModes": [
+          "remote-notification",
           "remote-notification"
         ],
         "com.apple.developer.aps-environment": "production",
@@ -65,11 +67,12 @@
     },
     "android": {
       "package": "com.animo.pilatesstudio",
-      "icon": "./assets/images/icon.png",
+      "versionCode": 1,
+      "icon": "./assets/images/android/ic_launcher-web.png",
       "jsEngine": "jsc",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#F5F2B8"
       },
       "permissions": [
         "android.permission.READ_CALENDAR",
@@ -78,8 +81,18 @@
         "android.permission.VIBRATE",
         "android.permission.WAKE_LOCK",
         "android.permission.CAMERA",
-        "com.google.android.c2dm.permission.RECEIVE"
-      ]
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.WAKE_LOCK",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
+      "notification": {
+        "icon": "./assets/images/notification-icon.png",
+        "color": "#F5F2B8",
+        "defaultChannel": "animo-notifications"
+      }
     },
     "web": {
       "favicon": "./assets/images/favicon.png",
@@ -90,7 +103,11 @@
         "expo-notifications",
         {
           "color": "#F5F2B8",
-          "defaultChannel": "animo-notifications"
+          "defaultChannel": "animo-notifications",
+          "icon": "./assets/images/notification-icon.png",
+          "mode": "production",
+          "androidMode": "default",
+          "androidCollapsedTitle": "ANIMO Notification"
         }
       ],
       "expo-web-browser",
@@ -100,19 +117,23 @@
           "calendarPermission": "The app needs to access your calendar to manage class schedules."
         }
       ],
-      [
-        "expo-image-picker",
-        {
-          "photosPermission": "The app needs access to your photo library to select progress photos.",
-          "cameraPermission": "The app needs camera access to capture progress photos for client assessments."
-        }
-      ]
-    ],
+              [
+          "expo-image-picker",
+          {
+            "photosPermission": "The app needs access to your photo library to select progress photos.",
+            "cameraPermission": "The app needs camera access to capture progress photos for client assessments."
+          }
+        ]
+      ],
     "extra": {
       "eas": {
         "projectId": "d4bdbfc4-ecbc-40d7-aabb-ad545c836ab3"
       }
     },
-    "owner": "argjendi96"
+    "owner": "argjendi96",
+    "runtimeVersion": "1.0.0",
+    "updates": {
+      "url": "https://u.expo.dev/d4bdbfc4-ecbc-40d7-aabb-ad545c836ab3"
+    }
   }
 }

@@ -57,17 +57,8 @@ function InstructorDashboard() {
   // Check for full classes and send notifications automatically
   useEffect(() => {
     if (fullClasses.length > 0) {
-      // Send notifications for full classes automatically
-      fullClasses.forEach(async (classItem) => {
-        try {
-          await notificationService.sendClassFullNotification(
-            classItem.id,
-            user?.id
-          );
-        } catch (error) {
-          console.error('Error sending automatic full class notification:', error);
-        }
-      });
+      // Note: Class full notifications are sent automatically when classes become full during booking
+      // No need to send them again when instructor opens dashboard
     }
   }, [fullClasses, user?.id]);
 
@@ -96,7 +87,7 @@ function InstructorDashboard() {
           const classDate = new Date(cls.date);
           const classDateTime = new Date(`${cls.date}T${cls.time}`);
           return classDate >= new Date(today) && classDateTime > now;
-        }).slice(0, 5); // Show next 5 classes
+        }).slice(0, 4); // Show next 4 classes for dashboard
 
         setUpcomingClasses(upcomingClasses);
 
@@ -445,14 +436,6 @@ function InstructorDashboard() {
           <PaperCard.Content style={styles.cardContent}>
             <View style={styles.sectionHeader}>
               <H2 style={styles.cardTitle}>Upcoming Classes</H2>
-              <PaperButton 
-                mode="text" 
-                compact
-                labelStyle={styles.viewAllLabel}
-                onPress={handleViewSchedule}
-              >
-                View All
-              </PaperButton>
             </View>
             
             {upcomingClasses.length > 0 ? (
@@ -510,6 +493,19 @@ function InstructorDashboard() {
                 <Body style={styles.emptyText}>No upcoming classes</Body>
                 <Caption style={styles.emptySubtext}>Check your schedule for upcoming classes</Caption>
               </View>
+            )}
+            
+            {/* See more button - only show if there are classes */}
+            {upcomingClasses.length > 0 && (
+              <PaperButton 
+                mode="outlined" 
+                style={styles.seeMoreButton}
+                labelStyle={styles.seeMoreLabel}
+                onPress={handleViewSchedule}
+                icon={() => <WebCompatibleIcon name="calendar-today" size={16} color={Colors.light.primary} />}
+              >
+                See more on calendar
+              </PaperButton>
             )}
           </PaperCard.Content>
         </PaperCard>
@@ -837,6 +833,15 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: Colors.light.accent,
     marginLeft: spacing.sm,
+  },
+  seeMoreButton: {
+    marginTop: spacing.md,
+    borderColor: Colors.light.primary,
+    borderRadius: 12,
+  },
+  seeMoreLabel: {
+    color: Colors.light.primary,
+    fontSize: 14,
   },
 });
 

@@ -1,7 +1,8 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import React from 'react';
-import { Text, View } from 'react-native';
+import { Platform, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ClassDetails from '../screens/instructor/ClassDetails';
 import ClassFeedback from '../screens/instructor/ClassFeedback';
 
@@ -39,6 +40,12 @@ const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
 function InstructorTabs() {
+  const insets = useSafeAreaInsets();
+  
+  // Calculate safe tab bar height for Android edge-to-edge
+  const tabBarHeight = Platform.OS === 'android' ? 60 + insets.bottom : 60;
+  const paddingBottom = Platform.OS === 'android' ? Math.max(8, insets.bottom) : 8;
+  
   return (
     <Tab.Navigator
       screenOptions={({ route }: any) => ({
@@ -61,6 +68,20 @@ function InstructorTabs() {
         },
         tabBarActiveTintColor: '#9B8A7D',
         tabBarInactiveTintColor: 'gray',
+        tabBarStyle: {
+          backgroundColor: '#ffffff',
+          borderTopWidth: 1,
+          borderTopColor: '#e0e0e0',
+          height: tabBarHeight,
+          paddingBottom: paddingBottom,
+          paddingTop: 8,
+          // Ensure tab bar appears above Android navigation
+          elevation: Platform.OS === 'android' ? 8 : 0,
+          shadowColor: Platform.OS === 'ios' ? '#000' : 'transparent',
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: Platform.OS === 'ios' ? 0.1 : 0,
+          shadowRadius: Platform.OS === 'ios' ? 3 : 0,
+        },
         headerShown: false,
       })}
     >

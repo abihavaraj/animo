@@ -2,7 +2,7 @@ import { devLog } from '../utils/devUtils';
 import { dataCleanupService } from './dataCleanupService';
 
 class AutoCleanupService {
-  private cleanupInterval: NodeJS.Timeout | null = null;
+  private cleanupInterval: number | NodeJS.Timeout | null = null;
   private isRunning = false;
 
   /**

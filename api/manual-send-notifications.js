@@ -1,5 +1,6 @@
-// Manual trigger endpoint for sending notifications
-// Can be called manually or via external cron service (like cron-job.org)
+// Manual trigger endpoint for immediate notification processing
+// This can be called via API when immediate notifications are needed
+// Since cron jobs are limited to once daily on free plan
 
 import { createClient } from '@supabase/supabase-js';
 import { Expo } from 'expo-server-sdk';
@@ -15,50 +16,61 @@ const expo = new Expo();
 
 export default async function handler(req, res) {
   try {
-    console.log('🔔 Starting manual notification processing...');
-    
-    // Only allow GET requests
-    if (req.method !== 'GET') {
-      return res.status(405).json({ error: 'Method not allowed' });
+    // Only allow POST requests for manual triggers
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method not allowed. Use POST to manually trigger notifications.' });
     }
 
-    // Get current time
-    const now = new Date().toISOString();
+    // Optional: Add basic authentication to prevent abuse
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Authorization required. Include Bearer token in Authorization header.' });
+    }
+
+    const token = authHeader.substring(7);
+    // You can add your own token validation here
+    // For now, we'll accept any Bearer token to keep it simple
+
+    console.log('🔔 Manual notification trigger activated...');
     
-    // Get notifications that should be sent now
-    const { data: pendingNotifications, error } = await supabase
+    // Get current time
+    const now = new Date();
+    
+    // Get immediate notifications that should be sent now
+    const { data: immediateNotifications, error } = await supabase
       .from('notifications')
       .select(`
         *,
         users!inner(name, email, push_token)
       `)
       .eq('is_read', false)
-      .not('metadata->>push_token', 'is', null)
-      .lte('scheduled_for', now)
-      .is('sent_at', null)
-      .limit(50);
+      .lte('scheduled_for', now.toISOString())
+      .is('read_at', null)
+      .or('metadata->>push_token.not.is.null,users.push_token.not.is.null')
+      .order('scheduled_for', { ascending: true })
+      .limit(100); // Limit for manual triggers
 
     if (error) {
       console.error('❌ Error fetching notifications:', error);
       return res.status(500).json({ error: 'Database error' });
     }
 
-    if (!pendingNotifications || pendingNotifications.length === 0) {
-      console.log('📭 No pending notifications to send');
+    if (!immediateNotifications || immediateNotifications.length === 0) {
+      console.log('📭 No immediate notifications to send');
       return res.status(200).json({ 
         success: true, 
-        message: 'No notifications to send',
+        message: 'No immediate notifications to send',
         processed: 0 
       });
     }
 
-    console.log(`📨 Processing ${pendingNotifications.length} notifications...`);
+    console.log(`📨 Processing ${immediateNotifications.length} immediate notifications...`);
 
     let successCount = 0;
     let errorCount = 0;
 
     // Process each notification
-    for (const notification of pendingNotifications) {
+    for (const notification of immediateNotifications) {
       try {
         // Get push token from metadata or user record
         const pushToken = notification.metadata?.push_token || notification.users?.push_token;
@@ -78,24 +90,35 @@ export default async function handler(req, res) {
         const pushMessage = {
           to: pushToken,
           sound: 'default',
-          title: notification.title || '🧘‍♀️ Pilates Reminder',
+          title: notification.title || '🧘‍♀️ Pilates Studio',
           body: notification.message,
           data: {
             notificationId: notification.id,
             type: notification.type,
             userId: notification.user_id,
+            timestamp: now.toISOString(),
+            scheduledFor: notification.scheduled_for,
+            trigger: 'manual',
             ...notification.metadata
           },
           priority: 'high',
-          channelId: 'pilates-notifications'
+          channelId: 'animo-notifications',
+          badge: 1
         };
 
+        console.log(`📱 Sending immediate push message for ${notification.type} notification:`, {
+          id: notification.id,
+          title: pushMessage.title,
+          body: pushMessage.body.substring(0, 50) + '...',
+          to: pushToken.substring(0, 20) + '...'
+        });
+
         // Send push notification
-        const chunks = expo.chunkPushNotifications([pushMessage]);
+        const expoChunks = expo.chunkPushNotifications([pushMessage]);
         const tickets = [];
 
-        for (const chunk of chunks) {
-          const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+        for (const expoChunk of expoChunks) {
+          const ticketChunk = await expo.sendPushNotificationsAsync(expoChunk);
           tickets.push(...ticketChunk);
         }
 
@@ -104,9 +127,9 @@ export default async function handler(req, res) {
         for (const ticket of tickets) {
           if (ticket.status === 'ok') {
             notificationSent = true;
-            console.log(`✅ Notification ${notification.id} sent successfully`);
+            console.log(`✅ Immediate notification ${notification.id} sent successfully`);
           } else {
-            console.log(`❌ Notification ${notification.id} failed:`, ticket.message);
+            console.log(`❌ Immediate notification ${notification.id} failed:`, ticket.message);
           }
         }
 
@@ -115,8 +138,9 @@ export default async function handler(req, res) {
           await supabase
             .from('notifications')
             .update({ 
-              sent_at: new Date().toISOString(),
-              is_read: true // Mark as read since it's been sent
+              read_at: now.toISOString(),
+              is_read: true,
+              metadata: { ...notification.metadata, processed_at: now.toISOString(), trigger: 'manual' }
             })
             .eq('id', notification.id);
           
@@ -125,8 +149,11 @@ export default async function handler(req, res) {
           errorCount++;
         }
 
+        // Small delay between notifications
+        await new Promise(resolve => setTimeout(resolve, 100));
+
       } catch (notificationError) {
-        console.error(`❌ Error processing notification ${notification.id}:`, notificationError);
+        console.error(`❌ Error processing immediate notification ${notification.id}:`, notificationError);
         errorCount++;
       }
     }
@@ -135,10 +162,12 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       success: true,
-      message: `Processed ${pendingNotifications.length} notifications`,
+      message: `Manual trigger processed ${immediateNotifications.length} notifications`,
       sent: successCount,
       failed: errorCount,
-      timestamp: new Date().toISOString()
+      total: immediateNotifications.length,
+      processedAt: now.toISOString(),
+      trigger: 'manual'
     });
 
   } catch (error) {

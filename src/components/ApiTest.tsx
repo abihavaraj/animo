@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { logApiConfig } from '../config/api.config';
-import { logSupabaseConfig } from '../config/supabase.config';
+
 import { unifiedApiService } from '../services/unifiedApi';
 
 interface TestResult {
@@ -26,7 +26,6 @@ export const ApiTest: React.FC = () => {
 
     // Log configurations
     logApiConfig();
-    logSupabaseConfig();
     unifiedApiService.logConfiguration();
 
     try {

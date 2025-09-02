@@ -44,7 +44,6 @@ class CrashReportingService {
     }
 
     // In production, you would send this to your crash reporting service
-    // Example: Sentry.captureException(error);
     // Example: Crashlytics.recordError(error);
     
     this.reportCrashIfPossible(crashReport);
@@ -76,14 +75,7 @@ class CrashReportingService {
       // TODO: Integrate with actual crash reporting service
       // Examples:
       
-      // Sentry integration:
-      // Sentry.captureException(new Error(crashReport.error), {
-      //   tags: {
-      //     component: crashReport.component,
-      //     platform: crashReport.platform,
-      //   },
-      //   extra: crashReport,
-      // });
+
 
       // Custom API endpoint:
       // await fetch('https://your-api.com/crash-reports', {

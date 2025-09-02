@@ -77,24 +77,22 @@ const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
 
 // Add auth state change listener for debugging
 if (__DEV__) {
-  supabaseClient.auth.onAuthStateChange((event, session) => {
-    console.log(`🔐 [Supabase] Auth event: ${event}`);
-    if (event === 'TOKEN_REFRESHED') {
-      console.log('🔄 [Supabase] Token refreshed successfully');
-    } else if (event === 'SIGNED_OUT') {
-      console.log('🚪 [Supabase] User signed out');
+  supabaseClient.auth.onAuthStateChange(async (event, session) => {
+    if (event === 'SIGNED_OUT') {
+      // User signed out
     } else if (event === 'SIGNED_IN') {
-      console.log('🚪 [Supabase] User signed in');
+      // User signed in
     }
     
     if (session) {
       const expiresAt = new Date(session.expires_at! * 1000);
-      console.log(`🕒 [Supabase] Session expires at: ${expiresAt.toLocaleString()}`);
+      const now = new Date();
+      const hoursUntilExpiry = Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60));
       
-      // Calculate time until expiry
-      const timeUntilExpiry = expiresAt.getTime() - Date.now();
-      const hoursUntilExpiry = Math.round(timeUntilExpiry / (1000 * 60 * 60) * 10) / 10;
-      console.log(`⏰ [Supabase] Session expires in ${hoursUntilExpiry} hours`);
+      // Log session expiry info for debugging
+      if (hoursUntilExpiry <= 2) { // Only warn when very close to expiry
+        console.warn(`⚠️ [Supabase] Session expires soon: ${hoursUntilExpiry} hours`);
+      }
     }
   });
 }
@@ -107,28 +105,14 @@ const supabaseAdminClient = createClient(supabaseUrl, supabaseServiceKey, {
   }
 });
 
-console.log(`🔗 Supabase client initialized for ${Platform.OS} with enhanced session persistence`);
-console.log(`🔐 Supabase admin client initialized for password updates`);
+// Log configuration details
+if (__DEV__) {
+  // Supabase client initialized
+}
 
 export { supabaseClient as supabase, supabaseAdminClient as supabaseAdmin };
 
 // Helper function to check if Supabase is available
 export const isSupabaseAvailable = () => {
   return !!supabaseUrl && !!supabaseAnonKey;
-};
-
-// Debug function to log Supabase configuration
-export const logSupabaseConfig = () => {
-  console.log('=== Supabase Configuration ===');
-  console.log('Platform:', Platform.OS);
-  console.log('URL:', supabaseUrl);
-  console.log('Anon Key (first 20 chars):', supabaseAnonKey?.substring(0, 20) + '...');
-  console.log('Anon Key (last 10 chars):', '...' + supabaseAnonKey?.substring(supabaseAnonKey.length - 10));
-  console.log('Available:', isSupabaseAvailable());
-  console.log('Environment URL:', process.env.EXPO_PUBLIC_SUPABASE_URL || 'Using fallback');
-  console.log('Environment Key:', process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ? `Set (${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY.substring(0, 10)}...)` : 'Using fallback');
-  console.log('===========================');
-};
-
-// Log configuration on module load
-logSupabaseConfig(); 
+}; 

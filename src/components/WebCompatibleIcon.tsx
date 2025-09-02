@@ -58,7 +58,7 @@ const WebCompatibleIcon: React.FC<WebCompatibleIconProps> = ({
         'chevron-left': '‹',
         'chevron-right': '›',
         'chevron-up': '⌃',
-        'chevron-down': '⌄',
+        'keyboard-arrow-down': '⌄',
         'menu': '☰',
         'more-vert': '⋮',
         'more-horiz': '⋯',
@@ -90,7 +90,7 @@ const WebCompatibleIcon: React.FC<WebCompatibleIconProps> = ({
         'stopwatch': '⏱',
         'hourglass-empty': '⏳',
         'pending': '⏳',
-        'schedule': '📅',
+        'schedule-2': '📅',
         'calendar-today': '📅',
         'event-note': '📋',
         'event-available': '✅',
@@ -105,8 +105,8 @@ const WebCompatibleIcon: React.FC<WebCompatibleIconProps> = ({
         'group-add': '👥➕',
         'login': '🚪',
         'manage-accounts': '👤⚙',
-        'person': '👤',
-        'people': '👥',
+        'person-2': '👤',
+        'people-2': '👥',
         'people-outline': '👥',
         
         // Communication
@@ -187,7 +187,7 @@ const WebCompatibleIcon: React.FC<WebCompatibleIconProps> = ({
         'fitness': '🏋️',
         'exercise': '🏃',
         'pool': '🏊',
-        'fitness-center': '🏋️',
+        'fitness-center-2': '🏋️',
         'sports-handball': '🤾',
         
         // Entertainment
@@ -273,7 +273,7 @@ const WebCompatibleIcon: React.FC<WebCompatibleIconProps> = ({
         'desktop': '🖥',
         'keyboard': '⌨',
         'mouse': '🖱',
-        'phone': '📱',
+        'phone-mobile': '📱',
         'tablet': '📲',
         'watch': '⌚',
         'battery': '🔋',
@@ -328,9 +328,9 @@ const WebCompatibleIcon: React.FC<WebCompatibleIconProps> = ({
         
         // Missing icons for reception reports and class management
         'list': '📋',
-        'event-available': '✅',
+        'event-available-2': '✅',
         'autorenew': '🔄',
-        'local-hospital': '🏥',
+        'local-hospital-2': '🏥',
         'call': '📞',
         'person-remove': '👤❌',
         'remove-circle': '❌',

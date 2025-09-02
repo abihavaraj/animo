@@ -45,6 +45,10 @@ function InstructorProfile() {
   
   // Notification preferences
   const [notificationPreferences, setNotificationPreferences] = useState({
+    enableNotifications: true,
+    enablePushNotifications: true,
+    enableEmailNotifications: false,
+    defaultReminderMinutes: 15,
     classFullNotifications: true,
     newEnrollmentNotifications: false,
     classCancellationNotifications: true,
@@ -181,6 +185,10 @@ function InstructorProfile() {
 
       if (!error && data) {
         setNotificationPreferences({
+          enableNotifications: data.enable_notifications ?? true,
+          enablePushNotifications: data.enable_push_notifications ?? true,
+          enableEmailNotifications: data.enable_email_notifications ?? false,
+          defaultReminderMinutes: data.default_reminder_minutes ?? 15,
           classFullNotifications: data.class_full_notifications ?? true,
           newEnrollmentNotifications: data.new_enrollment_notifications ?? false,
           classCancellationNotifications: data.class_cancellation_notifications ?? true,
@@ -192,6 +200,10 @@ function InstructorProfile() {
           .from('notification_settings')
           .insert({
             user_id: user.id.toString(),
+            enable_notifications: true,
+            enable_push_notifications: true,
+            enable_email_notifications: false,
+            default_reminder_minutes: 15,
             class_full_notifications: true,
             new_enrollment_notifications: false,
             class_cancellation_notifications: true,
@@ -200,6 +212,10 @@ function InstructorProfile() {
 
         if (!insertError) {
           setNotificationPreferences({
+            enableNotifications: true,
+            enablePushNotifications: true,
+            enableEmailNotifications: false,
+            defaultReminderMinutes: 15,
             classFullNotifications: true,
             newEnrollmentNotifications: false,
             classCancellationNotifications: true,
@@ -214,7 +230,12 @@ function InstructorProfile() {
 
   const updateNotificationPreference = async (key: string, value: boolean) => {
     try {
-      if (!user?.id) return;
+      if (!user?.id) {
+        console.error('❌ [updateNotificationPreference] No user ID available');
+        return;
+      }
+
+      console.log('🔄 [updateNotificationPreference] Starting update:', { key, value, userId: user.id });
 
       // Update local state immediately
       setNotificationPreferences(prev => ({
@@ -225,7 +246,7 @@ function InstructorProfile() {
       // Convert camelCase to snake_case for database
       const dbKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
       
-      console.log('Updating notification preference:', { key, dbKey, value, userId: user.id });
+      console.log('📝 [updateNotificationPreference] Database update:', { key, dbKey, value, userId: user.id });
       
       // Update in notification_settings table
       const { error } = await supabase
@@ -239,7 +260,7 @@ function InstructorProfile() {
         });
 
       if (error) {
-        console.error('Failed to update notification preference:', error);
+        console.error('❌ [updateNotificationPreference] Database error:', error);
         Alert.alert('Error', 'Failed to update notification preferences');
         // Revert local state on error
         setNotificationPreferences(prev => ({
@@ -247,7 +268,7 @@ function InstructorProfile() {
           [key]: !value
         }));
       } else {
-        console.log('Successfully updated notification preference');
+        console.log('✅ [updateNotificationPreference] Successfully updated:', { key, dbKey, value });
       }
     } catch (error) {
       console.error('Failed to update notification preference:', error);
@@ -414,6 +435,49 @@ function InstructorProfile() {
           <PaperCard.Content style={styles.cardContent}>
             <H2 style={styles.cardTitle}>Notification Preferences</H2>
             <View style={styles.preferencesContainer}>
+              {/* Main Notification Toggles */}
+              <View style={styles.preferenceItem}>
+                <View style={styles.preferenceInfo}>
+                  <Body style={styles.preferenceTitle}>Enable Notifications</Body>
+                  <Caption style={styles.preferenceDescription}>
+                    Master toggle for all notifications
+                  </Caption>
+                </View>
+                <Switch
+                  value={notificationPreferences.enableNotifications}
+                  onValueChange={(value) => updateNotificationPreference('enableNotifications', value)}
+                />
+              </View>
+              
+              <View style={styles.preferenceItem}>
+                <View style={styles.preferenceInfo}>
+                  <Body style={styles.preferenceTitle}>Push Notifications</Body>
+                  <Caption style={styles.preferenceDescription}>
+                    Receive push notifications on your device
+                  </Caption>
+                </View>
+                <Switch
+                  value={notificationPreferences.enablePushNotifications}
+                  onValueChange={(value) => updateNotificationPreference('enablePushNotifications', value)}
+                  disabled={!notificationPreferences.enableNotifications}
+                />
+              </View>
+              
+              <View style={styles.preferenceItem}>
+                <View style={styles.preferenceInfo}>
+                  <Body style={styles.preferenceTitle}>Email Notifications</Body>
+                  <Caption style={styles.preferenceDescription}>
+                    Receive notifications via email
+                  </Caption>
+                </View>
+                <Switch
+                  value={notificationPreferences.enableEmailNotifications}
+                  onValueChange={(value) => updateNotificationPreference('enableEmailNotifications', value)}
+                  disabled={!notificationPreferences.enableNotifications}
+                />
+              </View>
+
+              {/* Specific Notification Types */}
               <View style={styles.preferenceItem}>
                 <View style={styles.preferenceInfo}>
                   <Body style={styles.preferenceTitle}>Class Full Notifications</Body>
@@ -424,6 +488,7 @@ function InstructorProfile() {
                 <Switch
                   value={notificationPreferences.classFullNotifications}
                   onValueChange={(value) => updateNotificationPreference('classFullNotifications', value)}
+                  disabled={!notificationPreferences.enableNotifications}
                 />
               </View>
               
@@ -437,6 +502,7 @@ function InstructorProfile() {
                 <Switch
                   value={notificationPreferences.newEnrollmentNotifications}
                   onValueChange={(value) => updateNotificationPreference('newEnrollmentNotifications', value)}
+                  disabled={!notificationPreferences.enableNotifications}
                 />
               </View>
               
@@ -450,6 +516,7 @@ function InstructorProfile() {
                 <Switch
                   value={notificationPreferences.classCancellationNotifications}
                   onValueChange={(value) => updateNotificationPreference('classCancellationNotifications', value)}
+                  disabled={!notificationPreferences.enableNotifications}
                 />
               </View>
               
@@ -463,6 +530,7 @@ function InstructorProfile() {
                 <Switch
                   value={notificationPreferences.generalReminders}
                   onValueChange={(value) => updateNotificationPreference('generalReminders', value)}
+                  disabled={!notificationPreferences.enableNotifications}
                 />
               </View>
             </View>

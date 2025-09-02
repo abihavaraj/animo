@@ -39,3 +39,5 @@ app-example
 
 .vercel
 .env*.local
+
+.env.local

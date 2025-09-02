@@ -10,12 +10,14 @@ import { Provider, useSelector } from 'react-redux';
 
 import ErrorBoundary from './src/components/ErrorBoundary';
 import WebCompatibleIcon from './src/components/WebCompatibleIcon';
+import { supabase } from './src/config/supabase.config';
 import MainNavigator from './src/navigation/MainNavigator';
 import LoginScreen from './src/screens/LoginScreen';
 import { notificationService } from './src/services/notificationService';
 import { pushNotificationService } from './src/services/pushNotificationService';
 import { RootState, store } from './src/store';
 import { authReady, loadUserProfile, restoreSession } from './src/store/authSlice';
+
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -33,28 +35,25 @@ Notifications.setNotificationHandler({
 
 // Handle background notification responses (when user taps notification while app is closed)
 Notifications.addNotificationResponseReceivedListener(response => {
-  console.log('📱 [Background] Notification response received:', response);
-  
   // You can add navigation logic here if needed
   const data = response.notification.request.content.data;
   if (data?.type === 'class_cancellation') {
-    console.log('📱 [Background] User tapped cancellation notification');
     // Navigate to relevant screen when app opens
   }
 });
 
 // Handle notifications received while app is in foreground
 Notifications.addNotificationReceivedListener(notification => {
-  console.log('📱 [Foreground] Notification received:', notification);
-  
   // This will show the notification banner even when app is open
   const data = notification.request.content.data;
-  console.log('📱 [Foreground] Notification data:', data);
-});
-
-// Handle push notification registration
-Notifications.addPushTokenListener(token => {
-  console.log('📱 [Push Token] New push token received:', token.data);
+  
+  // Clear badge immediately when notification is received while app is open
+  // This prevents the red dot from persisting when users see the notification
+  try {
+    Notifications.setBadgeCountAsync(0);
+  } catch (error) {
+    console.error('Failed to clear badge count:', error);
+  }
 });
 
 // Configure React Native Paper theme
@@ -74,26 +73,59 @@ function AppContent() {
   useEffect(() => {
     if (isLoggedIn && user?.id) {
       // Initialize notification service for all platforms (handles web vs native internally)
-      console.log('📢 [App] User is logged in, initializing notification services...');
       notificationService.initialize().catch(error => {
-        console.error('❌ [App] Failed to initialize notification service:', error);
+        // Silent error handling for production
       });
 
       // Only initialize push notifications on mobile platforms
       if (Platform.OS !== 'web') {
 
         pushNotificationService.initialize().catch(error => {
-          console.error('❌ [App] Failed to initialize push notifications:', error);
+          // Silent error handling for production
         });
 
         // Schedule class reminders for user's upcoming bookings
-
-        pushNotificationService.scheduleClassReminders(user.id).catch(error => {
-          console.error('❌ [App] Failed to schedule class reminders:', error);
-        });
+        // NOTE: Disabled to prevent duplicate scheduling - reminders are now scheduled per booking in bookingService
+        // pushNotificationService.scheduleClassReminders(user.id).catch(error => {
+        //   console.error('❌ [App] Failed to schedule class reminders:', error);
+        // });
       } else {
 
       }
+
+      // Handle push notification registration
+      const tokenListener = Notifications.addPushTokenListener(async token => {
+        // Store token in Supabase when received
+        if (user?.id && token.data) {
+          try {
+            // First, clean up any existing tokens for this device to prevent cross-user notifications
+            await supabase
+              .from('push_tokens')
+              .delete()
+              .eq('token', token.data);
+            
+            // Then store the new token for the current user
+            const { error } = await supabase
+              .from('push_tokens')
+              .insert({
+                user_id: user.id,
+                token: token.data,
+                device_type: Platform.OS,
+                created_at: new Date().toISOString()
+              });
+            
+            if (error) {
+              // Silent error handling for production
+            }
+          } catch (error) {
+            // Silent error handling for production
+          }
+        }
+      });
+
+      return () => {
+        tokenListener.remove();
+      };
     }
   }, [isLoggedIn, user?.id]);
 
@@ -123,19 +155,15 @@ export default function App() {
   useEffect(() => {
     async function initializeApp() {
       try {
-        console.log('🚀 [App] Initializing app...');
-        
         // Create a fallback timeout to prevent app from getting stuck
         const initTimeout = setTimeout(() => {
-          console.warn('⚠️ [App] Initialization timeout - forcing app to show');
           store.dispatch(authReady());
           setAppIsReady(true);
-          SplashScreen.hideAsync().catch(console.error);
+          SplashScreen.hideAsync().catch(() => {});
         }, 20000); // 20 second max wait time
         
         try {
           // Attempt to restore session automatically (like Instagram/WhatsApp)
-          console.log('🔄 [App] Checking for existing session...');
           
           // Add timeout protection for the session restoration
           const sessionPromise = store.dispatch(restoreSession());
@@ -144,19 +172,15 @@ export default function App() {
           );
           
           await Promise.race([sessionPromise, sessionTimeout]);
-          console.log('✅ [App] Session restoration completed');
           
         } catch (sessionError) {
-          console.warn('⚠️ [App] Session restoration failed/timeout:', sessionError);
           // Continue anyway - user will see login screen
         }
         
         // Clear the fallback timeout since we completed normally
         clearTimeout(initTimeout);
-        console.log('✅ [App] App initialization complete');
         
       } catch (error) {
-        console.error('❌ [App] Error during app initialization:', error);
         // Even if there's an error, we should still show the app
       } finally {
         // Always mark auth as ready and hide splash screen
@@ -165,9 +189,8 @@ export default function App() {
         
         try {
           await SplashScreen.hideAsync();
-          console.log('🎯 [App] Splash screen hidden, app ready');
         } catch (splashError) {
-          console.error('⚠️ [App] Error hiding splash screen:', splashError);
+          // Silent error handling for production
         }
       }
     }
@@ -178,18 +201,13 @@ export default function App() {
   // Handle app state changes (foreground/background)
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      console.log('📱 [App] App state changed to:', nextAppState);
-      
       // When app comes to foreground, validate session if user is logged in
       if (nextAppState === 'active') {
         const currentState = store.getState();
         if (currentState.auth.isLoggedIn) {
-          console.log('🔄 [App] App became active - Supabase handles session refresh automatically');
-          
           // Optionally refresh user profile (non-blocking)
-          console.log('🔄 [App] Refreshing user profile on app activation');
-          store.dispatch(loadUserProfile()).catch((error: any) => {
-            console.warn('⚠️ [App] Profile refresh failed (non-critical):', error);
+          store.dispatch(loadUserProfile()).catch(() => {
+            // Silent error handling for production
           });
 
           // Clear app icon badge when app is opened
@@ -216,4 +234,4 @@ export default function App() {
       </Provider>
     </SafeAreaProvider>
   );
-} 
+}

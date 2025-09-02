@@ -44,7 +44,7 @@ export const createBooking = createAsyncThunk(
 
 export const cancelBooking = createAsyncThunk(
   'bookings/cancelBooking',
-  async (id: number, { rejectWithValue }) => {
+  async (id: string, { rejectWithValue }) => {
     const response = await bookingService.cancelBooking(id);
     if (!response.success) {
       return rejectWithValue(response.error || 'Failed to cancel booking');
@@ -145,7 +145,10 @@ const bookingSlice = createSlice({
       })
       .addCase(createBooking.fulfilled, (state, action) => {
         state.isLoading = false;
-        state.bookings.push(action.payload);
+        // Only add to bookings if it's actually a booking (not waitlist)
+        if ('id' in action.payload && 'status' in action.payload) {
+          state.bookings.push(action.payload as Booking);
+        }
         state.error = null;
       })
       .addCase(createBooking.rejected, (state, action) => {

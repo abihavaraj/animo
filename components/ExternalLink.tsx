@@ -1,4 +1,4 @@
-import { type ComponentProps } from 'react';
+import React, { type ComponentProps } from 'react';
 import { Platform } from 'react-native';
 
 // Define basic types for web compatibility

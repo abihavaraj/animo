@@ -386,8 +386,8 @@ function ClientProfile({ userId: propUserId, userName: propUserName }: { userId?
       console.log('📅 Booking history response:', response);
       
       if (response.success && response.data) {
-        setBookingHistory(response.data as BookingHistory[]);
-        console.log('✅ Booking history loaded:', (response.data as BookingHistory[]).length, 'bookings');
+        setBookingHistory(response.data as unknown as BookingHistory[]);
+        console.log('✅ Booking history loaded:', (response.data as unknown as BookingHistory[]).length, 'bookings');
       }
     } catch (error) {
       console.error('Failed to load booking history:', error);
@@ -1423,7 +1423,7 @@ function ClientProfile({ userId: propUserId, userName: propUserName }: { userId?
       <View style={styles.tabContainer}>
         {[
           { key: 'overview', label: 'Overview', icon: 'view-dashboard' },
-          { key: 'bookings', label: 'Bookings', icon: 'calendar' },
+          { key: 'bookings', label: 'Bookings', icon: 'calendar-today' },
           { key: 'payments', label: 'Payments', icon: 'credit-card' },
           { key: 'subscriptions', label: 'Plans', icon: 'card-account-details' },
           { key: 'notes', label: 'Notes', icon: 'note-text' },
@@ -2284,7 +2284,7 @@ function ClientProfile({ userId: propUserId, userName: propUserName }: { userId?
                           </View>
                           <Text style={styles.activityDescription}>
                             Assigned on {new Date(assignment.start_date).toLocaleDateString()}
-                            {assignment.assigned_by_name && ` by ${assignment.assigned_by_name}`}
+                            {assignment.assigned_by && ` by ${assignment.assigned_by}`}
                           </Text>
                           {assignment.notes && (
                             <Text style={styles.activitySubtext}>
@@ -3788,6 +3788,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     marginTop: 4,
+  },
+  activityMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  activityTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  activityTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
+    flex: 1,
+  },
+  activityBadge: {
+    marginLeft: 'auto',
+  },
+  activitySubtext: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+    marginLeft: 24,
   },
   metadataText: {
     fontSize: 12,

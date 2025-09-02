@@ -1,5 +1,4 @@
 import { supabase, supabaseAdmin } from '../config/supabase.config';
-import { instructorClientService } from './instructorClientService';
 import { notificationService } from './notificationService';
 import { pushNotificationService } from './pushNotificationService';
 
@@ -105,6 +104,8 @@ class BookingService {
   // 🚀 OPTIMIZATION 1: Add date filtering to reduce data fetching
   async getBookings(filters?: BookingFilters & { from?: string; to?: string }): Promise<ApiResponse<Booking[]>> {
     try {
+      const bookingQueryStart = Date.now();
+      
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         return { success: false, error: 'User not authenticated' };
@@ -150,6 +151,7 @@ class BookingService {
       query = query.order('booking_date', { ascending: false }).limit(50);
       
       const { data, error } = await query;
+      const bookingQueryEnd = Date.now();
       
       if (error) {
         console.error('❌ Supabase error fetching bookings:', error);
@@ -224,6 +226,7 @@ class BookingService {
   }
 
   async createBooking(bookingData: BookingRequest): Promise<ApiResponse<Booking | { waitlisted: true, position: number }>> {
+    console.time('🚀 [BOOKING] Total booking process');
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -231,17 +234,20 @@ class BookingService {
       }
       
       // Get class details to check capacity, category, and equipment requirements
+      console.time('🔍 [BOOKING] Class details query');
       const { data: classDetails, error: classError } = await supabase
         .from('classes')
         .select('id, name, capacity, date, time, category, equipment_type, instructor_id')
         .eq('id', bookingData.classId)
         .single();
+      console.timeEnd('🔍 [BOOKING] Class details query');
       
       if (classError) {
         return { success: false, error: 'Class not found' };
       }
       
       // Get user's current subscription to validate personal class access
+      console.time('🔍 [BOOKING] User subscription query');
       const { data: userSubscription, error: subscriptionError } = await supabase
         .from('user_subscriptions')
         .select(`
@@ -261,6 +267,7 @@ class BookingService {
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
+      console.timeEnd('🔍 [BOOKING] User subscription query');
       
       if (subscriptionError || !userSubscription) {
         return { success: false, error: 'No active subscription found. Please purchase a subscription plan to book classes.' };
@@ -268,7 +275,7 @@ class BookingService {
       
       // Check personal subscription restrictions
       const subscriptionCategory = (userSubscription.subscription_plans as any).category;
-      const isPersonalSubscription = subscriptionCategory === 'personal';
+      const isPersonalSubscription = ['personal', 'personal_duo', 'personal_trio'].includes(subscriptionCategory);
       const isPersonalClass = classDetails.category === 'personal';
       
       if (isPersonalSubscription && !isPersonalClass) {
@@ -283,6 +290,29 @@ class BookingService {
           success: false, 
           error: 'This is a personal training session. You need a personal subscription to book this class.' 
         };
+      }
+      
+      // Check exact capacity matching for personal plans
+      if (isPersonalClass) {
+        const requiredCapacity = subscriptionCategory === 'personal' ? 1 : 
+                                subscriptionCategory === 'personal_duo' ? 2 : 
+                                subscriptionCategory === 'personal_trio' ? 3 : 
+                                0; // Should not reach here
+        
+        if (classDetails.capacity !== requiredCapacity) {
+          const planName = subscriptionCategory === 'personal' ? 'Personal' :
+                          subscriptionCategory === 'personal_duo' ? 'Personal Duo' : 
+                          'Personal Trio';
+          
+          const expectedType = requiredCapacity === 1 ? 'Personal (1 person)' :
+                              requiredCapacity === 2 ? 'Personal Duo (2 people)' :
+                              'Personal Trio (3 people)';
+          
+          return { 
+            success: false, 
+            error: `This personal class is designed for ${classDetails.capacity} people, but your ${planName} subscription is only valid for ${expectedType} classes. Please choose a class that matches your subscription type.` 
+          };
+        }
       }
       
       // Check if user has remaining classes
@@ -315,12 +345,14 @@ class BookingService {
       }
       
       // Check if there's an existing booking for this user and class
+      console.time('🔍 [BOOKING] Existing booking check');
       const { data: existingBooking } = await supabase
         .from('bookings')
         .select('id, status')
         .eq('user_id', user.id)
         .eq('class_id', bookingData.classId)
         .single();
+      console.timeEnd('🔍 [BOOKING] Existing booking check');
       
       // If user already has a confirmed booking, don't allow duplicate
       if (existingBooking && existingBooking.status === 'confirmed') {
@@ -328,11 +360,13 @@ class BookingService {
       }
       
       // Check current enrollment
+      console.time('🔍 [BOOKING] Current enrollment check');
       const { data: currentBookings, error: bookingsError } = await supabase
         .from('bookings')
         .select('id')
         .eq('class_id', bookingData.classId)
         .eq('status', 'confirmed');
+      console.timeEnd('🔍 [BOOKING] Current enrollment check');
       
       if (bookingsError) {
         return { success: false, error: 'Failed to check class availability' };
@@ -367,6 +401,7 @@ class BookingService {
       
       if (existingBooking) {
         // Update existing booking (reactivate if cancelled)
+        console.time('🔍 [BOOKING] Update existing booking');
         const { data, error } = await supabase
           .from('bookings')
           .update({
@@ -377,6 +412,7 @@ class BookingService {
           .eq('id', existingBooking.id)
           .select('*')
           .single();
+        console.timeEnd('🔍 [BOOKING] Update existing booking');
         
         if (error) {
           return { success: false, error: error.message };
@@ -385,6 +421,7 @@ class BookingService {
         result = data;
       } else {
         // Create new booking
+        console.time('🔍 [BOOKING] Create new booking');
         const { data, error } = await supabase
           .from('bookings')
           .insert({
@@ -395,6 +432,7 @@ class BookingService {
           })
           .select('*')
           .single();
+        console.timeEnd('🔍 [BOOKING] Create new booking');
         
         if (error) {
           return { success: false, error: error.message };
@@ -421,24 +459,11 @@ class BookingService {
         }
       }
 
-      // Send booking confirmation notification and auto-assign to instructor
+      // Send booking confirmation notification only (auto-assignment removed)
       if (result) {
-        // Get instructor ID for this class to auto-assign client
-        const { data: classWithInstructor } = await supabase
-          .from('classes')
-          .select('instructor_id')
-          .eq('id', bookingData.classId)
-          .single();
-
-        if (classWithInstructor?.instructor_id) {
-          // Auto-assign client to instructor when booking is confirmed
-          await instructorClientService.autoAssignClientToInstructor(
-            user.id,
-            classWithInstructor.instructor_id,
-            bookingData.classId
-          );
-        }
-
+        // Note: Auto-assignment to instructor has been disabled
+        // Clients will only be assigned manually by reception
+        
         // 1. Get user's notification preferences
         const { data: userSettings } = await notificationService.getNotificationSettings();
         
@@ -464,11 +489,13 @@ class BookingService {
         if (userNotificationError) {
           console.error('❌ Failed to send booking confirmation notification:', userNotificationError);
         } else {
-          console.log('✅ Booking confirmation notification sent to user');
+    
         }
 
-        // 3. Schedule class reminder for this user based on their preferences
-        await pushNotificationService.scheduleClassReminders(user.id);
+        // 3. Schedule class reminder ONLY for this specific class (performance optimization)
+        console.time('🔍 [BOOKING] Notification scheduling');
+        await pushNotificationService.scheduleClassReminder(user.id, bookingData.classId);
+        console.timeEnd('🔍 [BOOKING] Notification scheduling');
 
         // 4. Check if class is now full and send notification to instructor
         const { data: finalBookings } = await supabase
@@ -481,6 +508,7 @@ class BookingService {
         
         if (finalEnrollment >= classDetails.capacity) {
           console.log(`🎉 Class "${classDetails.name}" is now full (${finalEnrollment}/${classDetails.capacity}). Notifying instructor.`);
+          console.log(`📧 [BOOKING] Sending class full notification - ClassID: ${bookingData.classId}, InstructorID: ${classDetails.instructor_id}, BookingUserID: ${user.id}`);
           
           // Send full class notification to instructor
           await notificationService.sendClassFullNotification(
@@ -503,21 +531,34 @@ class BookingService {
               fullClassDetails, 
               userSettings.defaultReminderMinutes
             );
-            console.log(`✅ Reminder scheduled for class ${classDetails.name} as per user preference.`);
+      
           }
         }
 
         // 4. Send notification to instructor about new enrollment
-        if (classWithInstructor?.instructor_id) {
+        if (classDetails?.instructor_id) {
           // Get instructor's notification preferences
-          const { data: instructorSettings } = await supabase
+          const { data: instructorSettings, error: enrollmentSettingsError } = await supabase
             .from('notification_settings')
             .select('new_enrollment_notifications')
-            .eq('user_id', classWithInstructor.instructor_id)
+            .eq('user_id', classDetails.instructor_id)
             .single();
 
-          // Send notification to instructor if they have new enrollment notifications enabled
-          if (instructorSettings?.new_enrollment_notifications !== false) {
+          // For enrollment notifications, default is false - only send if explicitly enabled
+          // If there's an error reading settings (e.g., RLS issues), we can't determine preference so don't send
+          const shouldSendEnrollmentNotification = !enrollmentSettingsError && 
+            (instructorSettings?.new_enrollment_notifications === true);
+
+          console.log(`📧 [NOTIFICATION] Instructor enrollment notification check:`, {
+            instructorId: classDetails.instructor_id,
+            settingsError: !!enrollmentSettingsError,
+            settingValue: instructorSettings?.new_enrollment_notifications,
+            willSend: shouldSendEnrollmentNotification,
+            reason: enrollmentSettingsError ? 'skipping_due_to_settings_error' : 'using_preference_value'
+          });
+
+          // Send notification to instructor if they have new enrollment notifications enabled (default false)
+          if (shouldSendEnrollmentNotification) {
             // Get student details
             const { data: studentDetails } = await supabase
               .from('users')
@@ -531,7 +572,7 @@ class BookingService {
             const { data: notificationData, error: notificationError } = await supabase
               .from('notifications')
               .insert({
-                user_id: classWithInstructor.instructor_id,
+                user_id: classDetails.instructor_id,
                 type: 'class_update',
                 title: 'New Student Enrollment',
                 message: `🎉 ${studentName} just enrolled in "${classDetails.name}" on ${new Date(classDetails.date).toLocaleDateString()} at ${classDetails.time}.`,
@@ -549,21 +590,38 @@ class BookingService {
             if (notificationError) {
               console.error('❌ Failed to send enrollment notification to instructor:', notificationError);
             } else {
-              console.log('✅ New enrollment notification sent to instructor');
+        
+
+              // Send PUSH notification to instructor
+              try {
+                console.log('📱 [NOTIFICATION] Sending push notification to instructor for new enrollment...');
+                await notificationService.sendPushNotificationToUser(
+                  classDetails.instructor_id,
+                  'New Student Enrollment',
+                  `${studentName} enrolled in "${classDetails.name}"`
+                );
+                console.log('✅ [NOTIFICATION] Push notification sent to instructor successfully');
+              } catch (pushError) {
+                console.error('❌ [NOTIFICATION] Error sending push notification to instructor:', pushError);
+              }
             }
 
             console.log(`✅ New enrollment notification sent to instructor for class ${classDetails.name}`);
+          } else {
+            console.log('📧 [NOTIFICATION] Instructor enrollment notification skipped - not enabled or settings error');
           }
         }
       }
       
+      console.timeEnd('🚀 [BOOKING] Total booking process');
       return { success: true, data: result };
     } catch (error) {
+      console.timeEnd('🚀 [BOOKING] Total booking process');
       return { success: false, error: 'Failed to create booking' };
     }
   }
 
-  async cancelBooking(id: number): Promise<ApiResponse<Booking>> {
+  async cancelBooking(id: string): Promise<ApiResponse<Booking>> {
     try {
       
       // First get the booking details before cancelling
@@ -626,80 +684,20 @@ class BookingService {
           .single();
 
         if (classWithInstructor?.instructor_id) {
-          // Get instructor's notification preferences
-          const { data: instructorSettings, error: settingsError } = await supabase
-            .from('notification_settings')
-            .select('class_cancellation_notifications')
-            .eq('user_id', classWithInstructor.instructor_id)
-            .single();
-
-          // Default to sending notifications if settings don't exist or are enabled
-          const shouldSendNotification = settingsError || 
-            instructorSettings?.class_cancellation_notifications !== false;
-
-          console.log(`📧 [NOTIFICATION] Instructor cancellation notification check:`, {
-            instructorId: classWithInstructor.instructor_id,
-            settingsError: !!settingsError,
-            settingValue: instructorSettings?.class_cancellation_notifications,
-            willSend: shouldSendNotification
-          });
-
-          // Send notification to instructor if they have cancellation notifications enabled
-          if (shouldSendNotification) {
-            const studentName = studentDetails.name || 'A student';
-            
-            // Send notification directly to instructor using Supabase
-            const { data: notificationData, error: notificationError } = await supabase
-              .from('notifications')
-              .insert({
-                user_id: classWithInstructor.instructor_id,
-                type: 'class_update',
-                title: 'Student Cancellation',
-                message: `❌ ${studentName} cancelled their booking for "${classDetails.name}" on ${new Date(classDetails.date).toLocaleDateString()} at ${classDetails.time}.`,
-                scheduled_for: new Date().toISOString(),
-                metadata: {
-                  class_id: originalBooking.class_id,
-                  notification_type: 'cancellation',
-                  student_name: studentName
-                },
-                is_read: false
-              })
-              .select()
-              .single();
-
-            if (notificationError) {
-              console.error('❌ [NOTIFICATION] Failed to send cancellation notification to instructor:', notificationError);
-              console.error('❌ [NOTIFICATION] Details:', {
-                instructorId: classWithInstructor.instructor_id,
-                className: classDetails.name,
-                studentName,
-                error: notificationError
-              });
-            } else {
-              console.log('✅ [NOTIFICATION] Cancellation notification sent to instructor successfully');
-              console.log('✅ [NOTIFICATION] Details:', {
-                notificationId: notificationData?.id,
-                instructorId: classWithInstructor.instructor_id,
-                className: classDetails.name,
-                studentName
-              });
-
-              // Send PUSH notification to instructor
-              try {
-                console.log('📱 [NOTIFICATION] Sending push notification to instructor...');
-                await notificationService.sendPushNotificationToUser(
-                  classWithInstructor.instructor_id,
-                  'Student Cancellation',
-                  `${studentName} cancelled their booking for "${classDetails.name}"`
-                );
-                console.log('✅ [NOTIFICATION] Push notification sent to instructor successfully');
-              } catch (pushError) {
-                console.error('❌ [NOTIFICATION] Error sending push notification to instructor:', pushError);
-              }
-            }
-          } else {
-            console.log('📧 [NOTIFICATION] Instructor cancellation notification skipped - disabled in preferences');
+          // Send cancellation notification to instructor (RLS issues now fixed)
+          try {
+            await notificationService.sendInstructorCancellationNotification(
+              classWithInstructor.instructor_id,
+              originalBooking.class_id,
+              studentDetails
+            );
+            console.log('✅ Cancellation notification sent to instructor successfully');
+          } catch (notificationError) {
+            console.error('❌ Failed to send cancellation notification to instructor:', notificationError);
+            // Don't fail the booking cancellation if notification fails
           }
+        } else {
+          console.log('⚠️ [NOTIFICATION] No instructor found for class, skipping cancellation notification');
         }
       }
       
@@ -823,18 +821,6 @@ class BookingService {
       const clientToUse = shouldUseAdminContext ? supabaseAdmin : supabase;
       console.log(`🔍 [DEDUCT] Using client:`, shouldUseAdminContext ? 'ADMIN' : 'USER');
       
-      const { data: allUserSubs, error: allSubsError } = await clientToUse
-        .from('user_subscriptions')
-        .select('*')
-        .eq('user_id', userIdString);
-      
-      console.log(`🔍 [DEDUCT] ALL user subscriptions:`, { 
-        userIdString, 
-        allUserSubs, 
-        allSubsError,
-        totalCount: allUserSubs?.length || 0
-      });
-      
       // First, try to deduct from user_subscriptions table (for subscription users)
       // Use SAME logic as getCurrentSubscription to find active subscriptions
       console.log(`🔍 [DEDUCT] Checking user_subscriptions table...`);
@@ -881,6 +867,7 @@ class BookingService {
         const newRemainingClasses = subscription.remaining_classes - 1;
         console.log(`💰 [DEDUCT] Deducting 1 class: ${subscription.remaining_classes} → ${newRemainingClasses}`);
         
+        console.time('🔍 [BOOKING] Credit deduction update');
         const { data: updateData, error: updateError } = await clientToUse
           .from('user_subscriptions')
           .update({
@@ -890,6 +877,7 @@ class BookingService {
           .eq('id', subscription.id)
           .select('remaining_classes')
           .single();
+        console.timeEnd('🔍 [BOOKING] Credit deduction update');
         
         if (updateError) {
           console.warn(`⚠️ [DEDUCT] Error updating subscription for deduction:`, updateError);
@@ -1066,8 +1054,8 @@ class BookingService {
             [waitlistEntry.user_id]
           );
 
-          // Schedule class reminder for the promoted user based on their preferences
-          await pushNotificationService.scheduleClassReminders(waitlistEntry.user_id);
+          // Schedule class reminder for the promoted user based on their preferences (performance optimization)
+          await pushNotificationService.scheduleClassReminder(waitlistEntry.user_id, classId);
           
           console.log(`✅ [NOTIFICATION] Waitlist promotion notification sent successfully`);
         }
@@ -1630,33 +1618,136 @@ class BookingService {
         classIdValue = classId;
       }
 
+      // Get class details to check if it's a personal class and validate subscription compatibility
+      const { data: classDetails, error: classError } = await supabase
+        .from('classes')
+        .select('id, name, capacity, date, time, category, equipment_type, instructor_id')
+        .eq('id', classIdValue)
+        .single();
+
+      if (classError || !classDetails) {
+        return { success: false, error: 'Class not found' };
+      }
+
+      // Declare activeSubscription outside the validation block so it's accessible for both cases
+      let activeSubscription = null;
+
       // Check subscription status when override is OFF - use graceful error handling
       if (!overrideRestrictions) {
         try {
-          const { data: subscription, error: subscriptionError } = await supabase
+          // Get all active subscriptions and find the one that's not expired
+          const { data: subscriptions, error: subscriptionError } = await supabase
             .from('user_subscriptions')
-            .select('id, remaining_classes, subscription_plans:plan_id(name)')
+            .select('id, remaining_classes, end_date, subscription_plans:plan_id(name, category, equipment_access)')
             .eq('user_id', userIdValue)
             .eq('status', 'active')
-            .single();
-          
-          if (subscriptionError && subscriptionError.code === 'PGRST116') {
-            // No active subscription found
-            return { 
-              success: false, 
-              error: 'Client does not have an active subscription. Please assign a subscription plan first, or use override to bypass restrictions.' 
-            };
-          }
+            .order('end_date', { ascending: false });
           
           if (subscriptionError) {
-            console.warn('⚠️ Subscription check failed, but continuing with override logic due to RLS restrictions');
+            console.warn('⚠️ Subscription check failed:', subscriptionError);
             return { 
               success: false, 
               error: 'Cannot verify client subscription due to database permissions. Please use override to bypass restrictions or contact system administrator.' 
             };
           }
           
+          console.log(`🔍 [bookingService] Found ${subscriptions?.length || 0} subscriptions for user ${userIdValue}:`, 
+            subscriptions?.map(sub => ({
+              id: sub.id,
+              name: (sub.subscription_plans as any)?.name,
+              status: 'active', // We only query active ones
+              endDate: sub.end_date,
+              remaining: sub.remaining_classes
+            }))
+          );
+          
+          // Find the most recent active and non-expired subscription
+          const now = new Date();
+          const today = now.toISOString().split('T')[0]; // Get today's date in YYYY-MM-DD format
+          
+          // First, auto-expire any subscriptions that have passed their end_date
+          const expiredSubs = subscriptions?.filter(sub => sub.end_date < today) || [];
+          if (expiredSubs.length > 0) {
+            console.log(`🔄 Auto-expiring ${expiredSubs.length} expired subscriptions for user ${userIdValue}`);
+            const expiredIds = expiredSubs.map(sub => sub.id);
+            await supabase
+              .from('user_subscriptions')
+              .update({ 
+                status: 'expired',
+                updated_at: new Date().toISOString() 
+              })
+              .in('id', expiredIds);
+          }
+          
+          // Now find the truly active (non-expired) subscription
+          activeSubscription = subscriptions?.find(sub => {
+            // Compare dates properly - subscription is valid UNTIL the end of its end_date
+            const endDateStr = sub.end_date; // Format: "2025-08-13"
+            const todayStr = now.toISOString().split('T')[0]; // Format: "2025-08-13"
+            const isNotExpired = endDateStr >= todayStr; // Valid on end_date, expires day after
+            
+            console.log(`🔍 [bookingService] Subscription check:`, {
+              id: sub.id,
+              name: (sub.subscription_plans as any)?.name,
+              endDate: sub.end_date,
+              remaining: sub.remaining_classes,
+              isNotExpired,
+              todayStr,
+              comparison: `${endDateStr} >= ${todayStr} = ${isNotExpired}`
+            });
+            return isNotExpired;
+          });
+          
+          console.log(`🔍 [bookingService] Active subscription found:`, activeSubscription ? {
+            id: activeSubscription.id,
+            name: activeSubscription.subscription_plans?.name,
+            remaining: activeSubscription.remaining_classes
+          } : 'NONE');
+          
+          if (!activeSubscription) {
+            return { 
+              success: false, 
+              error: 'Client does not have an active subscription. Please assign a subscription plan first, or use override to bypass restrictions.' 
+            };
+          }
+          
+          const subscription = activeSubscription;
+          
+          // Check personal class compatibility (same validation as createBooking)
+          const subscriptionCategory = (subscription.subscription_plans as any)?.category;
+          const isPersonalSubscription = ['personal', 'personal_duo', 'personal_trio'].includes(subscriptionCategory);
+          const isPersonalClass = classDetails.category === 'personal';
+          
+          console.log('🔍 [ASSIGN] Personal class validation:', {
+            subscriptionCategory,
+            isPersonalSubscription,
+            isPersonalClass,
+            classCategory: classDetails.category,
+            planName: (subscription.subscription_plans as any)?.name
+          });
+          
+          if (isPersonalSubscription && !isPersonalClass) {
+            return { 
+              success: false, 
+              error: 'This client has a personal subscription which only allows booking personal/private classes. Please choose a personal training session, or use override to bypass restrictions.' 
+            };
+          }
+          
+          if (!isPersonalSubscription && isPersonalClass) {
+            console.log('🚫 [ASSIGN] Blocking non-personal subscription from booking personal class');
+            return { 
+              success: false, 
+              error: 'This is a personal training session. The client needs a personal subscription to book this class, or use override to bypass restrictions.' 
+            };
+          }
+          
           // Check if user has remaining classes
+          console.log(`🔍 [bookingService] Checking remaining classes:`, {
+            remaining: subscription.remaining_classes,
+            planName: subscription.subscription_plans?.name,
+            hasClasses: subscription.remaining_classes > 0
+          });
+          
           if (subscription && subscription.remaining_classes <= 0) {
             return { 
               success: false, 
@@ -1740,6 +1831,16 @@ class BookingService {
           console.log('✅ Created new booking');
         }
         
+        // Track override assignments in memory (since bookings table has no notes column)
+        if (result && overrideRestrictions) {
+          // Store override booking IDs in a simple memory cache
+          if (!global.overrideBookings) {
+            global.overrideBookings = new Set();
+          }
+          global.overrideBookings.add(result.id);
+          console.log('🔍 [DEBUG] Tracking override booking:', result.id);
+        }
+
         // Handle subscription deduction only when override is OFF
         if (result && !overrideRestrictions) {
           const creditDeducted = await this.deductClassFromSubscription(userIdValue);
@@ -1814,10 +1915,27 @@ class BookingService {
         return { success: false, error: `Failed to cancel booking: ${error.message}` };
       }
       
-      // 🔧 FIX: Restore class back to user's subscription when reception cancels
+      // 🔧 FIX: Only restore class if it was NOT an override assignment
       if (data && data.user_id) {
-        await this.restoreClassToSubscription(data.user_id);
-        console.log('✅ Reception cancellation: Class refunded to user subscription');
+        // Check if this booking was made with override (stored in memory)
+        const wasOverrideAssignment = global.overrideBookings && global.overrideBookings.has(data.id);
+        
+        console.log('🔍 [DEBUG] Checking override assignment:', {
+          bookingId: data.id,
+          wasOverrideAssignment,
+          overrideBookingsCache: global.overrideBookings ? Array.from(global.overrideBookings) : 'none'
+        });
+        
+        if (!wasOverrideAssignment) {
+          await this.restoreClassToSubscription(data.user_id);
+          console.log('✅ Reception cancellation: Class refunded to user subscription (normal assignment)');
+        } else {
+          console.log('ℹ️ Reception cancellation: No credit restored (was override assignment)');
+          // Remove from cache since booking is cancelled
+          if (global.overrideBookings) {
+            global.overrideBookings.delete(data.id);
+          }
+        }
       }
       
       // 🚨 CRITICAL FIX: Handle waitlist promotion for admin/reception cancellations

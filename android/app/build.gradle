@@ -1,6 +1,8 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+// Add the Google services Gradle plugin
+apply plugin: "com.google.gms.google-services"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 
@@ -81,6 +83,7 @@ def enableProguardInReleaseBuilds = (findProperty('android.enableProguardInRelea
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+
 android {
     ndkVersion rootProject.ext.ndkVersion
 
@@ -150,6 +153,19 @@ android {
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
+    
+    // Edge-to-edge support for Android 15+
+    implementation("androidx.activity:activity:1.8.2")
+    implementation("androidx.core:core:1.12.0")
+
+    // Import the Firebase BoM
+    implementation platform('com.google.firebase:firebase-bom:34.2.0')
+    
+    // Firebase Analytics (required for FCM)
+    implementation 'com.google.firebase:firebase-analytics'
+    
+    // Firebase Cloud Messaging
+    implementation 'com.google.firebase:firebase-messaging'
 
     def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
     def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";

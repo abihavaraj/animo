@@ -3,7 +3,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
 import moment from 'moment';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Dimensions, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Dimensions, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ActivityIndicator, Button, Card, Surface } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 import { Body, Caption, H1, H2, H3 } from '../../../components/ui/Typography';
@@ -11,7 +11,6 @@ import { useThemeColor } from '../../../hooks/useThemeColor';
 import { Booking, bookingService } from '../../services/bookingService';
 import { BackendClass, classService } from '../../services/classService';
 import { notificationService } from '../../services/notificationService';
-import { pushNotificationService } from '../../services/pushNotificationService';
 import { subscriptionService } from '../../services/subscriptionService';
 import { AppDispatch, RootState } from '../../store';
 import { createBooking } from '../../store/bookingSlice';
@@ -90,12 +89,21 @@ function ClientDashboard() {
     subscription: null,
   });
 
+  // Removed caching system for more reliable refreshes
+
   useEffect(() => {
     dispatch(fetchCurrentSubscription());
   }, [dispatch]);
 
   useFocusEffect(
     useCallback(() => {
+      // Clear badge when dashboard is focused (main user interaction)
+      try {
+        Notifications.setBadgeCountAsync(0);
+      } catch (error) {
+        console.error('Failed to clear badge count on dashboard focus:', error);
+      }
+      
       // Add a longer delay for production IPA to ensure session restoration completes
       // This prevents the race condition where dashboard loads before Supabase session is restored
       setTimeout(() => {
@@ -113,13 +121,8 @@ function ClientDashboard() {
       
       // Refresh dashboard when waitlist-related notifications are received
       if (data?.type === 'class_notification' && user?.id === data?.userId) {
-        console.log('🔄 [Dashboard] Auto-refreshing due to waitlist notification for user:', user?.id);
-        console.log('🔄 [Dashboard] Notification data:', data);
         setTimeout(() => {
-          console.log('🔄 [Dashboard] Starting delayed refresh for waitlist update...');
-          loadDashboardData().then(() => {
-            console.log('🔄 [Dashboard] Refresh completed, checking waitlist positions...');
-          });
+          onRefresh();
         }, 3000); // Further increased delay for database consistency
       }
     });
@@ -127,7 +130,7 @@ function ClientDashboard() {
     return () => {
       notificationListener.remove();
     };
-  }, [user?.id, loadDashboardData]);
+  }, [user?.id]);
 
   // 🚀 OPTIMIZED: Memoize date calculations to avoid recalculation
   const dateHelpers = useMemo(() => {
@@ -149,13 +152,27 @@ function ClientDashboard() {
 
     try {
       setLoading(true);
-
-
-
+      const dashboardStartTime = Date.now();
+      // Dashboard refresh started
+      
       // 🔄 UPDATE: Automatically update completed class statuses before loading
+      const statusUpdateStart = Date.now();
+              // Starting class status update
       await classService.updateCompletedClassStatus();
+      const statusUpdateEnd = Date.now();
+              // Class status update completed
 
-      // 🚀 OPTIMIZATION 1: Parallel API calls
+      // 🚀 OPTIMIZATION 1: Parallel API calls with individual timing
+      const apiCallsStart = Date.now();
+              // Starting parallel API calls
+      
+      // 🕵️ Individual API call timing
+      const bookingsStart = Date.now();
+      const waitlistStart = Date.now();
+      const classesStart = Date.now();
+      const subscriptionStart = Date.now();
+      const notificationsStart = Date.now();
+      
       const [
         bookingsResponse,
         waitlistResponse,
@@ -163,43 +180,61 @@ function ClientDashboard() {
         subscriptionResponse,
         notificationsResponse
       ] = await Promise.allSettled([
-        // Load only upcoming bookings with date filter
-        bookingService.getBookings({
-          from: dateHelpers.todayStr
+        // Load all bookings (same as ClassesView) to ensure no bookings are missed
+        bookingService.getBookings({}).then(result => {
+          // Bookings API completed
+          return result;
         }),
         
-        // Load user waitlist
-        bookingService.getUserWaitlist(user.id),
+        // Load user waitlist (already optimized)
+        bookingService.getUserWaitlist(user.id).then(result => {
+          // Waitlist API completed
+          return result;
+        }),
         
-        // Load only upcoming classes with enrollment counts
+        // 🚀 OPTIMIZED: Load only upcoming classes with limits
         classService.getClasses({
           upcoming: true,
           date_from: dateHelpers.todayStr,
-          date_to: dateHelpers.futureDateStr
+          date_to: dateHelpers.futureDateStr,
+          limit: 15,
+          userRole: 'client'
+        }).then(result => {
+          // Classes API completed
+          return result;
         }),
         
         // Load subscription
-        subscriptionService.getCurrentSubscription(),
+        subscriptionService.getCurrentSubscription().then(result => {
+          // Subscription API completed
+          return result;
+        }),
         
         // Load recent notifications only
-        notificationService.getUserNotifications(user.id, { limit: 3 })
+        notificationService.getUserNotifications(user.id, { limit: 3 }).then(result => {
+          // Notifications API completed
+          return result;
+        })
       ]);
+      const apiCallsEnd = Date.now();
+              // Parallel API calls completed
 
       // 🚀 OPTIMIZATION 2: Optimized data processing with early filtering
+      const dataProcessingStart = Date.now();
+              // Starting data processing
       let bookedClasses: Booking[] = [];
       let bookedClassIds: Set<string> = new Set(); // Changed to string to support UUIDs
       
       if (bookingsResponse.status === 'fulfilled' && bookingsResponse.value.success) {
         // First pass: collect booked class IDs and filter valid bookings
         const validBookings = bookingsResponse.value.data.filter(booking => {
-          // Quick status check first
-          const activeStatuses = ['confirmed', 'booked', 'active'];
-          if (!activeStatuses.includes(booking.status)) return false;
+          // Quick status check first - only include confirmed bookings
+          if (booking.status !== 'confirmed') return false;
           
-          // Only process if status is valid
-          const classData = booking.classes || booking;
-          const classDate = classData.class_date || classData.date;
-          const classTime = classData.class_time || classData.time;
+                               // Only process if status is valid
+          const classData = booking.classes;
+          const classDate = classData?.date || booking.class_date;
+          const classTime = classData?.time || booking.class_time;
           
           if (!classDate || !classTime) return false;
           
@@ -220,22 +255,22 @@ function ClientDashboard() {
           return isFutureClass;
         });
         
-        // Second pass: map the data structure
-        bookedClasses = validBookings.map(booking => {
-          const classData = booking.classes || {};
-          
-          // Flatten data structure
-          return {
-            ...booking,
-            class_name: classData.name || booking.class_name,
-            instructor_name: classData.instructor_name || booking.instructor_name,
-            class_date: classData.date || booking.class_date,
-            class_time: classData.time || booking.class_time,
-            equipment_type: classData.equipment_type || booking.equipment_type,
-            room: classData.room || booking.room,
-            level: classData.level || booking.level,
-          };
-        });
+                 // Second pass: map the data structure
+         bookedClasses = validBookings.map(booking => {
+           const classData = booking.classes;
+           
+           // Flatten data structure
+           return {
+             ...booking,
+             class_name: classData?.name || booking.class_name,
+             instructor_name: classData?.users?.name || booking.instructor_name,
+             class_date: classData?.date || booking.class_date,
+             class_time: classData?.time || booking.class_time,
+             equipment_type: classData?.equipment_type || booking.equipment_type,
+             room: classData?.room || booking.room,
+             level: booking.class_level,
+           };
+         });
       }
 
       // Process waitlist efficiently
@@ -243,14 +278,16 @@ function ClientDashboard() {
       let waitlistedClassIds: Set<string> = new Set();
       
       if (waitlistResponse.status === 'fulfilled' && waitlistResponse.value.success) {
-        console.log('📋 [Dashboard] Raw waitlist data:', waitlistResponse.value.data);
-        waitlistClasses = waitlistResponse.value.data
+        waitlistClasses = (waitlistResponse.value.data || [])
           .filter(waitlistEntry => {
-            const classData = waitlistEntry.classes || {};
-            const classDate = classData.date || waitlistEntry.class_date;
-            const classTime = classData.time || waitlistEntry.class_time;
+            // Get date/time from nested classes object (based on actual API response structure)
+            const classData = (waitlistEntry as any).classes;
+            const classDate = classData?.date;
+            const classTime = classData?.time;
             
-            if (!classDate || !classTime) return false;
+            if (!classDate || !classTime) {
+              return false;
+            }
             
             const classDateTime = new Date(`${classDate} ${classTime}`);
             const hoursUntilClass = (classDateTime.getTime() - dateHelpers.now.getTime()) / (1000 * 60 * 60);
@@ -264,24 +301,33 @@ function ClientDashboard() {
             return classDateTime > dateHelpers.now;
           })
           .map(waitlistEntry => {
-            const classData = waitlistEntry.classes || {};
-            const classId = waitlistEntry.class_id;
+            // Use class_id from waitlist response (API returns class_id, not classId)
+            const classId = (waitlistEntry as any).class_id;
             if (classId) waitlistedClassIds.add(classId.toString());
             
-            console.log(`📋 [Dashboard] Processing waitlist entry - Class: ${classData.name}, Position: ${waitlistEntry.position}, User: ${waitlistEntry.user_id}`);
+            const classData = (waitlistEntry as any).classes;
+            const instructorData = classData?.users;
+            
+
             
             return {
               ...waitlistEntry,
-              class_name: classData.name || waitlistEntry.class_name,
-              instructor_name: classData.users?.name || waitlistEntry.instructor_name,
-              class_date: classData.date || waitlistEntry.class_date,
-              class_time: classData.time || waitlistEntry.class_time,
-              equipment_type: classData.equipment_type || waitlistEntry.equipment_type,
-              room: classData.room || waitlistEntry.room,
-              level: classData.level || waitlistEntry.level
+              // Use class_id from response
+              classId: (waitlistEntry as any).class_id,
+              class_id: (waitlistEntry as any).class_id,
+              // Map display fields from nested classes object
+              class_name: classData?.name,
+              instructor_name: instructorData?.name,
+              class_date: classData?.date,
+              class_time: classData?.time,
+              room: classData?.room,
+              level: classData?.level,
+              equipment_type: classData?.equipment_type
             };
           });
-        console.log('📋 [Dashboard] Processed waitlist classes:', waitlistClasses);
+        
+        // Waitlisted class IDs processed
+
       }
 
       // Process upcoming classes efficiently
@@ -290,7 +336,6 @@ function ClientDashboard() {
 
 
         
-        let debugCount = 0;
         upcomingClasses = classesResponse.value.data
           .filter(cls => {
             // Use string ID comparison to support both UUIDs and integers
@@ -299,26 +344,17 @@ function ClientDashboard() {
             const isBooked = bookedClassIds.has(classIdStr);
             const isWaitlisted = waitlistedClassIds.has(classIdStr);
             
-            // Debug logging for first few classes
-            if (debugCount < 3) {
-              const classDateTime = new Date(`${cls.date}T${cls.time}`);
-              const classEndTime = new Date(classDateTime.getTime() + (cls.duration || 60) * 60000); // Add duration
-              const isPastClass = classEndTime < dateHelpers.now; // Class is past if it has ended
-
-              debugCount++;
-            }
-            
-            // Additional safety check: exclude classes that have ENDED (not just started)
+            // Additional safety check: exclude classes that have STARTED (not just ended)
             const classDateTime = new Date(`${cls.date}T${cls.time}`);
-            const classEndTime = new Date(classDateTime.getTime() + (cls.duration || 60) * 60000);
-            const isFutureClass = classEndTime > dateHelpers.now; // Use end time, not start time
+            const isFutureClass = classDateTime > dateHelpers.now; // Use start time - don't show started classes
             
             if (!isFutureClass) {
 
             }
             
-            // Quick exclusion checks
-            return !isBooked && !isWaitlisted && isFutureClass;
+            // Exclude booked and waitlisted classes - they have their own sections
+            // Only show available classes in "Upcoming Classes" section
+            return isFutureClass && !isBooked && !isWaitlisted;
           })
           .sort((a, b) => {
             // Optimized sorting
@@ -326,7 +362,7 @@ function ClientDashboard() {
             const dateB = new Date(`${b.date} ${b.time}`);
             return dateA.getTime() - dateB.getTime();
           })
-          .slice(0, 5); // Limit to 5 upcoming classes
+          .slice(0, 4); // Limit to 4 upcoming classes for dashboard
       }
 
       // Process subscription
@@ -344,43 +380,59 @@ function ClientDashboard() {
       }
 
       // Process notifications
-      let notifications: Notification[] = [];
+      let notifications: any[] = [];
       if (notificationsResponse.status === 'fulfilled' && notificationsResponse.value.success) {
         notifications = notificationsResponse.value.data
-          .filter(n => n.type === 'subscription_expiring' || n.type === 'subscription_changed')
           .slice(0, 3);
       }
 
-      // 🚀 OPTIMIZATION 3: Single state update
-      setDashboardData({
+      // Update dashboard data
+      const finalDashboardData = {
         upcomingClasses,
         bookedClasses,
         waitlistClasses,
         notifications,
         subscription: subscriptionData,
-      });
+      };
 
-
+      const dataProcessingEnd = Date.now();
+              // Data processing completed
+      
+      setDashboardData(finalDashboardData);
+      
+      const dashboardEndTime = Date.now();
+              // Total dashboard refresh completed
 
     } catch (error) {
-      console.error('Error loading dashboard data:', error);
+              // Error loading dashboard data
       Alert.alert('Error', 'Failed to load dashboard data');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user, dateHelpers]);
+  }, [user, refreshing]);
 
   const onRefresh = useCallback(() => {
+    const refreshStartTime = Date.now();
+    // Starting manual refresh
     setRefreshing(true);
+    
+    const subscriptionStart = Date.now();
+            // Starting subscription fetch
     dispatch(fetchCurrentSubscription());
-    loadDashboardData();
+    const subscriptionEnd = Date.now();
+            // Subscription fetch completed
+    
+    loadDashboardData().finally(() => {
+      const refreshEndTime = Date.now();
+              // Manual refresh completedr
+    });
   }, [dispatch, loadDashboardData]);
 
   // 🚀 OPTIMIZATION 5: Memoized helper functions
   const getEquipmentIcon = useCallback((equipment: string) => {
     switch (equipment) {
-      case 'mat': return 'self-improvement';
+      case 'mat': return 'fitness-center';
       case 'reformer': return 'fitness-center';
       case 'both': return 'fitness-center';
       default: return 'help-outline';
@@ -389,21 +441,14 @@ function ClientDashboard() {
 
   const getEquipmentColor = useCallback((equipment: string) => {
     switch (equipment) {
-      case 'mat': return successColor;
-      case 'reformer': return warningColor;
-      case 'both': return accentColor;
-      default: return textSecondaryColor;
+      case 'mat': return successColor; // Use dashboard's existing green color
+      case 'reformer': return successColor; // Use dashboard's existing green color
+      case 'both': return successColor; // Use dashboard's existing green color
+      default: return successColor; // Use dashboard's existing green color
     }
-  }, [successColor, warningColor, accentColor, textSecondaryColor]);
+  }, [successColor]);
 
-  const getLevelColor = (level: string) => {
-    switch (level.toLowerCase()) {
-      case 'beginner': return successColor;
-      case 'intermediate': return warningColor;
-      case 'advanced': return errorColor;
-      default: return textSecondaryColor;
-    }
-  };
+
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -517,24 +562,28 @@ function ClientDashboard() {
           style: 'destructive',
           onPress: async () => {
             try {
+              // Ensure booking.id is valid
+              if (!booking.id) {
+                Alert.alert('Error', 'Invalid booking ID');
+                return;
+              }
+              
               const response = await bookingService.cancelBooking(booking.id);
               if (response.success) {
                 const cancelData = response.data as any; // Backend returns different structure for cancellation
+                // Booking cancelled, refreshing UI
+                onRefresh();
                 Alert.alert(
                   'Booking Cancelled', 
                   cancelData?.waitlistPromoted 
                     ? 'Your booking has been cancelled and your class credit refunded. The next person on the waitlist has been notified.'
-                    : 'Your booking has been cancelled and your class credit refunded.',
-                  [{ text: 'OK', onPress: () => {
-                    // Refresh dashboard data
-                    onRefresh();
-                  }}]
+                    : 'Your booking has been cancelled and your class credit refunded.'
                 );
               } else {
                 Alert.alert('Cancellation Failed', response.error || 'Failed to cancel booking. Please try again.');
               }
             } catch (error) {
-              console.error('Cancel booking error:', error);
+              // Cancel booking error
               Alert.alert('Cancellation Failed', 'An error occurred while cancelling your booking. Please try again.');
             }
           }
@@ -543,8 +592,8 @@ function ClientDashboard() {
     );
   };
 
-  const handleBookClass = async (classId: number) => {
-    const class_ = dashboardData.upcomingClasses.find(c => c.id === classId);
+  const handleBookClass = async (classId: string | number) => {
+    const class_ = dashboardData.upcomingClasses.find(c => c.id === classId.toString());
     if (!class_) return;
 
     // Check if user has subscription
@@ -607,8 +656,9 @@ function ClientDashboard() {
           onPress: async () => {
             try {
               await dispatch(createBooking({ classId })).unwrap();
-              Alert.alert('Success', 'Class booked successfully!');
+              // Booking successful, refreshing UI
               onRefresh();
+              Alert.alert('Success', 'Class booked successfully!');
             } catch (error: any) {
               // If booking fails, it might be because class is full - try to join waitlist
               if (error.includes('waitlist') || error.includes('full')) {
@@ -620,8 +670,9 @@ function ClientDashboard() {
                       try {
                         const result = await bookingService.joinWaitlist({ classId });
                         if (result.success) {
-                          Alert.alert('Success', `You've been added to the waitlist at position #${result.data?.position}.`);
+                          // Joined waitlist, refreshing UI
                           onRefresh();
+                          Alert.alert('Success', `You've been added to the waitlist at position #${result.data?.position}.`);
                         } else {
                           Alert.alert('Error', result.error || 'Failed to join waitlist');
                         }
@@ -641,8 +692,8 @@ function ClientDashboard() {
     );
   };
 
-  const handleJoinWaitlist = async (classId: number) => {
-    const class_ = dashboardData.upcomingClasses.find(c => c.id === classId);
+  const handleJoinWaitlist = async (classId: string | number) => {
+    const class_ = dashboardData.upcomingClasses.find(c => c.id === classId.toString());
     if (!class_) return;
 
     // Check if user has subscription
@@ -662,8 +713,12 @@ function ClientDashboard() {
             try {
               const result = await bookingService.joinWaitlist({ classId });
               if (result.success) {
+                // Joined waitlist (direct), refreshing UI
+                // Add a small delay to ensure database has been updated
+                setTimeout(() => {
+                  onRefresh(); // Refresh dashboard data
+                }, 1000);
                 Alert.alert('Success', `You've been added to the waitlist at position #${result.data?.position}.`);
-                onRefresh(); // Refresh dashboard data
               } else {
                 Alert.alert('Error', result.error || 'Failed to join waitlist');
               }
@@ -706,121 +761,7 @@ function ClientDashboard() {
             <Body style={{ ...styles.welcomeSubtitle, color: textSecondaryColor }}>{user?.name}</Body>
           </View>
           <View style={styles.welcomeActions}>
-            <MaterialIcons name="waving-hand" size={32} color="#FFD700" />
-            {/* Development: Crash Test Button */}
-            {__DEV__ && (
-              <Button 
-                mode="contained" 
-                onPress={() => navigation.navigate('CrashTest' as never)}
-                style={{ marginLeft: 8 }}
-                buttonColor="#FF6B6B"
-                textColor="white"
-                icon="build"
-              >
-                Test Crash
-              </Button>
-            )}
-            
-            {/* Development: Notification Test Button */}
-            {__DEV__ && (
-              <Button 
-                mode="contained" 
-                onPress={() => pushNotificationService.sendTestNotification()}
-                style={{ marginLeft: 8 }}
-                buttonColor="#8A2BE2"
-                textColor="white"
-                icon="notifications"
-              >
-                Test Local
-              </Button>
-            )}
-            
-            {/* Development: Remote Notification Test Button */}
-            {__DEV__ && (
-              <Button 
-                mode="contained" 
-                onPress={() => pushNotificationService.sendRemoteTestNotification()}
-                style={{ marginLeft: 8 }}
-                buttonColor="#FF6B35"
-                textColor="white"
-                icon="send"
-              >
-                Test Remote
-              </Button>
-            )}
-            
-            {/* Development: Show Push Token Button */}
-            {__DEV__ && (
-              <Button 
-                mode="contained" 
-                onPress={() => {
-                  const token = pushNotificationService.getPushTokenValue();
-                  Alert.alert(
-                    'Push Token',
-                    token || 'No token available',
-                    [{ text: 'OK' }]
-                  );
-                }}
-                style={{ marginLeft: 8 }}
-                buttonColor="#4CAF50"
-                textColor="white"
-                icon="key"
-              >
-                Show Token
-              </Button>
-            )}
-            
-            {/* Test Push Notification Button - Works in both DEV and IPA */}
-            <Button 
-              mode="contained" 
-              onPress={async () => {
-                try {
-                  // First, get and show the push token
-                  const token = pushNotificationService.getPushTokenValue();
-                  if (!token) {
-                    Alert.alert('No Token', 'No push token available. The app may not be registered for notifications.');
-                    return;
-                  }
-                  
-                  // Show the token so user can copy it
-                  Alert.alert(
-                    'IPA Push Token', 
-                    `Token: ${token}\n\nUse this token to test notifications with curl command.`,
-                    [
-                      { text: 'Copy Full Token', onPress: () => {
-                        // Show full token in another alert for easier copying
-                        Alert.alert('Full Token', token);
-                      }},
-                      { text: 'Re-register Token', onPress: async () => {
-                        try {
-                          await pushNotificationService.forceTokenReregistration();
-                          Alert.alert('Success', 'Token re-registered! Try the test again.');
-                        } catch (error) {
-                          Alert.alert('Error', `Re-registration failed: ${(error as Error).message || error}`);
-                        }
-                      }},
-                      { text: 'Send Test', onPress: async () => {
-                        try {
-                          const result = await pushNotificationService.sendTestNotification();
-                          Alert.alert('Success', 'Test notification sent! Check if you received it.');
-                        } catch (error) {
-                          Alert.alert('Error', `Failed: ${(error as Error).message || error}`);
-                        }
-                      }},
-                      { text: 'Cancel', style: 'cancel' }
-                    ]
-                  );
-                } catch (error) {
-                  Alert.alert('Error', `Failed to get token: ${(error as Error).message || error}`);
-                }
-              }}
-              style={{ marginLeft: 8 }}
-              buttonColor="#FF5722"
-              textColor="white"
-              icon="bell-ring"
-            >
-              Test Push
-            </Button>
+            <Text style={styles.welcomeEmoji}>👋</Text>
           </View>
         </View>
       </Surface>
@@ -862,151 +803,9 @@ function ClientDashboard() {
         )}
       </View>
 
-      {/* Development: Subscription Debug Section */}
-      {__DEV__ && (
-        <Card style={[styles.sectionCard, { backgroundColor: surfaceColor, borderColor: '#FF9800' }]}>
-          <Card.Content>
-            <View style={styles.sectionHeader}>
-              <H2 style={{ ...styles.sectionTitle, color: '#FF9800' }}>🔍 Subscription Debug</H2>
-              <MaterialIcons name="bug-report" size={24} color="#FF9800" />
-            </View>
-            
-            <View style={styles.debugInfo}>
-              <Caption style={{ color: textSecondaryColor }}>
-                📊 Current Subscription: {currentSubscription ? `${currentSubscription.plan_name} (${currentSubscription.status})` : 'NULL - This causes Ready to Start!'}
-              </Caption>
-              <Caption style={{ color: textSecondaryColor }}>
-                🆔 User ID: {user?.id || 'No user ID'}
-              </Caption>
-              <Caption style={{ color: textSecondaryColor }}>
-                📧 Email: {user?.email || 'No email'}
-              </Caption>
-              <Caption style={{ color: textSecondaryColor }}>
-                📋 Dashboard Subscription: {dashboardData.subscription ? `${dashboardData.subscription.plan_name}` : 'NULL - This causes Ready to Start!'}
-              </Caption>
-            </View>
-          </Card.Content>
-        </Card>
-      )}
+      
 
-      {/* Development: Push Notification Debug Section */}
-      {__DEV__ && (
-        <Card style={[styles.sectionCard, { backgroundColor: surfaceColor, borderColor: '#FF6B6B' }]}>
-          <Card.Content>
-            <View style={styles.sectionHeader}>
-              <H2 style={{ ...styles.sectionTitle, color: '#FF6B6B' }}>🔧 Push Notification Debug</H2>
-              <MaterialIcons name="build" size={24} color="#FF6B6B" />
-            </View>
-            
-            <View style={styles.debugGrid}>
-              <Button 
-                mode="contained" 
-                onPress={() => pushNotificationService.sendTestNotification()}
-                style={styles.debugButton}
-                buttonColor="#8A2BE2"
-                textColor="white"
-                icon="notifications"
-              >
-                Test Local
-              </Button>
-              
-              <Button 
-                mode="contained" 
-                onPress={() => pushNotificationService.sendRemoteTestNotification()}
-                style={styles.debugButton}
-                buttonColor="#FF6B35"
-                textColor="white"
-                icon="send"
-              >
-                Test Remote
-              </Button>
-              
-              <Button 
-                mode="contained" 
-                onPress={() => {
-                  const token = pushNotificationService.getPushTokenValue();
-                  Alert.alert(
-                    'Push Token',
-                    token || 'No token available',
-                    [{ text: 'OK' }]
-                  );
-                }}
-                style={styles.debugButton}
-                buttonColor="#4CAF50"
-                textColor="white"
-                icon="key"
-              >
-                Show Token
-              </Button>
-              
-              <Button 
-                mode="contained" 
-                onPress={() => {
-                  Alert.alert(
-                    'Test Class Reminder',
-                    'Sending test class reminder notification...',
-                    [{ text: 'OK' }]
-                  );
-                  // Get current user ID from Redux store or auth context
-                  const userId = user?.id;
-                  pushNotificationService.sendClassReminder('Pilates Mat', 'Sarah', 30, userId);
-                }}
-                style={styles.debugButton}
-                buttonColor="#FF9800"
-                textColor="white"
-                icon="event"
-              >
-                Test Reminder
-              </Button>
-              
-                                  <Button 
-                      mode="contained" 
-                      onPress={() => {
-                        const command = pushNotificationService.getPowerShellCurlCommand();
-                        Alert.alert(
-                          'PowerShell Command',
-                          command,
-                          [{ text: 'Copy', onPress: () => {} }, { text: 'OK' }]
-                        );
-                      }}
-                      style={styles.debugButton}
-                      buttonColor="#9C27B0"
-                      textColor="white"
-                      icon="code"
-                    >
-                      PowerShell Cmd
-                    </Button>
-                    
-                    <Button 
-                      mode="contained" 
-                      onPress={() => {
-                        Alert.alert(
-                          'Schedule Reminders',
-                          'Scheduling class reminders for all upcoming bookings...',
-                          [{ text: 'OK' }]
-                        );
-                        const userId = user?.id;
-                        if (userId) {
-                          pushNotificationService.scheduleClassReminders(userId);
-                        }
-                      }}
-                      style={styles.debugButton}
-                      buttonColor="#607D8B"
-                      textColor="white"
-                      icon="schedule"
-                    >
-                      Schedule Reminders
-                    </Button>
-            </View>
-            
-            <View style={styles.debugInfo}>
-              <Caption style={{ color: textSecondaryColor }}>
-                💡 Local notifications work in Expo Go. Remote notifications require a development build.
-              </Caption>
-            </View>
-          </Card.Content>
-        </Card>
-      )}
+      
 
       {/* My Booked Classes */}
       <Card style={[styles.sectionCard, { backgroundColor: surfaceColor }]}>
@@ -1039,36 +838,34 @@ function ClientDashboard() {
                         <Body style={{ ...styles.classInstructor, color: textSecondaryColor }}>with {booking.instructor_name || 'Instructor'}</Body>
                       </View>
                       <View style={styles.classIcons}>
-                        <View style={[styles.iconBadge, { backgroundColor: getEquipmentColor(booking.equipment_type || 'mat') }]}>
-                          <MaterialIcons 
-                            name={getEquipmentIcon(booking.equipment_type || 'mat')} 
-                            size={16} 
-                            color="white" 
-                          />
-                        </View>
+                                                 <View style={[styles.iconBadge, { backgroundColor: getEquipmentColor(booking.equipment_type || 'mat') }]}>
+                                                       <Text style={styles.equipmentText}>
+                              {(booking.equipment_type || 'mat') === 'mat' ? '🧘‍♀️' : (booking.equipment_type || 'mat') === 'reformer' ? '💪' : '✨'}
+                            </Text>
+                         </View>
                         <View style={[styles.iconBadge, { backgroundColor: primaryColor }]}>
-                          <MaterialIcons name="check" size={16} color="white" />
+                          <Text style={styles.equipmentText}>✓</Text>
                         </View>
                       </View>
                     </View>
                     
                     <View style={styles.classDetails}>
                       <View style={styles.classDetailItem}>
-                        <MaterialIcons name="calendar-today" size={16} color={textSecondaryColor} />
+                        <Text style={styles.iconText}>📅</Text>
                         <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>{formatDate(booking.class_date || '')}</Caption>
                       </View>
                       <View style={styles.classDetailItem}>
-                        <MaterialIcons name="access-time" size={16} color={textSecondaryColor} />
+                        <Text style={styles.iconText}>🕐</Text>
                         <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>{formatTime(booking.class_time || '')}</Caption>
                       </View>
                       {booking.room && (
                         <View style={styles.classDetailItem}>
-                          <MaterialIcons name="room" size={16} color={textSecondaryColor} />
+                          <Text style={styles.iconText}>📍</Text>
                           <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>{booking.room}</Caption>
                         </View>
                       )}
                       <View style={styles.classDetailItem}>
-                        <MaterialIcons name="confirmation-number" size={16} color={textSecondaryColor} />
+                        <Text style={styles.iconText}>✅</Text>
                         <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>Booked</Caption>
                       </View>
                     </View>
@@ -1217,14 +1014,6 @@ function ClientDashboard() {
         <Card.Content>
           <View style={styles.sectionHeader}>
             <H2 style={{ ...styles.sectionTitle, color: textColor }}>Upcoming Classes</H2>
-            <Button 
-              mode="text" 
-              onPress={() => (navigation as any).navigate('Book')}
-              icon="arrow-right"
-              textColor={accentColor}
-            >
-              View All
-            </Button>
           </View>
 
           {dashboardData.upcomingClasses.length > 0 ? (
@@ -1241,41 +1030,36 @@ function ClientDashboard() {
                         <H3 style={{ ...styles.className, color: textColor }}>{cls.name}</H3>
                         <Body style={{ ...styles.classInstructor, color: textSecondaryColor }}>with {cls.instructor_name}</Body>
                       </View>
-                      <View style={styles.classIcons}>
-                        <View style={[styles.iconBadge, { backgroundColor: getEquipmentColor(cls.equipment_type) }]}>
-                          <MaterialIcons 
-                            name={getEquipmentIcon(cls.equipment_type)} 
-                            size={16} 
-                            color="white" 
-                          />
-                        </View>
-                        <View style={[styles.iconBadge, { backgroundColor: getLevelColor(cls.level || 'beginner') }]}>
-                          <Body style={{ ...styles.badgeText, color: 'white' }}>{(cls.level || 'beginner').charAt(0).toUpperCase()}</Body>
-                        </View>
-                      </View>
+                                             <View style={styles.classIcons}>
+                         <View style={[styles.iconBadge, { backgroundColor: getEquipmentColor(cls.equipment_type) }]}>
+                                                       <Text style={styles.equipmentText}>
+                              {cls.equipment_type === 'mat' ? '🧘‍♀️' : cls.equipment_type === 'reformer' ? '💪' : '✨'}
+                            </Text>
+                         </View>
+                       </View>
                     </View>
                     
                     <View style={styles.classDetails}>
                       <View style={styles.classDetailItem}>
-                        <MaterialIcons name="calendar-today" size={16} color={textSecondaryColor} />
+                        <Text style={styles.iconText}>📅</Text>
                         <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>{formatDate(cls.date)}</Caption>
                       </View>
                       <View style={styles.classDetailItem}>
-                        <MaterialIcons name="access-time" size={16} color={textSecondaryColor} />
+                        <Text style={styles.iconText}>🕐</Text>
                         <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>{formatTime(cls.time)}</Caption>
                       </View>
                       <View style={styles.classDetailItem}>
-                        <MaterialIcons name="timer" size={16} color={textSecondaryColor} />
+                        <Text style={styles.iconText}>⏱️</Text>
                         <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>{`${cls.duration} min`}</Caption>
                       </View>
                       {cls.room && (
                         <View style={styles.classDetailItem}>
-                          <MaterialIcons name="room" size={16} color={textSecondaryColor} />
+                          <Text style={styles.iconText}>📍</Text>
                           <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>{cls.room}</Caption>
                         </View>
                       )}
                       <View style={styles.classDetailItem}>
-                        <MaterialIcons name="people" size={16} color={textSecondaryColor} />
+                        <Text style={styles.iconText}>👥</Text>
                         <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>
                                                      {`${cls.enrolled}/${cls.capacity}`}
                          </Caption>
@@ -1297,12 +1081,17 @@ function ClientDashboard() {
                       const isUserBooked = dashboardData.bookedClasses.some(bookedClass => 
                         bookedClass.class_id?.toString() === cls.id?.toString()
                       );
+                      
+                      // Check if user is on waitlist for this class
+                      const waitlistEntry = dashboardData.waitlistClasses.find(waitlistClass => 
+                        waitlistClass.class_id?.toString() === cls.id?.toString() || 
+                        waitlistClass.classId?.toString() === cls.id?.toString()
+                      );
+                      const isOnWaitlist = !!waitlistEntry;
+                      
                       const isFull = cls.enrolled >= cls.capacity;
                       
-                      // Debug button logic (only log first few classes)
-                      if (cls.name && cls.name === 'Reformer') {
 
-                      }
                       const hoursUntilClass = getHoursUntilClass(cls.date, cls.time);
                       const canJoinWaitlist = hoursUntilClass >= 2; // 2-hour rule applies to waitlist too
                       
@@ -1316,6 +1105,48 @@ function ClientDashboard() {
                             disabled
                           >
                             Booked
+                          </Button>
+                        );
+                      }
+                      
+                      // Show "Leave Waitlist #X" if user is on waitlist
+                      if (isOnWaitlist) {
+                        return (
+                          <Button 
+                            mode="outlined" 
+                            style={[styles.bookButton, { borderColor: warningColor }]}
+                            textColor={warningColor}
+                            icon="queue"
+                            onPress={async () => {
+                              Alert.alert(
+                                'Leave Waitlist',
+                                'Are you sure you want to leave the waitlist?',
+                                [
+                                  { text: 'Cancel', style: 'cancel' },
+                                  { 
+                                    text: 'Yes', 
+                                    onPress: async () => {
+                                      try {
+                                        const result = await bookingService.leaveWaitlist(waitlistEntry.id);
+                                        if (result.success) {
+                                          Alert.alert('Success', 'You have been removed from the waitlist.');
+                                          // Add delay to ensure database update before refresh
+                                          setTimeout(() => {
+                                            onRefresh();
+                                          }, 1000);
+                                        } else {
+                                          Alert.alert('Error', result.error || 'Failed to leave waitlist');
+                                        }
+                                      } catch (error) {
+                                        Alert.alert('Error', 'Failed to leave waitlist');
+                                      }
+                                    }
+                                  }
+                                ]
+                              );
+                            }}
+                          >
+                            Leave Waitlist #{waitlistEntry.position}
                           </Button>
                         );
                       }
@@ -1356,6 +1187,17 @@ function ClientDashboard() {
                  </Card>
                  );
                })}
+               
+               {/* See more button */}
+               <Button 
+                 mode="outlined" 
+                 onPress={() => (navigation as any).navigate('Book')}
+                 icon="calendar-today"
+                 textColor={accentColor}
+                 style={[styles.seeMoreButton, { borderColor: accentColor }]}
+               >
+                 See more on calendar
+               </Button>
              </View>
            ) : (
              <View style={styles.emptyState}>
@@ -1375,50 +1217,7 @@ function ClientDashboard() {
          </Card.Content>
        </Card>
 
-       {/* Quick Actions */}
-       <Card style={[styles.sectionCard, { backgroundColor: surfaceColor }]}>
-         <Card.Content>
-           <H2 style={{ ...styles.sectionTitle, color: textColor }}>Quick Actions</H2>
-           <View style={styles.quickActionsGrid}>
-             <Button 
-               mode="contained" 
-               style={[styles.actionButton, styles.primaryAction, { backgroundColor: accentColor }]}
-               labelStyle={{ color: backgroundColor }}
-               icon="event"
-               onPress={() => (navigation as any).navigate('Book')}
-             >
-               Book Class
-             </Button>
-             <Button 
-               mode="outlined" 
-               style={[styles.actionButton, { borderColor: accentColor }]}
-               textColor={accentColor}
-               icon="history"
-               onPress={() => (navigation as any).navigate('BookingHistory')}
-             >
-               View History
-             </Button>
-             <Button 
-               mode="outlined" 
-               style={[styles.actionButton, { borderColor: accentColor }]}
-               textColor={accentColor}
-               icon="person"
-               onPress={() => (navigation as any).navigate('Profile')}
-             >
-               Profile
-             </Button>
-             <Button 
-               mode="outlined" 
-               style={[styles.actionButton, { borderColor: accentColor }]}
-               textColor={accentColor}
-               icon="help"
-               onPress={() => Alert.alert('Help', 'Contact our reception team for assistance:\n\n📞 Phone: (555) 123-4567\n✉️ Email: help@pilatesstudio.com\n🏢 Visit us at the front desk')}
-             >
-               Need Help?
-             </Button>
-           </View>
-         </Card.Content>
-       </Card>
+
      </ScrollView>
    );
 }
@@ -1429,6 +1228,7 @@ const styles = StyleSheet.create({
   },
   welcomeHeader: {
     padding: 20,
+    paddingTop: 60, // Increased from 20 to 60 to account for iPhone notch/dynamic island
     borderBottomWidth: 1,
     borderBottomColor: 'transparent', // This will be overridden by inline style
   },
@@ -1446,6 +1246,10 @@ const styles = StyleSheet.create({
   welcomeActions: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  welcomeEmoji: {
+    fontSize: 32,
+    color: '#FFD700',
   },
   subscriptionContainer: {
     marginBottom: 20,
@@ -1530,9 +1334,35 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   iconBadge: {
-    padding: 4,
-    borderRadius: 12,
+    padding: 12,
+    borderRadius: 20,
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 0,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
+  equipmentText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  iconText: {
+    fontSize: 16,
+    marginRight: 8,
+    textAlign: 'center',
+    minWidth: 20,
+  },
+
   badgeText: {
     fontSize: 10,
     fontWeight: '500',
@@ -1567,21 +1397,7 @@ const styles = StyleSheet.create({
     // This will be overridden by inline style
     fontSize: 14,
   },
-  quickActionsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  actionButton: {
-    flex: 1,
-    borderRadius: 12,
-    ...shadows.card,
-    borderWidth: 1,
-    borderColor: 'transparent', // This will be overridden by inline style
-  },
-  primaryAction: {
-    // This will be overridden by inline style
-  },
+
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -1607,24 +1423,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
   },
-  debugGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginTop: 10,
+  seeMoreButton: {
+    marginTop: 16,
+    borderRadius: 12,
   },
-  debugButton: {
-    flex: 1,
-    minWidth: 120,
-    borderRadius: 8,
-    marginBottom: 5,
-  },
-  debugInfo: {
-    marginTop: 15,
-    padding: 10,
-    backgroundColor: 'rgba(255, 107, 107, 0.1)',
-    borderRadius: 8,
-  },
+  
 });
 
 export default ClientDashboard;

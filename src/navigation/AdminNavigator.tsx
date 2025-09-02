@@ -1,8 +1,10 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
-import { useEffect, useState } from 'react';
-import { Alert, Dimensions, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Alert, Dimensions, Platform, Text, TouchableOpacity, View } from 'react-native';
+import { Dialog, Button as PaperButton, Portal } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AdminClassManagement from '../screens/admin/AdminClassManagement';
 import AdminDashboard from '../screens/admin/AdminDashboard';
 import AssignmentHistory from '../screens/admin/AssignmentHistory';
@@ -12,6 +14,7 @@ import PCSubscriptionPlans from '../screens/admin/PCSubscriptionPlans';
 import PCUserManagement from '../screens/admin/PCUserManagement';
 import ReceptionClientProfile from '../screens/admin/ReceptionClientProfile';
 import ReportsAnalytics from '../screens/admin/ReportsAnalytics';
+
 import SubscriptionPlans from '../screens/admin/SubscriptionPlans';
 import SystemSettings from '../screens/admin/SystemSettings';
 import UserManagement from '../screens/admin/UserManagement';
@@ -30,6 +33,7 @@ function AdminSidebar({ activeScreen, onNavigate, stats }: any) {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
+  const [logoutDialogVisible, setLogoutDialogVisible] = useState(false);
   const dispatch = useAppDispatch();
 
   useEffect(() => {
@@ -81,14 +85,41 @@ function AdminSidebar({ activeScreen, onNavigate, stats }: any) {
   };
 
   const showLogoutConfirmation = () => {
-    console.log('🚪 Showing logout confirmation...');
-    console.log('🔧 Dispatching logoutUser...');
+    console.log('🚪 Admin logout button clicked - showing confirmation dialog...');
+    setLogoutDialogVisible(true);
+  };
+
+  const handleLogoutConfirm = async () => {
+    console.log('🔧 Admin logout confirmed - dispatching logoutUser...');
+    setLogoutDialogVisible(false);
+    
     try {
-      dispatch(logoutUser());
-      console.log('✅ Logout dispatch completed');
+      const result = await dispatch(logoutUser());
+      console.log('✅ Admin logout dispatch completed:', result);
+      
+      // Additional cleanup if needed
+      if (logoutUser.fulfilled.match(result)) {
+        console.log('✅ Admin logout successful - user should be redirected to login');
+      } else {
+        console.error('❌ Admin logout failed:', result);
+        // Show error using web-compatible method
+        setLogoutDialogVisible(false);
+        setTimeout(() => {
+          Alert.alert('Logout Error', 'Failed to logout. Please try again.');
+        }, 100);
+      }
     } catch (error) {
-      console.error('❌ Logout dispatch error:', error);
+      console.error('❌ Admin logout dispatch error:', error);
+      // Show error using web-compatible method
+      setTimeout(() => {
+        Alert.alert('Logout Error', 'Failed to logout. Please try again.');
+      }, 100);
     }
+  };
+
+  const handleLogoutCancel = () => {
+    console.log('🚪 Admin logout cancelled');
+    setLogoutDialogVisible(false);
   };
 
   const menuItems = [
@@ -167,11 +198,36 @@ function AdminSidebar({ activeScreen, onNavigate, stats }: any) {
         
         <TouchableOpacity 
           style={styles.logoutButton}
-          onPress={showLogoutConfirmation}
+          onPress={() => {
+            console.log('🚪 LOGOUT BUTTON PRESSED - calling showLogoutConfirmation');
+            showLogoutConfirmation();
+          }}
+          activeOpacity={0.7}
         >
           <MaterialIcons name="logout" size={24} color="#666" />
         </TouchableOpacity>
       </View>
+
+      {/* Logout Confirmation Dialog */}
+      <Portal>
+        <Dialog visible={logoutDialogVisible} onDismiss={handleLogoutCancel}>
+          <Dialog.Title>Logout Admin</Dialog.Title>
+          <Dialog.Content>
+            <Text>Are you sure you want to logout from the admin portal?</Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <PaperButton onPress={handleLogoutCancel}>Cancel</PaperButton>
+            <PaperButton 
+              onPress={handleLogoutConfirm}
+              mode="contained"
+              buttonColor="#EF4444"
+              textColor="#FFFFFF"
+            >
+              Logout
+            </PaperButton>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </View>
   );
 }
@@ -253,6 +309,12 @@ function AdminPCLayout({ navigation }: any) {
 }
 
 function AdminTabs() {
+  const insets = useSafeAreaInsets();
+  
+  // Calculate safe tab bar height for Android edge-to-edge
+  const tabBarHeight = Platform.OS === 'android' ? 60 + insets.bottom : 60;
+  const paddingBottom = Platform.OS === 'android' ? Math.max(8, insets.bottom) : 8;
+  
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -290,6 +352,20 @@ function AdminTabs() {
         },
         tabBarActiveTintColor: '#9B8A7D',
         tabBarInactiveTintColor: 'gray',
+        tabBarStyle: {
+          backgroundColor: '#ffffff',
+          borderTopWidth: 1,
+          borderTopColor: '#e0e0e0',
+          height: tabBarHeight,
+          paddingBottom: paddingBottom,
+          paddingTop: 8,
+          // Ensure tab bar appears above Android navigation
+          elevation: Platform.OS === 'android' ? 8 : 0,
+          shadowColor: Platform.OS === 'ios' ? '#000' : 'transparent',
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: Platform.OS === 'ios' ? 0.1 : 0,
+          shadowRadius: Platform.OS === 'ios' ? 3 : 0,
+        },
         headerShown: false,
       })}
     >
@@ -513,6 +589,11 @@ const styles = {
   },
   logoutButton: {
     padding: 8,
+    minWidth: 40,
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 4,
   },
   notificationBadge: {
     position: 'absolute',

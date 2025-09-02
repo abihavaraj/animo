@@ -12,8 +12,6 @@ import { BackendClass } from './classService';
 export interface NotificationSettings {
   enableNotifications: boolean;
   defaultReminderMinutes: number;
-  enablePushNotifications: boolean;
-  enableEmailNotifications: boolean;
 }
 
 export interface ClassNotification {
@@ -38,37 +36,91 @@ export interface NotificationRequest {
 
 class NotificationService {
   private isInitialized: boolean = false;
+
+  // Helper to ensure notification settings exist for a user
+  private async ensureNotificationSettings(userId: string, userRole: 'instructor' | 'client' = 'client'): Promise<any> {
+    try {
+      const { data: existing, error } = await supabase
+        .from('notification_settings')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (existing) {
+        return existing;
+      }
+
+      if (error && error.code !== 'PGRST116') {
+        console.error(`❌ [ensureNotificationSettings] Error checking settings for ${userId}:`, error);
+        return null;
+      }
+
+      // Create default settings based on user role
+      const defaultSettings = {
+        user_id: userId,
+        enable_notifications: true,
+        enable_push_notifications: true,
+        enable_email_notifications: false,
+        default_reminder_minutes: 15,
+        class_full_notifications: userRole === 'instructor' ? true : false,
+        new_enrollment_notifications: userRole === 'instructor' ? true : false,
+        class_cancellation_notifications: true,
+        general_reminders: true,
+      };
+
+      const { data: newSettings, error: insertError } = await supabase
+        .from('notification_settings')
+        .insert(defaultSettings)
+        .select('*')
+        .single();
+
+      if (insertError) {
+        console.error(`❌ [ensureNotificationSettings] Failed to create settings for ${userId}:`, insertError);
+        return null;
+      }
+
+      return newSettings;
+    } catch (error) {
+      console.error(`❌ [ensureNotificationSettings] Unexpected error for ${userId}:`, error);
+      return null;
+    }
+  }
   
+  // Public method to ensure notification settings exist for a user
+  async ensureUserNotificationSettings(userId: string, userRole: 'instructor' | 'client' = 'client'): Promise<any> {
+    return await this.ensureNotificationSettings(userId, userRole);
+  }
+
   // Initialize notification service for the current platform
   async initialize(): Promise<void> {
     if (this.isInitialized) {
-      console.log('📱 [notificationService] Already initialized');
+              // Already initialized
       return;
     }
     
     try {
-      console.log('📱 [notificationService] Initializing notification service...');
+              // Initializing notification service
       
       // Enhanced platform detection
       const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
       const isReactNative = typeof navigator !== 'undefined' && navigator.product === 'ReactNative';
       const isDevelopment = __DEV__;
       
-      console.log(`📱 [notificationService] Platform - Web: ${isWeb}, React Native: ${isReactNative}, Development: ${isDevelopment}`);
+              // Platform detection completed
       
       if (isWeb) {
-        console.log('🌐 [notificationService] Web platform: Push notifications will be handled via Supabase + cron jobs');
+        // Web platform detected
       } else {
-        console.log('📱 [notificationService] Native platform: Direct push notifications enabled');
+        // Native platform detected
         
         // Enhanced development notification support
         if (isDevelopment) {
-          console.log('🔧 [notificationService] Development mode: Enhanced logging and fallback notifications enabled');
+          // Development mode enabled
         }
       }
       
       this.isInitialized = true;
-      console.log('✅ [notificationService] Notification service initialized successfully');
+              // Notification service initialized successfully
       
     } catch (error) {
       console.error('❌ [notificationService] Failed to initialize:', error);
@@ -138,7 +190,7 @@ class NotificationService {
     targetUsers?: (number | string)[]
   ): Promise<ApiResponse<any>> {
     try {
-      console.log(`📢 [notificationService] Sending ${type} notification for class ${classId}:`, message);
+
       // Get all enrolled users if no specific targets provided
       if (!targetUsers || targetUsers.length === 0) {
         const { data: bookings } = await supabase
@@ -164,19 +216,18 @@ class NotificationService {
         // Check user notification settings
         const { data: userSettings } = await supabase
           .from('notification_settings')
-          .select('enable_notifications, enable_push_notifications')
+          .select('enable_notifications')
           .eq('user_id', userIdString)
           .single();
         
-        // Default to enabled if no settings found, or if both general and push notifications are enabled
-        const shouldSendNotification = !userSettings || 
-          (userSettings.enable_notifications && userSettings.enable_push_notifications);
+        // Default to enabled if no settings found, or if notifications are enabled
+        const shouldSendNotification = !userSettings || (userSettings.enable_notifications ?? true);
         
         if (shouldSendNotification) {
           enabledUsers.push(userIdString);
-          console.log(`✅ [notificationService] User ${userIdString} will receive notification (settings allow)`);
+    
         } else {
-          console.log(`❌ [notificationService] User ${userIdString} will NOT receive notification (settings disabled)`);
+          // User has notifications disabled
         }
       }
 
@@ -218,7 +269,7 @@ class NotificationService {
             console.error(`❌ [notificationService] Failed to create notification for user ${notification.user_id}:`, error);
             failedNotifications.push({ notification, error });
           } else {
-            console.log(`✅ [notificationService] Successfully created notification for user ${notification.user_id}`);
+      
             createdNotifications.push(data);
             
             // Send actual push notification to the user's device
@@ -231,7 +282,7 @@ class NotificationService {
       }
       
       if (createdNotifications.length > 0) {
-        console.log(`✅ [notificationService] Successfully created ${createdNotifications.length}/${notifications.length} notifications`);
+  
       }
       
       if (failedNotifications.length > 0) {
@@ -322,7 +373,7 @@ class NotificationService {
       
       if (response.ok) {
         const result = await response.json();
-        console.log(`✅ [notificationService] Push notification sent to user ${userId}`);
+  
         console.log(`📱 [notificationService] Response:`, result);
         
         // Log success for production debugging
@@ -405,7 +456,7 @@ class NotificationService {
 
           if (response.ok) {
             const result = await response.json();
-            console.log(`✅ [notificationService] Batch ${batchIndex + 1}/${batches.length} sent successfully`);
+      
             
             // Count successes and failures
             if (result.data && Array.isArray(result.data)) {
@@ -502,7 +553,7 @@ class NotificationService {
     }
   }
 
-  // Get notification settings FROM THE USERS TABLE
+  // Get notification settings FROM THE NOTIFICATION_SETTINGS TABLE
   async getNotificationSettings(): Promise<ApiResponse<NotificationSettings>> {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -511,20 +562,33 @@ class NotificationService {
       }
       
       const { data, error } = await supabase
-        .from('users')
-        .select('enable_notifications, default_reminder_minutes, enable_email_notifications')
-        .eq('id', user.id)
+        .from('notification_settings')
+        .select('enable_notifications, default_reminder_minutes')
+        .eq('user_id', user.id)
         .single();
       
       if (error) {
-        // If no row exists, we can treat it as default settings
+        // If no row exists, create default settings
         if (error.code === 'PGRST116') {
-            return { success: true, data: {
-                enableNotifications: true,
-                defaultReminderMinutes: 5,
-                enablePushNotifications: true, // Assuming this maps to enable_notifications
-                enableEmailNotifications: true
-            }};
+          const defaultSettings = {
+            enableNotifications: true,
+            defaultReminderMinutes: 15
+          };
+          
+          // Create default notification settings record
+          const { error: insertError } = await supabase
+            .from('notification_settings')
+            .insert({
+              user_id: user.id,
+              enable_notifications: true,
+              default_reminder_minutes: 15
+            });
+          
+          if (insertError) {
+            console.error('Failed to create default notification settings:', insertError);
+          }
+          
+          return { success: true, data: defaultSettings };
         }
         return { success: false, error: error.message };
       }
@@ -534,9 +598,7 @@ class NotificationService {
           success: true, 
           data: {
               enableNotifications: data.enable_notifications,
-              defaultReminderMinutes: data.default_reminder_minutes,
-              enablePushNotifications: data.enable_notifications, // Push is the main notification type
-              enableEmailNotifications: data.enable_email_notifications
+              defaultReminderMinutes: data.default_reminder_minutes
           }
       };
     } catch (error) {
@@ -544,7 +606,7 @@ class NotificationService {
     }
   }
 
-  // Update notification settings ON THE USERS TABLE
+  // Update notification settings ON THE NOTIFICATION_SETTINGS TABLE
   async updateNotificationSettings(settings: Partial<NotificationSettings>): Promise<ApiResponse<NotificationSettings>> {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -552,22 +614,45 @@ class NotificationService {
         return { success: false, error: 'User not authenticated' };
       }
       
-      // Prepare the data for the users table
+      // Prepare the data for the notification_settings table
       const updateData = {
           enable_notifications: settings.enableNotifications,
           default_reminder_minutes: settings.defaultReminderMinutes,
-          enable_email_notifications: settings.enableEmailNotifications,
           updated_at: new Date().toISOString()
       };
 
+      // Try to update existing record first
       const { data, error } = await supabase
-        .from('users')
+        .from('notification_settings')
         .update(updateData)
-        .eq('id', user.id)
-        .select('enable_notifications, default_reminder_minutes, enable_email_notifications')
+        .eq('user_id', user.id)
+        .select('enable_notifications, default_reminder_minutes')
         .single();
       
       if (error) {
+        // If update failed because no record exists, create a new one
+        if (error.code === 'PGRST116') {
+          const { data: insertData, error: insertError } = await supabase
+            .from('notification_settings')
+            .insert({
+              user_id: user.id,
+              ...updateData
+            })
+            .select('enable_notifications, default_reminder_minutes')
+            .single();
+          
+          if (insertError) {
+            return { success: false, error: insertError.message };
+          }
+          
+          return { 
+            success: true, 
+            data: {
+              enableNotifications: insertData.enable_notifications,
+              defaultReminderMinutes: insertData.default_reminder_minutes
+            } 
+          };
+        }
         return { success: false, error: error.message };
       }
       
@@ -576,9 +661,7 @@ class NotificationService {
           success: true, 
           data: {
               enableNotifications: data.enable_notifications,
-              defaultReminderMinutes: data.default_reminder_minutes,
-              enablePushNotifications: data.enable_notifications,
-              enableEmailNotifications: data.enable_email_notifications
+              defaultReminderMinutes: data.default_reminder_minutes
           } 
       };
     } catch (error) {
@@ -589,7 +672,7 @@ class NotificationService {
   // Get user notifications
   async getUserNotifications(userId: number | string, options?: { limit?: number }): Promise<ApiResponse<ClassNotification[]>> {
     try {
-      console.log(`📧 [notificationService] Loading notifications for user ${userId} with options:`, options);
+
       
       let query = supabase
         .from('notifications')
@@ -609,7 +692,7 @@ class NotificationService {
         return { success: false, error: error.message };
       }
       
-      console.log(`✅ [notificationService] Loaded ${data?.length || 0} notifications for user ${userId}`);
+
       return { success: true, data: data || [] };
     } catch (error) {
       console.error(`❌ [notificationService] Exception in getUserNotifications:`, error);
@@ -733,21 +816,35 @@ class NotificationService {
         return { success: false, error: 'Instructor ID required' };
       }
 
-      // Respect instructor notification preferences
-      const { data: instructorPrefs } = await supabase
-        .from('notification_settings')
-        .select('class_full_notifications, enable_notifications, enable_push_notifications')
-        .eq('user_id', instructorId)
-        .maybeSingle();
+      console.log(`🎉 [notificationService] Sending class full notification for class ${classId} to instructor ${instructorId}`);
 
-      const canNotifyInstructor = !instructorPrefs || (
-        instructorPrefs.enable_notifications !== false &&
-        instructorPrefs.enable_push_notifications !== false &&
-        instructorPrefs.class_full_notifications !== false
-      );
+      // Ensure instructor has notification settings and check preferences
+      const instructorPrefs = await this.ensureNotificationSettings(instructorId, 'instructor');
+      
+      if (!instructorPrefs) {
+        console.error(`❌ [notificationService] Could not get/create notification settings for instructor ${instructorId}`);
+        // Default to allowing notifications if we can't check settings
+      } else {
+        const canNotifyInstructor = (
+          (instructorPrefs.enable_notifications ?? true) &&
+          (instructorPrefs.enable_push_notifications ?? true) &&
+          (instructorPrefs.class_full_notifications ?? true)
+        );
 
-      if (!canNotifyInstructor) {
-        return { success: true, data: { notificationSent: false } };
+        console.log(`📱 [notificationService] Instructor notification check:`, {
+          instructorId,
+          preferences: {
+            enable_notifications: instructorPrefs.enable_notifications,
+            enable_push_notifications: instructorPrefs.enable_push_notifications,
+            class_full_notifications: instructorPrefs.class_full_notifications
+          },
+          canNotify: canNotifyInstructor
+        });
+
+        if (!canNotifyInstructor) {
+          console.log(`❌ [notificationService] Instructor ${instructorId} has disabled class full notifications`);
+          return { success: true, data: { notificationSent: false } };
+        }
       }
 
       // Get class details
@@ -761,6 +858,7 @@ class NotificationService {
         .single();
 
       if (classError || !classData) {
+        console.error(`❌ [notificationService] Class not found:`, classError);
         return { success: false, error: 'Class not found' };
       }
 
@@ -773,40 +871,63 @@ class NotificationService {
 
       const enrollmentCount = enrollments?.length || 0;
 
-      // Create notification record
-      await supabase.from('notifications').insert({
-        user_id: instructorId,
-        type: 'class_full',
-        title: '🎉 Class Full!',
-        message: `Your class "${classData.name}" is now full with ${enrollmentCount}/${classData.capacity} students enrolled.`,
-        data: {
-          classId: classId,
-          className: classData.name,
-          date: classData.date,
-          time: classData.time,
-          enrollmentCount: enrollmentCount,
-          capacity: classData.capacity
-        },
-        created_at: new Date().toISOString()
-      });
+      console.log(`📊 [notificationService] Class "${classData.name}" enrollment: ${enrollmentCount}/${classData.capacity}`);
 
-      // Send push notification if instructor has push token
-      const instructor = classData.users;
-      if (instructor?.push_token) {
-        await this.sendPushNotification(instructor.push_token, {
+      // Create notification record with proper scheduling for immediate delivery
+      const { data: notificationData, error: notificationError } = await supabase
+        .from('notifications')
+        .insert({
+          user_id: instructorId,
+          type: 'class_full',
           title: '🎉 Class Full!',
-          body: `Your class "${classData.name}" is now fully booked!`,
-          data: {
+          message: `Your class "${classData.name}" is now full with ${enrollmentCount}/${classData.capacity} students enrolled.`,
+          scheduled_for: new Date().toISOString(), // Schedule for immediate delivery
+          metadata: {
             type: 'class_full',
             classId: classId.toString(),
-            className: classData.name
-          }
-        });
+            className: classData.name,
+            date: classData.date,
+            time: classData.time,
+            enrollmentCount: enrollmentCount,
+            capacity: classData.capacity,
+            push_token: classData.users?.push_token // Include push token in metadata for cron job
+          },
+          is_read: false,
+          created_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (notificationError) {
+        console.error(`❌ [notificationService] Failed to create notification record:`, notificationError);
+        return { success: false, error: 'Failed to create notification' };
       }
 
-      return { success: true, data: { notificationSent: true } };
+
+
+      // Send immediate push notification for real-time delivery
+      const instructor = classData.users;
+      if (instructor?.push_token) {
+        console.log(`📱 [notificationService] Sending immediate push notification to instructor`);
+        
+        try {
+          await this.sendPushNotificationToUser(
+            instructorId,
+            '🎉 Class Full!',
+            `Your class "${classData.name}" is now fully booked!`
+          );
+    
+        } catch (pushError) {
+          console.error(`❌ [notificationService] Failed to send immediate push notification:`, pushError);
+          // Don't fail the entire operation if push fails - cron job will retry
+        }
+      } else {
+        console.log(`⚠️ [notificationService] No push token found for instructor ${instructorId} - will rely on cron job`);
+      }
+
+      return { success: true, data: { notificationSent: true, notificationId: notificationData.id } };
     } catch (error) {
-      console.error('Failed to send class full notification:', error);
+      console.error('❌ [notificationService] Failed to send class full notification:', error);
       return { success: false, error: 'Failed to send notification' };
     }
   }
@@ -837,6 +958,95 @@ class NotificationService {
       }
     } catch (error) {
       console.error('Error sending push notification:', error);
+    }
+  }
+
+  /**
+   * Send cancellation notification to instructor
+   */
+  async sendInstructorCancellationNotification(
+    instructorId: string, 
+    classId: string, 
+    studentDetails: any
+  ): Promise<void> {
+    try {
+      // Check instructor notification preferences for cancellations
+      const { data: settings, error: settingsError } = await supabase
+        .from('notification_settings')
+        .select('class_cancellation_notifications, enable_notifications, enable_push_notifications')
+        .eq('user_id', instructorId)
+        .single();
+
+      // For cancellation notifications, default is true - send unless explicitly disabled
+      // If there's an error reading settings (e.g., RLS issues), default to sending the notification
+      const shouldSend = !settingsError ? 
+        (settings?.enable_notifications && 
+         settings?.enable_push_notifications && 
+         (settings?.class_cancellation_notifications ?? true)) :
+        true; // Default to sending if we can't read settings
+
+      console.log(`📧 [NOTIFICATION] Instructor cancellation notification check:`, {
+        instructorId,
+        settingsError: !!settingsError,
+        settingValue: settings?.class_cancellation_notifications ?? true,
+        willSend: shouldSend,
+        reason: settingsError ? 'using_default_due_to_settings_error' : 'using_preference_value'
+      });
+
+      if (!shouldSend) {
+        console.log('📧 [NOTIFICATION] Instructor cancellation notification skipped - disabled by preference');
+        return;
+      }
+
+      // Get class details
+      const { data: classData } = await supabase
+        .from('classes')
+        .select('name, date, time')
+        .eq('id', classId)
+        .single();
+
+      const notificationMessage = `${studentDetails?.name || 'A student'} cancelled their booking for "${classData?.name || 'class'}"`;
+
+      // Store notification in database first
+      const { data: notificationData, error: notificationError } = await supabase
+        .from('notifications')
+        .insert({
+          user_id: instructorId,
+          type: 'class_update',
+          title: 'Class Cancellation',
+          message: notificationMessage,
+          scheduled_for: new Date().toISOString(),
+          metadata: {
+            class_id: classId,
+            notification_type: 'class_cancellation',
+            student_name: studentDetails?.name || 'A student'
+          },
+          is_read: false
+        })
+        .select()
+        .single();
+
+      if (notificationError) {
+        console.error('❌ Failed to store cancellation notification in database:', notificationError);
+      } else {
+        console.log('✅ Cancellation notification stored in database successfully');
+      }
+
+      // Send push notification
+      try {
+        await this.sendPushNotificationToUser(
+          instructorId,
+          'Class Cancellation',
+          notificationMessage
+        );
+        console.log('✅ Cancellation push notification sent to instructor successfully');
+      } catch (pushError) {
+        console.error('❌ Failed to send cancellation push notification:', pushError);
+        // Don't throw error here - notification is already stored in database
+      }
+    } catch (error) {
+      console.error('❌ [NOTIFICATION] Failed to send instructor cancellation notification:', error);
+      throw error;
     }
   }
 }

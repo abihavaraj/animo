@@ -1,31 +1,31 @@
-import { Body, Caption, H1, H2, H3 } from '@/components/ui/Typography';
 import { MaterialIcons } from '@expo/vector-icons';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import React, { useEffect, useState } from 'react';
 import { Alert, Dimensions, Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import {
-    ActivityIndicator,
-    Avatar,
-    Button,
-    Card,
-    Checkbox,
-    Chip,
-    Dialog,
-    IconButton,
-    Paragraph,
-    Portal,
-    Searchbar,
-    TextInput
+  ActivityIndicator,
+  Avatar,
+  Button,
+  Card,
+  Checkbox,
+  Chip,
+  Dialog,
+  IconButton,
+  Paragraph,
+  Portal,
+  Searchbar,
+  TextInput
 } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
+import { Body, Caption, H1, H2, H3 } from '../../../components/ui/Typography';
 import { useThemeColor } from '../../../hooks/useThemeColor';
 import WebCompatibleIcon from '../../components/WebCompatibleIcon';
 import { supabase } from '../../config/supabase.config';
 import {
-    ClientMedicalUpdate,
-    ClientProgressPhoto,
-    InstructorClientAssignment,
-    instructorClientService
+  ClientMedicalUpdate,
+  ClientProgressPhoto,
+  InstructorClientAssignment,
+  instructorClientService
 } from '../../services/instructorClientService';
 import { subscriptionService } from '../../services/subscriptionService';
 import { BackendUser, userService } from '../../services/userService';
@@ -70,6 +70,7 @@ interface ClientActivity {
   activity_type: string;
   description: string;
   metadata: any;
+  performed_by?: string;
   performed_by_name?: string;
   created_at: string;
 }
@@ -246,6 +247,80 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
     console.log('🎯 activeSubscription type:', typeof activeSubscription?.id);
   }, [activeSubscription]);
 
+  // Separate function to log profile access with full context
+  const logProfileAccess = async () => {
+    try {
+      console.log('📝 [logProfileAccess] Checking if profile access should be logged');
+      console.log('📝 [logProfileAccess] Client:', client?.name);
+      console.log('📝 [logProfileAccess] Active subscription object:', activeSubscription);
+      console.log('📝 [logProfileAccess] Active subscription plan name:', activeSubscription?.subscription_plans?.name || activeSubscription?.plan_name);
+      console.log('📝 [logProfileAccess] Active subscription status:', activeSubscription?.status);
+      console.log('📝 [logProfileAccess] Active subscription end date:', activeSubscription?.end_date);
+      console.log('📝 [logProfileAccess] Activities count:', activities.length);
+      
+      // Check for recent profile access to avoid spam
+      const now = new Date();
+      const recentProfileAccess = activities.find(activity => 
+        activity.activity_type === 'profile_updated' && 
+        activity.metadata?.activity_subtype === 'profile_accessed' &&
+        new Date(activity.created_at).getTime() > (now.getTime() - 5 * 60 * 1000) // Within last 5 minutes
+      );
+      
+      if (!recentProfileAccess) {
+        // Build detailed access description with current state data
+        const planName = activeSubscription?.subscription_plans?.name || activeSubscription?.plan_name;
+        
+        // If no activeSubscription, check directly in database as backup
+        let subscriptionStatus = 'No active subscription';
+        if (activeSubscription) {
+          subscriptionStatus = `Active plan: ${planName || 'Unknown Plan'}`;
+        } else {
+          // Quick database check as fallback
+          try {
+            const { data: directSub } = await supabase
+              .from('user_subscriptions')
+              .select('*, subscription_plans(name)')
+              .eq('user_id', userId)
+              .eq('status', 'active')
+              .single();
+            
+            if (directSub) {
+              const directPlanName = directSub.subscription_plans?.name || 'Unknown Plan';
+              subscriptionStatus = `Active plan: ${directPlanName}`;
+              console.log('🔄 [logProfileAccess] Found subscription via direct query:', directSub);
+            }
+          } catch (directError) {
+            console.log('🔍 [logProfileAccess] No subscription found via direct query:', directError);
+          }
+        }
+        
+        const accessDetails = [
+          `Profile opened for ${client?.name || userName || 'client'}`,
+          client?.email ? `Email: ${client.email}` : null,
+          subscriptionStatus,
+          activities.length > 0 ? `${activities.length} previous activities` : 'No prior activities'
+        ].filter(Boolean).join(' • ');
+        
+        console.log('📝 [logProfileAccess] Logging detailed access:', accessDetails);
+        
+        await logClientActivity('profile_updated', accessDetails, {
+          timestamp: new Date().toISOString(),
+          user_role: user?.role || 'reception',
+          client_name: client?.name || userName,
+          client_email: client?.email,
+          subscription_status: activeSubscription ? 'active' : 'none',
+          subscription_plan: planName,
+          previous_activities_count: activities.length,
+          activity_subtype: 'profile_accessed'
+        });
+      } else {
+        console.log('⏰ [logProfileAccess] Skipping profile access log (recent access within 5 minutes)');
+      }
+    } catch (error) {
+      console.error('❌ [logProfileAccess] Error logging profile access:', error);
+    }
+  };
+
   const loadAllData = async () => {
     setLoading(true);
     try {
@@ -264,6 +339,12 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         loadMedicalUpdates()
       ]);
       console.log('✅ All client data loaded successfully');
+      
+      // Log profile access after all data is loaded and state is updated
+      setTimeout(async () => {
+        await logProfileAccess();
+      }, 100); // Small delay to ensure state variables are updated
+      
     } catch (error) {
       console.error('Error loading client data:', error);
     } finally {
@@ -305,6 +386,8 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         .order('created_at', { ascending: false });
 
       console.log('📊 Subscriptions data:', subscriptions, 'Error:', subError);
+      console.log('📊 Subscription query filter - status:', ['active', 'paused']);
+      console.log('📊 Subscription query filter - end_date >=:', new Date().toISOString().split('T')[0]);
 
       // Set the active subscription for management buttons
       if (subscriptions && subscriptions.length > 0) {
@@ -312,15 +395,31 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         console.log('✅ Set active subscription:', subscriptions[0]);
         console.log('✅ Active subscription ID:', subscriptions[0]?.id);
         console.log('✅ Active subscription plan:', subscriptions[0]?.subscription_plans);
+        console.log('✅ Active subscription status:', subscriptions[0]?.status);
+        console.log('✅ Active subscription end_date:', subscriptions[0]?.end_date);
       } else {
         setActiveSubscription(null);
-        console.log('❌ No active subscription found');
+        console.log('❌ No active subscription found with query filters');
+        
+        // Let's also check ALL subscriptions for this user to debug
+        const { data: allSubs, error: allSubsError } = await supabase
+          .from('user_subscriptions')
+          .select('*')
+          .eq('user_id', userId);
+        console.log('🔍 ALL subscriptions for user (no filters):', allSubs, 'Error:', allSubsError);
       }
 
-      // Get booking data (simple query without joins)
+      // Get booking data with class and instructor information
       const { data: bookings, error: bookError } = await supabase
         .from('bookings')
-        .select('*')
+        .select(`
+          *,
+          classes!bookings_class_id_fkey (
+            id, name, date, time, equipment_type,
+            users!classes_instructor_id_fkey (name, email)
+          ),
+          users!bookings_user_id_fkey (name, email)
+        `)
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
         .limit(10);
@@ -560,7 +659,18 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
 
   const loadActivities = async () => {
     try {
-      console.log('📊 Loading activities for userId:', userId);
+      console.log('📊 [DEBUG] Loading activities for userId:', userId);
+      console.log('📊 [DEBUG] User ID type:', typeof userId);
+      
+      // First, let's check if the table exists and has any data at all
+      const { data: allActivities, error: allError } = await supabase
+        .from('client_activity_log')
+        .select('*')
+        .limit(5);
+      
+      console.log('📊 [DEBUG] Sample activities from table:', allActivities, 'Error:', allError);
+      
+      // Now check specifically for this user
       const { data, error } = await supabase
         .from('client_activity_log')
         .select('*')
@@ -568,59 +678,27 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         .order('created_at', { ascending: false })
         .limit(50);
       
-      console.log('📊 Activities data:', data, 'Error:', error);
+      console.log('📊 [DEBUG] Activities for user', userId, ':', data, 'Error:', error);
+      console.log('📊 [DEBUG] Query result length:', data?.length || 0);
+      
+      if (error) {
+        console.error('❌ [DEBUG] Supabase error details:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint
+        });
+      }
       
       if (!error && data) {
         setActivities(data as ClientActivity[]);
+        console.log('✅ [DEBUG] Loaded', data.length, 'activities from client_activity_log table');
       } else {
-        console.log('📊 Activities table not available - creating sample data');
-        // Create realistic sample activity data
-        const sampleActivities: ClientActivity[] = [
-          {
-            id: 1,
-            activity_type: 'profile_view',
-            description: 'Profile viewed by reception staff',
-            metadata: {},
-            performed_by_name: 'Reception Staff',
-            created_at: new Date().toISOString()
-          },
-          {
-            id: 2,
-            activity_type: 'class_booking',
-            description: 'Booked Pilates Foundation Class for tomorrow',
-            metadata: { class_name: 'Pilates Foundation', instructor: 'Sarah Johnson' },
-            performed_by_name: 'System',
-            created_at: new Date(Date.now() - 3600000).toISOString() // 1 hour ago
-          },
-          {
-            id: 3,
-            activity_type: 'subscription_renewal',
-            description: 'Monthly subscription renewed successfully',
-            metadata: { plan: 'Monthly 8-Class Package', amount: 150 },
-            performed_by_name: 'System',
-            created_at: new Date(Date.now() - 86400000).toISOString() // 1 day ago
-          },
-          {
-            id: 4,
-            activity_type: 'class_attended',
-            description: 'Attended Reformer Intermediate Class',
-            metadata: { class_name: 'Reformer Intermediate', instructor: 'Mike Davis' },
-            performed_by_name: 'System',
-            created_at: new Date(Date.now() - 172800000).toISOString() // 2 days ago
-          },
-          {
-            id: 5,
-            activity_type: 'note_added',
-            description: 'Progress note added by instructor',
-            metadata: { note_type: 'progress', instructor: 'Sarah Johnson' },
-            performed_by_name: 'Sarah Johnson',
-            created_at: new Date(Date.now() - 259200000).toISOString() // 3 days ago
-          }
-        ];
-        setActivities(sampleActivities);
+        console.error('❌ [DEBUG] Failed to load activities:', error);
+        setActivities([]);
       }
     } catch (error) {
-      console.error('Failed to load activities (non-critical):', error);
+      console.error('❌ [DEBUG] Exception in loadActivities:', error);
       setActivities([]);
     }
   };
@@ -1007,11 +1085,23 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
       // Refresh documents list
       await loadDocuments();
 
-      // Log activity
-      await logClientActivity('document_uploaded', `Uploaded document: ${uploadFile.name}`, {
+      // Log activity with detailed document information
+      const fileSizeKB = (uploadFile.size / 1024).toFixed(1);
+      const documentDetails = [
+        `Document uploaded: "${uploadFile.name}"`,
+        `Type: ${documentType}`,
+        `Size: ${fileSizeKB} KB`,
+        isSensitive ? 'Marked as sensitive' : 'Public document',
+        documentDescription ? `Notes: ${documentDescription}` : null
+      ].filter(Boolean).join(' • ');
+      
+      await logClientActivity('profile_updated', documentDetails, {
         document_type: documentType,
         file_size: uploadFile.size,
-        is_sensitive: isSensitive
+        file_name: uploadFile.name,
+        is_sensitive: isSensitive,
+        description: documentDescription,
+        activity_subtype: 'document_uploaded'
       });
 
     } catch (error) {
@@ -1025,20 +1115,121 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
   // Helper function to log client activities
   const logClientActivity = async (activityType: string, description: string, metadata: any = {}) => {
     try {
-      await supabase
-        .from('client_activities')
+      console.log('📝 [DEBUG] Logging activity:', { activityType, description, userId, metadata });
+      
+      const result = await supabase
+        .from('client_activity_log')
         .insert([{
           client_id: userId,
           activity_type: activityType,
           description,
-          metadata,
-          performed_by: user?.id || 'e374cc3b-de48-4e1b-a5ac-73314469df17', // Use UUID
-          performed_by_name: user?.name || 'Admin' // Keep name as fallback
+          metadata: {
+            ...metadata,
+            performed_by_name: user?.name || 'Admin' // Store name in metadata instead
+          },
+          performed_by: user?.id || 'e374cc3b-de48-4e1b-a5ac-73314469df17'
           // Remove created_at since it's auto-generated
         }]);
+      
+      console.log('📝 [DEBUG] Activity log result:', result);
+      
+      if (result.error) {
+        console.error('❌ [DEBUG] Activity log error:', result.error);
+      } else {
+        console.log('✅ [DEBUG] Activity logged successfully');
+      }
     } catch (error) {
-      console.error('❌ Error logging activity:', error);
+      console.error('❌ [DEBUG] Exception in logClientActivity:', error);
       // Don't throw error for activity logging failures
+    }
+  };
+
+  // Test function to create a sample activity
+  const createTestActivity = async () => {
+    try {
+      console.log('🧪 [DEBUG] Creating test activity for user:', userId);
+      const testActivities = [
+        'Test activity: Profile data verification completed',
+        'Test activity: Client information updated via admin panel',
+        'Test activity: System health check performed on client record',
+        'Test activity: Manual data validation completed'
+      ];
+      const randomActivity = testActivities[Math.floor(Math.random() * testActivities.length)];
+      
+      await logClientActivity('profile_updated', randomActivity, {
+        test: true,
+        timestamp: new Date().toISOString(),
+        activity_subtype: 'test_activity',
+        admin_action: true
+      });
+      
+      // Reload activities after creating test
+      await loadActivities();
+    } catch (error) {
+      console.error('❌ [DEBUG] Failed to create test activity:', error);
+    }
+  };
+
+  // Function to populate historical activities based on existing data
+  const populateHistoricalActivities = async () => {
+    try {
+      console.log('📚 [DEBUG] Populating historical activities for user:', userId);
+      
+      // Create activities based on bookings
+      if (recentBookings.length > 0) {
+        for (const booking of recentBookings.slice(0, 3)) { // Only process first 3 to avoid spam
+          await logClientActivity(
+            'booking_created', 
+            `Booked class: ${booking.classes?.name || 'Unknown Class'}`,
+            {
+              class_id: booking.class_id,
+              class_name: booking.classes?.name,
+              class_date: booking.classes?.date,
+              booking_id: booking.id,
+              historical: true
+            }
+          );
+        }
+      }
+      
+      // Create activities based on payments
+      if (recentPayments.length > 0) {
+        for (const payment of recentPayments.slice(0, 2)) { // Only process first 2
+          await logClientActivity(
+            'payment_processed',
+            `Payment processed: ${payment.amount ? `$${payment.amount}` : 'Unknown amount'}`,
+            {
+              payment_id: payment.id,
+              amount: payment.amount,
+              payment_method: payment.payment_method,
+              historical: true
+            }
+          );
+        }
+      }
+      
+      // Create subscription activity if they have active subscription
+      if (activeSubscription) {
+        // Handle nested plan data
+        const planName = activeSubscription.subscription_plans?.name || activeSubscription.plan_name || 'Unknown Plan';
+        
+        await logClientActivity(
+          'subscription_renewal',
+          `Subscription renewed: ${planName}`,
+          {
+            subscription_id: activeSubscription.id,
+            plan_name: planName,
+            remaining_classes: activeSubscription.remaining_classes,
+            historical: true
+          }
+        );
+      }
+      
+      console.log('✅ [DEBUG] Historical activities populated');
+      await loadActivities(); // Reload to show new activities
+      
+    } catch (error) {
+      console.error('❌ [DEBUG] Failed to populate historical activities:', error);
     }
   };
 
@@ -1172,9 +1363,21 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
       // Refresh notes list
       await loadNotes();
 
-      // Log activity
-      await logClientActivity('note_deleted', `Note deleted (ID: ${selectedNoteForDeletion})`, {
-        note_id: selectedNoteForDeletion
+      // Log activity with note details
+      const deletedNote = notes.find(note => note.id === selectedNoteForDeletion);
+      const noteDetails = [
+        `Note deleted: "${deletedNote?.title || 'Untitled'}"`,
+        `Type: ${deletedNote?.note_type || 'general'}`,
+        `Priority: ${deletedNote?.priority || 'medium'}`,
+        `Content preview: ${deletedNote?.content?.substring(0, 50) || 'No content'}${deletedNote?.content?.length > 50 ? '...' : ''}`
+      ].filter(Boolean).join(' • ');
+      
+      await logClientActivity('profile_updated', noteDetails, {
+        note_id: selectedNoteForDeletion,
+        note_title: deletedNote?.title,
+        note_type: deletedNote?.note_type,
+        note_priority: deletedNote?.priority,
+        activity_subtype: 'note_deleted'
       });
 
       // Close dialog
@@ -1235,11 +1438,24 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
       // Refresh documents list
       await loadDocuments();
 
-      // Log activity
-      await logClientActivity('document_deleted', `Document deleted: "${originalName}"`, {
+      // Log activity with document details
+      const deletedDocument = documents.find(doc => doc.id === documentId);
+      const documentDetails = [
+        `Document deleted: "${originalName}"`,
+        `Type: ${deletedDocument?.document_type || 'unknown'}`,
+        deletedDocument?.file_size ? `Size: ${(deletedDocument.file_size / 1024).toFixed(1)} KB` : null,
+        deletedDocument?.is_sensitive ? 'Was marked as sensitive' : 'Was public document',
+        deletedDocument?.description ? `Notes: ${deletedDocument.description}` : null
+      ].filter(Boolean).join(' • ');
+      
+      await logClientActivity('profile_updated', documentDetails, {
         document_id: documentId,
         file_name: fileName,
-        original_name: originalName
+        original_name: originalName,
+        document_type: deletedDocument?.document_type,
+        file_size: deletedDocument?.file_size,
+        was_sensitive: deletedDocument?.is_sensitive,
+        activity_subtype: 'document_deleted'
       });
 
       // Close dialog
@@ -2012,10 +2228,10 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
                   <MaterialIcons name="fitness-center" size={24} color={primaryColor} />
                   <View style={styles.bookingInfoModern}>
                     <H3 style={{ ...styles.bookingTitleModern, color: textColor }}>
-                      Booking #{booking.id?.toString().slice(-6) || 'N/A'}
+                      {booking.classes?.name || 'Unknown Class'}
                     </H3>
                     <Body style={{ ...styles.bookingMetaModern, color: textSecondaryColor }}>
-                      {formatDate(booking.created_at)} • Booked
+                      {booking.classes?.date ? formatDate(booking.classes.date) : 'No date'} • {booking.classes?.time || 'No time'}
                     </Body>
                   </View>
                   <Chip 
@@ -2028,7 +2244,9 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
                 </View>
                 <View style={styles.bookingDetailsModern}>
                   <Body style={{ ...styles.bookingDetailTextModern, color: textSecondaryColor }}>
-                    Class ID: {booking.class_id || 'N/A'} • User: {booking.user_id?.slice(-6) || 'N/A'}
+                    Instructor: {booking.classes?.users?.name || 'TBA'} • 
+                    Equipment: {booking.classes?.equipment_type || 'N/A'} • 
+                    Booking #{booking.id?.toString().slice(-6) || 'N/A'}
                   </Body>
                 </View>
               </View>
@@ -2149,6 +2367,24 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         <Body style={{ ...styles.tabHeaderTitleModern, color: textColor }}>
           Activity Log ({activities.length} activities)
         </Body>
+        <Button
+          mode="outlined"
+          icon="plus"
+          onPress={createTestActivity}
+          style={{ marginLeft: 16 }}
+          compact
+        >
+          Test Activity
+        </Button>
+        <Button
+          mode="outlined"
+          icon="history"
+          onPress={populateHistoricalActivities}
+          style={{ marginLeft: 8 }}
+          compact
+        >
+          Populate History
+        </Button>
       </View>
 
       {activities.length > 0 ? (
@@ -2162,10 +2398,10 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
                   <MaterialIcons name="timeline" size={20} color={accentColor} />
                   <View style={styles.activityInfoModern}>
                     <Body style={{ ...styles.activityTitleModern, color: textColor }}>
-                      {activity.activity_type?.replace('_', ' ').toUpperCase() || 'Activity'}
+                      {activity.activity_type?.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()) || 'Activity'}
                     </Body>
                     <Caption style={{ ...styles.activityMetaModern, color: textMutedColor }}>
-                      {formatDate(activity.created_at)} • {activity.performed_by_name || 'System'}
+                      {formatDate(activity.created_at)} • {activity.metadata?.performed_by_name || activity.performed_by_name || 'System'}
                     </Caption>
                   </View>
                 </View>
@@ -2190,40 +2426,146 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
     </View>
   );
 
-  const renderTimelineTab = () => (
-    <View style={styles.tabContent}>
-      <Card style={[styles.modernCard, { backgroundColor: surfaceColor }]}>
-        <Card.Content style={styles.cardContentModern}>
-          <H2 style={{ ...styles.sectionTitleModern, color: textColor }}>Client Timeline</H2>
-          
-          {/* Timeline items */}
-          <View style={styles.timelineContainerModern}>
-            {[
-              { date: client?.join_date || new Date().toISOString(), title: 'Client Joined', description: 'Welcome to our studio!', type: 'join' },
-              { date: new Date().toISOString(), title: 'First Booking', description: 'Booked Pilates Foundation Class', type: 'booking' },
-              { date: new Date().toISOString(), title: 'Subscription Started', description: 'Activated monthly plan', type: 'subscription' }
-            ].map((item, index) => (
-              <View key={index} style={styles.timelineItemModern}>
-                <View style={styles.timelineDotContainerModern}>
-                  <View style={[styles.timelineDotModern, { backgroundColor: index === 0 ? primaryColor : textMutedColor }]} />
-                  {index < 2 && <View style={[styles.timelineLineModern, { backgroundColor: textMutedColor }]} />}
-                </View>
-                <View style={styles.timelineContentModern}>
-                  <H3 style={{ ...styles.timelineTitleModern, color: textColor }}>{item.title}</H3>
-                  <Body style={{ ...styles.timelineDescriptionModern, color: textSecondaryColor }}>
-                    {item.description}
-                  </Body>
-                  <Caption style={{ ...styles.timelineDateModern, color: textMutedColor }}>
-                    {formatDate(item.date)}
-                  </Caption>
-                </View>
+  // Helper functions for timeline
+  const getTimelineIcon = (activityType: string) => {
+    switch (activityType) {
+      case 'booking_created': return 'event-available';
+      case 'subscription_renewal': return 'refresh';
+      case 'payment_processed': return 'payment';
+      case 'profile_updated': return 'edit';
+      case 'class_attended': return 'check-circle';
+      case 'note_added': return 'note-add';
+      default: return 'event';
+    }
+  };
+
+  const getTimelineColor = (eventType: string) => {
+    switch (eventType) {
+      case 'join': return '#4CAF50'; // Green
+      case 'subscription': return '#2196F3'; // Blue  
+      case 'subscription_end': return '#FF9800'; // Orange
+      case 'booking_created': return '#9C27B0'; // Purple
+      case 'payment_processed': return '#4CAF50'; // Green
+      case 'profile_updated': return '#607D8B'; // Blue Grey
+      default: return textMutedColor;
+    }
+  };
+
+  const renderTimelineTab = () => {
+    // Create timeline from real data
+    const timelineEvents = [];
+    
+    console.log('🕒 [Timeline] Building timeline events');
+    console.log('🕒 [Timeline] Client data:', client);
+    console.log('🕒 [Timeline] Subscription history:', subscriptionHistory);
+    console.log('🕒 [Timeline] Activities count:', activities.length);
+    
+    // Add client join event
+    if (client?.join_date) {
+      console.log('🕒 [Timeline] Adding join event for date:', client.join_date);
+      timelineEvents.push({
+        date: client.join_date,
+        title: 'Client Joined',
+        description: 'Welcome to ANIMO Pilates Studio!',
+        type: 'join',
+        icon: 'person-add'
+      });
+    } else {
+      console.log('🕒 [Timeline] No join date found');
+    }
+    
+    // Add subscription events from subscription history
+    console.log('🕒 [Timeline] Processing', subscriptionHistory.length, 'subscriptions');
+    subscriptionHistory.forEach((subscription, index) => {
+      // Handle nested subscription plan data from Supabase join
+      const planName = subscription.subscription_plans?.name || subscription.plan_name || 'Unknown Plan';
+      console.log(`🕒 [Timeline] Subscription ${index}:`, planName, 'dates:', subscription.start_date, '-', subscription.end_date);
+      
+      timelineEvents.push({
+        date: subscription.start_date,
+        title: 'Subscription Started',
+        description: `Activated ${planName}`,
+        type: 'subscription',
+        icon: 'card-membership'
+      });
+      
+      if (subscription.end_date && new Date(subscription.end_date) < new Date()) {
+        console.log('🕒 [Timeline] Adding subscription end event');
+        timelineEvents.push({
+          date: subscription.end_date,
+          title: 'Subscription Ended',
+          description: `${planName} expired`,
+          type: 'subscription_end',
+          icon: 'cancel'
+        });
+      }
+    });
+    
+    // Add major activities from client_activity_log
+    console.log('🕒 [Timeline] Processing activities for timeline (filtering major events only)');
+    let addedActivities = 0;
+    activities.slice(0, 10).forEach(activity => {
+      if (['booking_created', 'subscription_renewal', 'payment_processed', 'profile_updated'].includes(activity.activity_type)) {
+        console.log('🕒 [Timeline] Adding activity:', activity.activity_type, activity.description);
+        timelineEvents.push({
+          date: activity.created_at,
+          title: activity.activity_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+          description: activity.description,
+          type: activity.activity_type,
+          icon: getTimelineIcon(activity.activity_type)
+        });
+        addedActivities++;
+      }
+    });
+    console.log('🕒 [Timeline] Added', addedActivities, 'activities to timeline');
+    
+    // Sort events by date (newest first)
+    timelineEvents.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    console.log('🕒 [Timeline] Final timeline events count:', timelineEvents.length);
+    
+    return (
+      <View style={styles.tabContent}>
+        <Card style={[styles.modernCard, { backgroundColor: surfaceColor }]}>
+          <Card.Content style={styles.cardContentModern}>
+            <H2 style={{ ...styles.sectionTitleModern, color: textColor }}>Client Timeline ({timelineEvents.length} events)</H2>
+            
+            {timelineEvents.length > 0 ? (
+              <View style={styles.timelineContainerModern}>
+                {timelineEvents.map((item, index) => (
+                  <View key={index} style={styles.timelineItemModern}>
+                    <View style={styles.timelineDotContainerModern}>
+                      <View style={[styles.timelineDotModern, { backgroundColor: index === 0 ? primaryColor : getTimelineColor(item.type) }]} />
+                      {index < timelineEvents.length - 1 && <View style={[styles.timelineLineModern, { backgroundColor: textMutedColor }]} />}
+                    </View>
+                    <View style={styles.timelineContentModern}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                        <MaterialIcons name={item.icon || 'event'} size={16} color={textMutedColor} style={{ marginRight: 8 }} />
+                        <H3 style={{ ...styles.timelineTitleModern, color: textColor }}>{item.title}</H3>
+                      </View>
+                      <Body style={{ ...styles.timelineDescriptionModern, color: textSecondaryColor }}>
+                        {item.description}
+                      </Body>
+                      <Caption style={{ ...styles.timelineDateModern, color: textMutedColor }}>
+                        {formatDate(item.date)}
+                      </Caption>
+                    </View>
+                  </View>
+                ))}
               </View>
-            ))}
-          </View>
-        </Card.Content>
-      </Card>
-    </View>
-  );
+            ) : (
+              <View style={styles.emptyStateModern}>
+                <MaterialIcons name="timeline" size={64} color={textMutedColor} />
+                <H2 style={{ ...styles.emptyTitleModern, color: textColor }}>No Timeline Events</H2>
+                <Body style={{ ...styles.emptyTextModern, color: textSecondaryColor }}>
+                  Timeline will appear as the client interacts with the studio.
+                </Body>
+              </View>
+            )}
+          </Card.Content>
+        </Card>
+      </View>
+    );
+  };
 
   const renderInstructorProgressTab = () => (
     <View style={styles.tabContent}>
@@ -2262,7 +2604,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
                   </View>
                   <Body style={{ ...styles.assignmentDetails, color: textSecondaryColor }}>
                     Assigned on {formatDate(assignment.start_date)}
-                    {assignment.assigned_by_name && ` by ${assignment.assigned_by_name}`}
+                    {assignment.assigned_by && ` by ${assignment.assigned_by}`}
                   </Body>
                   {assignment.notes && (
                     <Body style={{ ...styles.assignmentNotes, color: textMutedColor }}>
@@ -2581,8 +2923,8 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
           style={styles.backButton}
         />
         <View style={styles.headerContent}>
-          <H2 style={[styles.headerTitle, { color: textColor }]}>{client?.name || 'Client Profile'}</H2>
-          <Caption style={[styles.headerSubtitle, { color: textSecondaryColor }]}>
+          <H2 style={{ ...styles.headerTitle, color: textColor }}>{client?.name || 'Client Profile'}</H2>
+          <Caption style={{ ...styles.headerSubtitle, color: textSecondaryColor }}>
             Client ID: {userId}
           </Caption>
         </View>
@@ -3205,6 +3547,15 @@ const styles = StyleSheet.create({
   sectionTitleModern: {
     marginBottom: 16,
     fontWeight: '600',
+  },
+  subsectionTitleModern: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 12,
+    color: '#2C2C2C',
+  },
+  statusChip: {
+    marginLeft: 'auto',
   },
   
   // Stats Grid - PC Optimized

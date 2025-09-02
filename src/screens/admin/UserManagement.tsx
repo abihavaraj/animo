@@ -1,24 +1,24 @@
-import { Colors } from '@/constants/Colors';
 import { useNavigation } from '@react-navigation/native';
 import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import {
-    ActivityIndicator,
-    Avatar,
-    Button,
-    Card,
-    Chip,
-    FAB,
-    IconButton,
-    Menu,
-    Modal,
-    Paragraph,
-    Portal,
-    Searchbar,
-    SegmentedButtons,
-    TextInput,
-    Title
+  ActivityIndicator,
+  Avatar,
+  Button,
+  Card,
+  Chip,
+  FAB,
+  IconButton,
+  Menu,
+  Modal,
+  Paragraph,
+  Portal,
+  Searchbar,
+  SegmentedButtons,
+  TextInput,
+  Title
 } from 'react-native-paper';
+import { Colors } from '../../../constants/Colors';
 import { spacing } from '../../../constants/Spacing';
 import WebCompatibleIcon from '../../components/WebCompatibleIcon';
 import { BackendUser, userService } from '../../services/userService';
@@ -529,7 +529,7 @@ function UserManagement() {
 
         <SegmentedButtons
           value={filterRole}
-          onValueChange={setFilterRole}
+          onValueChange={(value) => setFilterRole(value as typeof filterRole)}
           buttons={[
             { value: 'all', label: 'All' },
             { value: 'client', label: 'Clients' },
@@ -819,7 +819,7 @@ function UserManagement() {
                   style={styles.input}
                   editable={false}
                   onPress={() => setReferralMenuVisible(true)}
-                  right={<TextInput.Icon icon="chevron-down" onPress={() => setReferralMenuVisible(true)} />}
+                  right={<TextInput.Icon icon="keyboard-arrow-down" onPress={() => setReferralMenuVisible(true)} />}
                 />
               }
             >

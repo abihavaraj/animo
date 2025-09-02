@@ -1,8 +1,8 @@
-import { Colors } from '@/constants/Colors';
-import { layout, spacing } from '@/constants/Spacing';
 import { MaterialIcons } from '@expo/vector-icons';
 import React from 'react';
 import { StyleSheet, Text, TextStyle, TouchableOpacity, ViewStyle } from 'react-native';
+import { Colors } from '../../constants/Colors';
+import { layout, spacing } from '../../constants/Spacing';
 
 /**
  * ANIMO Pilates Studio - Button Component

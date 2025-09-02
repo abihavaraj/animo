@@ -1,14 +1,5 @@
-import { Body, Caption, H2, H3 } from '@/components/ui/Typography';
-import { Colors } from '@/constants/Colors';
-import { layout, spacing } from '@/constants/Spacing';
-import WebCompatibleIcon from '@/src/components/WebCompatibleIcon';
-import { bookingService } from '@/src/services/bookingService';
-import { BackendClass, classService, CreateClassRequest, UpdateClassRequest } from '@/src/services/classService';
-import { BackendUser, userService } from '@/src/services/userService';
-import { RootState } from '@/src/store';
-import { shadows } from '@/src/utils/shadows';
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Dimensions, Platform, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Alert, Dimensions, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import {
   ActivityIndicator,
@@ -28,6 +19,15 @@ import {
   TextInput
 } from 'react-native-paper';
 import { useSelector } from 'react-redux';
+import { Body, Caption, H2, H3 } from '../../../components/ui/Typography';
+import { Colors } from '../../../constants/Colors';
+import { layout, spacing } from '../../../constants/Spacing';
+import WebCompatibleIcon from '../../components/WebCompatibleIcon';
+import { bookingService } from '../../services/bookingService';
+import { BackendClass, classService, CreateClassRequest, UpdateClassRequest } from '../../services/classService';
+import { BackendUser, userService } from '../../services/userService';
+import { RootState } from '../../store';
+import { shadows } from '../../utils/shadows';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isLargeScreen = screenWidth > 1024;
@@ -107,6 +107,7 @@ function PCClassManagement() {
     equipmentType: 'mat' as BackendClass['equipment_type'],
     room: '' as 'Reformer Room' | 'Mat Room' | 'Cadillac Room' | 'Wall Room' | '',
     notes: '', // Add notes field
+    visibility: 'public' as 'public' | 'private', // Add visibility field
   });
 
   // Room availability state
@@ -197,7 +198,9 @@ function PCClassManagement() {
     try {
       setLoading(true);
       const response = await classService.getClasses({
-        status: filterStatus === 'all' ? undefined : filterStatus
+        status: filterStatus === 'all' ? undefined : filterStatus,
+        userRole: 'admin' // Ensure admin/reception can see all classes including private ones
+        // No limit - truly unlimited for admin/reception - all past, present, future classes
       });
       
       if (response.success && response.data) {
@@ -249,31 +252,57 @@ function PCClassManagement() {
   const generateMarkedDates = useCallback(() => {
     const marked: any = {};
     
+    console.log(`🔍 [PCClassManagement] Generating marked dates for ${classes.length} classes`);
+    
+    // Group classes by date to handle multiple classes per date
+    const classesByDate: { [date: string]: BackendClass[] } = {};
     classes.forEach((classItem) => {
       const date = classItem.date;
-      if (!marked[date]) {
-        marked[date] = { dots: [], periods: [] };
+      if (!classesByDate[date]) {
+        classesByDate[date] = [];
       }
-      
-      // Use the new status color logic that matches instructor view
-      const color = getClassStatusColor(classItem);
-      
-      marked[date].dots.push({
-        key: `class-${classItem.id}`,
-        color: color,
-        selectedDotColor: color
-      });
+      classesByDate[date].push(classItem);
+    });
+
+    // Generate marked dates with proper multi-dot support
+    Object.entries(classesByDate).forEach(([date, dateClasses]) => {
+      if (dateClasses.length === 1) {
+        // Single class - use simple dot
+        const color = getClassStatusColor(dateClasses[0]);
+        marked[date] = {
+          marked: true,
+          dotColor: color,
+          activeOpacity: 0.8
+        };
+        console.log(`🔍 [PCClassManagement] Added single dot for class "${dateClasses[0].name}" on ${date} with color ${color}`);
+      } else {
+        // Multiple classes - use multi-dot
+        const dots = dateClasses.map(classItem => ({
+          color: getClassStatusColor(classItem)
+        }));
+        marked[date] = {
+          dots: dots,
+          marked: true
+        };
+        console.log(`🔍 [PCClassManagement] Added ${dots.length} dots for ${dateClasses.length} classes on ${date}:`, 
+          dateClasses.map(c => `"${c.name}"`).join(', '));
+      }
     });
 
     // Highlight selected date
     if (selectedDate) {
       if (!marked[selectedDate]) {
-        marked[selectedDate] = { dots: [] };
+        marked[selectedDate] = { marked: true };
       }
-      marked[selectedDate].selected = true;
-      marked[selectedDate].selectedColor = Colors.light.accent;
+      // Preserve existing dots/dotColor when selecting
+      marked[selectedDate] = {
+        ...marked[selectedDate],
+        selected: true,
+        selectedColor: Colors.light.accent
+      };
     }
 
+    console.log(`🔍 [PCClassManagement] Final marked dates:`, JSON.stringify(marked, null, 2));
     setMarkedDates(marked);
   }, [classes, selectedDate, bookings]);
 
@@ -308,8 +337,8 @@ function PCClassManagement() {
       description: '',
       equipmentType: 'mat' as 'mat' | 'reformer' | 'both',
       room: '' as 'Reformer Room' | 'Mat Room' | 'Cadillac Room' | 'Wall Room' | '',
-      level: '' as '' | 'Beginner' | 'Intermediate' | 'Advanced',
       notes: '', // Initialize notes
+      visibility: 'public' as 'public' | 'private', // Initialize visibility
     };
     
     console.log('🎯 Initializing form data:', initialFormData);
@@ -328,12 +357,13 @@ function PCClassManagement() {
       duration: classItem.duration,
       category: classItem.category,
       capacity: classItem.capacity,
-      equipment: classItem.equipment.join(', '),
+      equipment: (classItem.equipment && Array.isArray(classItem.equipment) ? classItem.equipment.join(', ') : ''),
       description: classItem.description || '',
       equipmentType: classItem.equipment_type,
       room: (classItem as any).room || '',
       
       notes: classItem.notes || '', // Set notes from classItem
+      visibility: classItem.visibility || 'public', // Set visibility from classItem
     });
     setModalVisible(true);
   };
@@ -371,20 +401,13 @@ function PCClassManagement() {
     }
 
     // Debug: Log the form data before submission
-    console.log('🎯 Form data being submitted:', {
-      name: formData.name,
-      instructorId: formData.instructorId,
-      date: formData.date,
-      time: formData.time,
-      duration: formData.duration,
-      category: formData.category,
-      capacity: formData.capacity,
-      equipment: formData.equipment,
-      description: formData.description,
-      equipmentType: formData.equipmentType,
-      room: formData.room,
-      notes: formData.notes
-    });
+    console.log('🎯 Form data being submitted:');
+    console.log('  name:', formData.name);
+    console.log('  category:', formData.category);
+    console.log('  visibility:', formData.visibility);
+    console.log('  room:', formData.room);
+    console.log('  equipmentType:', formData.equipmentType);
+    console.log('🎯 Full form data:', JSON.stringify(formData, null, 2));
 
     try {
       setSaving(true);
@@ -423,6 +446,8 @@ function PCClassManagement() {
           category: formData.category,
           capacity: formData.capacity,
           equipment: equipmentArray,
+          
+          visibility: formData.visibility,
           description: formData.description,
           equipmentType: formData.equipmentType,
           room: formData.room || '',
@@ -471,9 +496,12 @@ function PCClassManagement() {
           description: formData.description,
           equipmentType: formData.equipmentType,
           room: formData.room || '',
+          
+          visibility: formData.visibility,
           notes: formData.notes || undefined, // Include notes in create
         };
 
+        console.log('🚀 Sending to API - createData:', JSON.stringify(createData, null, 2));
         const response = await classService.createClass(createData);
         if (response.success) {
           Alert.alert('Success', 'Class created successfully');
@@ -540,20 +568,23 @@ function PCClassManagement() {
         <Calendar
           current={selectedDate}
           onDayPress={(day) => setSelectedDate(day.dateString)}
-          markingType={'multi-dot'}
+          markingType="multi-dot"
           markedDates={markedDates}
           theme={{
             backgroundColor: Colors.light.surface,
             calendarBackground: Colors.light.surface,
+            textSectionTitleColor: Colors.light.text,
             selectedDayBackgroundColor: Colors.light.accent,
-            selectedDayTextColor: Colors.light.textOnAccent,
-            todayTextColor: Colors.light.primary,
+            selectedDayTextColor: Colors.light.background,
+            todayTextColor: '#FFFFFF',
+            todayBackgroundColor: Colors.light.accent,
             dayTextColor: Colors.light.text,
             textDisabledColor: Colors.light.textMuted,
             dotColor: Colors.light.primary,
-            selectedDotColor: Colors.light.textOnAccent,
-            arrowColor: Colors.light.primary,
-            monthTextColor: Colors.light.primary,
+            selectedDotColor: '#FFFFFF',
+            arrowColor: Colors.light.text,
+            disabledArrowColor: Colors.light.textMuted,
+            monthTextColor: Colors.light.text,
             textDayFontSize: isLargeScreen ? 16 : 14,
             textMonthFontSize: isLargeScreen ? 20 : 18,
             textDayHeaderFontSize: isLargeScreen ? 14 : 12,
@@ -576,20 +607,23 @@ function PCClassManagement() {
         <Calendar
           current={selectedDate}
           onDayPress={(day) => setSelectedDate(day.dateString)}
-          markingType={'multi-dot'}
+          markingType="multi-dot"
           markedDates={markedDates}
           theme={{
             backgroundColor: Colors.light.surface,
             calendarBackground: Colors.light.surface,
+            textSectionTitleColor: Colors.light.text,
             selectedDayBackgroundColor: Colors.light.accent,
-            selectedDayTextColor: Colors.light.textOnAccent,
-            todayTextColor: Colors.light.primary,
+            selectedDayTextColor: Colors.light.background,
+            todayTextColor: '#FFFFFF',
+            todayBackgroundColor: Colors.light.accent,
             dayTextColor: Colors.light.text,
             textDisabledColor: Colors.light.textMuted,
             dotColor: Colors.light.primary,
-            selectedDotColor: Colors.light.textOnAccent,
-            arrowColor: Colors.light.primary,
-            monthTextColor: Colors.light.primary,
+            selectedDotColor: '#FFFFFF',
+            arrowColor: Colors.light.text,
+            disabledArrowColor: Colors.light.textMuted,
+            monthTextColor: Colors.light.text,
             textDayFontSize: 14,
             textMonthFontSize: 16,
             textDayHeaderFontSize: 12,
@@ -693,9 +727,9 @@ function PCClassManagement() {
                         />
                         <IconButton
                           icon="delete"
-                          size={20}
+                          size={16}
                           iconColor={Colors.light.error}
-                          onPress={() => handleDeleteClass(Number(classItem.id))}
+                          onPress={() => handleDeleteClass(classItem.id.toString())}
                         />
                       </View>
                     </View>
@@ -849,9 +883,9 @@ function PCClassManagement() {
                         />
                         <IconButton
                           icon="delete"
-                          size={20}
+                          size={16}
                           iconColor={Colors.light.error}
-                          onPress={() => handleDeleteClass(Number(classItem.id))}
+                          onPress={() => handleDeleteClass(classItem.id.toString())}
                         />
                       </View>
                     </View>
@@ -981,7 +1015,7 @@ function PCClassManagement() {
                       icon="delete"
                       size={16}
                       iconColor={Colors.light.error}
-                      onPress={() => handleDeleteClass(Number(classItem.id))}
+                      onPress={() => handleDeleteClass(classItem.id.toString())}
                     />
                   </View>
                 </DataTable.Cell>
@@ -1086,6 +1120,27 @@ function PCClassManagement() {
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  const formatBookingTimestamp = (timestamp: string) => {
+    try {
+      // Create a Date object from the full timestamp
+      const date = new Date(timestamp);
+      
+      // Format for Albania timezone (CET/CEST - UTC+1/UTC+2)
+      return date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: 'Europe/Tirane' // Albania timezone
+      });
+    } catch (error) {
+      console.error('Error formatting booking timestamp:', error);
+      return 'Invalid date';
+    }
   };
 
   const handleClassCardClick = (classItem: BackendClass) => {
@@ -1368,7 +1423,7 @@ function PCClassManagement() {
     }
   };
 
-  const handleDeleteClass = (classId: number) => {
+  const handleDeleteClass = (classId: string) => {
     console.log('🗑️ Delete class button clicked for class ID:', classId);
     
     // For web platform, use browser confirm instead of Alert
@@ -1397,7 +1452,7 @@ function PCClassManagement() {
     );
   };
 
-  const performDeleteClass = async (classId: number) => {
+  const performDeleteClass = async (classId: string) => {
     console.log('🗑️ Delete confirmed for class ID:', classId);
     
     // Debug authentication
@@ -1548,19 +1603,24 @@ function PCClassManagement() {
         </View>
       )}
 
-      {/* Create Class Modal */}
-      <Portal>
-        <Modal 
-          visible={modalVisible} 
-          onDismiss={() => setModalVisible(false)}
-          contentContainerStyle={styles.modalContainer}
-        >
-          <Surface style={styles.modalSurface}>
-            <H2 style={styles.modalTitle}>
-              {editingClass ? 'Edit Class' : 'Create New Class'}
-            </H2>
+      {/* Create Class Modal - Web Optimized */}
+      {modalVisible && (
+        <View style={styles.webModalOverlay}>
+          <View style={styles.webModalContainer}>
+            <View style={styles.webModalSurface}>
+            <View style={styles.webModalHeader}>
+              <H2 style={styles.webModalTitle}>
+                {editingClass ? 'Edit Class' : 'Create New Class'}
+              </H2>
+              <TouchableOpacity 
+                style={styles.webCloseButton}
+                onPress={() => setModalVisible(false)}
+              >
+                <Text style={styles.webCloseButtonText}>✕</Text>
+              </TouchableOpacity>
+            </View>
             
-            <ScrollView style={styles.modalContent}>
+            <ScrollView style={styles.webModalContent} showsVerticalScrollIndicator={true}>
               <TextInput
                 label="Class Name *"
                 value={formData.name}
@@ -1596,7 +1656,7 @@ function PCClassManagement() {
                               'No instructors available' : 
                               (formData.instructorName || 'Select from ' + instructors.length + ' instructor(s)')}
                           </Body>
-                          <Icon source="chevron-down" size={20} color={Colors.light.textSecondary} />
+                          <Icon source="keyboard-arrow-down" size={20} color={Colors.light.textSecondary} />
                         </View>
                       </Pressable>
                     }
@@ -1836,39 +1896,66 @@ function PCClassManagement() {
                 style={styles.input}
                 placeholder="Optional notes for this class..."
               />
+
+              {/* Class Visibility Toggle */}
+              <View style={styles.visibilityContainer}>
+                <View style={styles.visibilityHeader}>
+                  <WebCompatibleIcon 
+                    name={formData.visibility === 'private' ? 'visibility-off' : 'visibility'} 
+                    size={24} 
+                    color={Colors.light.primary} 
+                  />
+                  <View style={styles.visibilityTextContainer}>
+                    <Body style={styles.visibilityTitle}>
+                      {formData.visibility === 'private' ? 'Private Class' : 'Public Class'}
+                    </Body>
+                    <Caption style={styles.visibilityDescription}>
+                      {formData.visibility === 'private' 
+                        ? 'Only visible to reception, instructors, and admin'
+                        : 'Visible to all users including clients'
+                      }
+                    </Caption>
+                  </View>
+                  <Switch
+                    value={formData.visibility === 'private'}
+                    onValueChange={(value) => setFormData({...formData, visibility: value ? 'private' : 'public'})}
+                    thumbColor={formData.visibility === 'private' ? Colors.light.primary : Colors.light.surface}
+                    trackColor={{ false: Colors.light.border, true: Colors.light.secondary }}
+                  />
+                </View>
+              </View>
               
-              <View style={styles.modalActions}>
-                <Button
-                  mode="outlined"
+              <View style={styles.webModalActions}>
+                <TouchableOpacity
+                  style={[styles.webCancelButton, saving && styles.webButtonDisabled]}
                   onPress={() => setModalVisible(false)}
                   disabled={saving}
                 >
-                  Cancel
-                </Button>
+                  <Text style={styles.webCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
                 <View style={styles.modalActionGroup}>
-                  <Button
-                    mode="outlined"
+                  <TouchableOpacity
+                    style={styles.webTemplateButton}
                     onPress={() => setTemplateModalVisible(true)}
-                    style={styles.templateButton}
-                    icon="content-save-outline"
                   >
-                    Templates
-                  </Button>
-                  <Button
-                    mode="contained"
+                    <Text style={styles.webTemplateButtonText}>📝 Templates</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.webSubmitButton, (saving) && styles.webButtonDisabled]}
                     onPress={handleSaveClass}
-                    loading={saving}
                     disabled={saving}
-                    style={styles.modalActionButton}
                   >
-                    {editingClass ? 'Update Class' : 'Create Class'}
-                  </Button>
+                    <Text style={styles.webSubmitButtonText}>
+                      {saving ? 'Processing...' : (editingClass ? 'Update Class' : 'Create Class')}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               </View>
             </ScrollView>
-          </Surface>
-        </Modal>
-      </Portal>
+            </View>
+          </View>
+        </View>
+      )}
 
       {/* Class Bookings Modal */}
       <Portal>
@@ -1891,7 +1978,7 @@ function PCClassManagement() {
                   Instructor: {selectedClassForBookings.instructor_name}
                 </Body>
                 <Body style={styles.classInfoText}>
-                  Level: {selectedClassForBookings.level} • {getEnrollmentCount(selectedClassForBookings.id)}/{selectedClassForBookings.capacity || 0} enrolled
+                  {getEnrollmentCount(selectedClassForBookings.id)}/{selectedClassForBookings.capacity || 0} enrolled
                 </Body>
                 {selectedClassForBookings.notes && (
                   <View style={styles.classNotesModal}>
@@ -1963,7 +2050,7 @@ function PCClassManagement() {
                           </View>
                           <View style={styles.bookingDetails}>
                             <Body style={styles.bookingTime}>
-                              Booked: {formatDate(booking.created_at)} at {formatTime(booking.created_at.split('T')[1]?.split('.')[0] || '')}
+                              Booked: {formatBookingTimestamp(booking.created_at)}
                             </Body>
                             {booking.notes && (
                               <Body style={styles.bookingNotes}>
@@ -2055,7 +2142,7 @@ function PCClassManagement() {
                             Instructor: {template.instructorName}
                           </Body>
                           <Body style={styles.templateDetail}>
-                            Duration: {template.duration}min • Level: {template.level}
+                            Duration: {template.duration}min
                           </Body>
                           <Body style={styles.templateDetail}>
                             Capacity: {template.capacity} • Category: {template.category}
@@ -2148,7 +2235,7 @@ function PCClassManagement() {
                           }}>
                             {selectedClient ? selectedClient.name : (clientSearchQuery ? 'Select from results' : 'Search for client')}
                           </Body>
-                          <Icon source="chevron-down" size={20} color={Colors.light.textSecondary} />
+                          <Icon source="keyboard-arrow-down" size={20} color={Colors.light.textSecondary} />
                         </View>
                       </Pressable>
                     }
@@ -2257,7 +2344,7 @@ function PCClassManagement() {
                           }}>
                             {selectedBookingForCancellation ? (selectedBookingForCancellation.users?.name || selectedBookingForCancellation.client_name || selectedBookingForCancellation.user_name || 'Unknown Client') + ' - ' + selectedBookingForCancellation.status : 'Select booking'}
                           </Body>
-                          <Icon source="chevron-down" size={20} color={Colors.light.textSecondary} />
+                          <Icon source="keyboard-arrow-down" size={20} color={Colors.light.textSecondary} />
                         </View>
                       </Pressable>
                     }
@@ -2613,6 +2700,68 @@ const styles = StyleSheet.create({
     borderRadius: layout.borderRadius,
     backgroundColor: Colors.light.surface,
   },
+  // Web-Optimized Modal Styles
+  webModalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+    paddingHorizontal: spacing.lg,
+  },
+  webModalContainer: {
+    width: '100%',
+    maxWidth: 800, // Optimal width for PC/laptop screens
+    maxHeight: '90%',
+    backgroundColor: 'white',
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 24,
+  },
+  webModalSurface: {
+    padding: spacing.xl,
+    flex: 1,
+  },
+  webModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  webModalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1f2937',
+    flex: 1,
+  },
+  webCloseButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f3f4f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: spacing.md,
+  },
+  webCloseButtonText: {
+    fontSize: 18,
+    color: '#6b7280',
+    fontWeight: 'bold',
+  },
+  webModalContent: {
+    flex: 1,
+    paddingVertical: spacing.md,
+  },
   modalTitle: {
     textAlign: 'center',
     marginBottom: spacing.lg,
@@ -2647,6 +2796,66 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     borderTopWidth: 1,
     borderTopColor: Colors.light.border,
+  },
+  // Web-Optimized Modal Actions
+  webModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: spacing.xl,
+    paddingTop: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    gap: spacing.md,
+  },
+  webCancelButton: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: 8,
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    minWidth: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  webCancelButtonText: {
+    color: '#374151',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  webTemplateButton: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 8,
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    marginRight: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  webTemplateButtonText: {
+    color: '#374151',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  webSubmitButton: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: 8,
+    backgroundColor: '#3b82f6',
+    minWidth: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  webSubmitButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  webButtonDisabled: {
+    opacity: 0.6,
   },
   // Form styling
   dateTimeRow: {
@@ -3091,6 +3300,33 @@ const styles = StyleSheet.create({
     color: Colors.light.textSecondary,
     fontSize: 12,
     marginBottom: spacing.xs,
+  },
+  // Visibility toggle styles
+  visibilityContainer: {
+    marginTop: 16,
+    marginBottom: 16,
+    padding: 16,
+    backgroundColor: Colors.light.background,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+  },
+  visibilityHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  visibilityTextContainer: {
+    flex: 1,
+  },
+  visibilityTitle: {
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  visibilityDescription: {
+    color: Colors.light.textSecondary,
+    fontSize: 12,
+    lineHeight: 16,
   },
 });
 

@@ -436,24 +436,21 @@ class SubscriptionService {
   private async runExpirationCheck(userId: string, today: string): Promise<void> {
     try {
       const now = new Date();
-      const currentHour = now.getHours();
       
-      // During daytime (before 11 PM), only expire subscriptions from yesterday or earlier
-      // After 11 PM, also expire today's subscriptions (so day passes expire at end of day)
-      const cutoffDate = currentHour >= 23 ? today : (() => {
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        return yesterday.toISOString().split('T')[0];
-      })();
+      // Expire all subscriptions that have reached their end_date (including today)
+      // Subscriptions are valid UNTIL the end of their end_date, then expire the next day
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const cutoffDate = yesterday.toISOString().split('T')[0];
 
-      //console.log(`🔄 Running expiration check for user ${userId}. Current time: ${now.toLocaleTimeString()}, looking for subscriptions that ended on or before ${cutoffDate}.`);
+              // Running expiration check
 
       const { data: expiredSubs, error: expiredError } = await supabase
         .from('user_subscriptions')
         .select('id, end_date, subscription_plans:plan_id(name)')
         .eq('user_id', userId)
         .eq('status', 'active')
-        .lte('end_date', cutoffDate);
+        .lt('end_date', today); // Changed from lte to lt - expire subscriptions where end_date < today
       
       if (expiredError) {
         console.error('Error checking for expired subscriptions:', expiredError);
@@ -857,15 +854,16 @@ class SubscriptionService {
               name,
               monthly_price,
               monthly_classes,
-              equipment_access
+              equipment_access,
+              duration,
+              duration_unit
             )
           `)
           .eq('user_id', userId)
           .eq('status', 'active')
-          .gt('end_date', today) // Only future subscriptions (end_date > today)
-          .gt('remaining_classes', 0) // Only subscriptions with classes left
+          .gte('end_date', today) // Include subscriptions that expire today or later
           .order('created_at', { ascending: false })
-          .limit(1);
+          .limit(10); // Get more results to filter properly
 
         if (subscriptionError) {
           console.error('Error checking existing subscriptions:', subscriptionError);
@@ -875,12 +873,37 @@ class SubscriptionService {
           };
         }
 
-        const existingSubscription = existingSubscriptions && existingSubscriptions.length > 0 ? {
-          ...existingSubscriptions[0],
-          plan_name: existingSubscriptions[0].subscription_plans.name,
-          monthly_price: existingSubscriptions[0].subscription_plans.monthly_price,
-          monthly_classes: existingSubscriptions[0].subscription_plans.monthly_classes,
-          equipment_access: existingSubscriptions[0].subscription_plans.equipment_access
+        // Filter subscriptions to find truly active ones
+        // Day passes (duration_unit = 'days') are active if they haven't expired, regardless of remaining classes
+        // Monthly/longer subscriptions need remaining classes > 0 to be considered active
+        // Found existing subscriptions
+        
+        const activeSubscriptions = (existingSubscriptions || []).filter(sub => {
+          const isDayPass = sub.subscription_plans.duration_unit === 'days';
+          // Subscription details processed
+          
+          if (isDayPass) {
+            // Day passes are active as long as they haven't expired (even with 0 remaining classes)
+            // Day pass is active
+            return true; // We already filtered by end_date >= today in the query
+          } else {
+            // Monthly/yearly subscriptions need remaining classes to be considered active
+            const isActive = sub.remaining_classes > 0;
+            // Monthly subscription status processed
+            return isActive;
+          }
+        });
+        
+        // Active subscriptions filtered
+
+        const existingSubscription = activeSubscriptions.length > 0 ? {
+          ...activeSubscriptions[0],
+          plan_name: activeSubscriptions[0].subscription_plans.name,
+          monthly_price: activeSubscriptions[0].subscription_plans.monthly_price,
+          monthly_classes: activeSubscriptions[0].subscription_plans.monthly_classes,
+          equipment_access: activeSubscriptions[0].subscription_plans.equipment_access,
+          duration: activeSubscriptions[0].subscription_plans.duration,
+          duration_unit: activeSubscriptions[0].subscription_plans.duration_unit
         } : null;
 
         if (!existingSubscription) {
@@ -904,43 +927,108 @@ class SubscriptionService {
         const daysRemaining = Math.max(0, Math.ceil((endDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24)));
         const classesRemaining = existingSubscription.remaining_classes || 0;
 
-        // Calculate potential refund (pro-rated)
+        // Calculate potential refund (pro-rated) and pricing adjustments
         const startDate = new Date(existingSubscription.start_date);
         const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
         const refundAmount = totalDays > 0 ? (daysRemaining / totalDays) * existingSubscription.monthly_price : 0;
+        
+        // Calculate pro-rated pricing for upgrades/downgrades
+        const priceDifference = newPlan.monthly_price - existingSubscription.monthly_price;
+        const proRatedPriceDifference = totalDays > 0 ? (daysRemaining / totalDays) * priceDifference : priceDifference;
+        const classDifference = newPlan.monthly_classes - existingSubscription.monthly_classes;
 
         // Analyze plan comparison
         const isUpgrade = newPlan.monthly_price > existingSubscription.monthly_price;
         const isDowngrade = newPlan.monthly_price < existingSubscription.monthly_price;
         const isSamePlan = newPlan.id === existingSubscription.plan_id;
+        
+        // Determine subscription types for better messaging
+        const existingIsDayPass = existingSubscription.duration_unit === 'days';
+        const newIsDayPass = newPlan.duration_unit === 'days';
 
-        // Provide options based on situation
-        const options = [
-          {
-            id: 'replace',
-            name: 'Replace Current Subscription',
-            description: `Cancel existing "${existingSubscription.plan_name}" and start new "${newPlan.name}" immediately`,
-            warning: `Client will lose ${classesRemaining} remaining classes and ${daysRemaining} days`,
-            refundAmount: refundAmount,
-            recommended: isUpgrade
-          },
-          {
-            id: 'queue',
-            name: 'Queue for Next Period',
-            description: `Start new "${newPlan.name}" when current subscription ends on ${endDate.toISOString().split('T')[0]}`,
+        // Provide options based on situation and subscription types
+        const options = [];
+        
+        // Option 1: Replace (always available)
+        options.push({
+          id: 'replace',
+          name: 'Replace Current Subscription',
+          description: `Cancel existing "${existingSubscription.plan_name}" and start new "${newPlan.name}" immediately`,
+          warning: existingIsDayPass && classesRemaining > 0 
+            ? `Client will lose ${classesRemaining} remaining day pass classes`
+            : classesRemaining > 0 
+            ? `Client will lose ${classesRemaining} remaining classes and ${daysRemaining} days`
+            : existingIsDayPass
+            ? `Current day pass will be cancelled (already used)`
+            : `Current subscription will be cancelled`,
+          refundAmount: refundAmount,
+          recommended: isUpgrade || (existingIsDayPass && !newIsDayPass)
+        });
+        
+        // Option 2: Queue (available for most cases, but with smart descriptions)
+        options.push({
+          id: 'queue',
+          name: 'Queue for Next Period',
+          description: newIsDayPass 
+            ? `Add "${newPlan.name}" to be activated when current subscription ends on ${endDate.toISOString().split('T')[0]}`
+            : `Start new "${newPlan.name}" when current subscription ends on ${endDate.toISOString().split('T')[0]}`,
+          warning: newIsDayPass ? 'Day pass will be activated automatically when current subscription ends' : null,
+          refundAmount: 0,
+          recommended: !existingIsDayPass && !newIsDayPass // Most recommended for monthly -> monthly
+        });
+        
+        // Option 3: Smart Upgrade/Downgrade (available for similar subscription types)
+        if (!existingIsDayPass && !newIsDayPass) {
+          if (isUpgrade) {
+            // UPGRADE SCENARIO: 8 classes → 12 classes
+            options.push({
+              id: 'upgrade',
+              name: 'Upgrade Current Subscription',
+              description: `Upgrade from "${existingSubscription.plan_name}" to "${newPlan.name}" immediately`,
+              warning: `Client will pay additional ${Math.abs(proRatedPriceDifference).toFixed(0)} ALL pro-rated for remaining ${daysRemaining} days`,
+              refundAmount: -Math.abs(proRatedPriceDifference), // Negative = client pays
+              paymentRequired: Math.abs(proRatedPriceDifference),
+              classAdjustment: classDifference > 0 ? `+${classDifference} classes` : `${classDifference} classes`,
+              recommended: true
+            });
+          } else if (isDowngrade) {
+            // DOWNGRADE SCENARIO: 12 classes → 8 classes  
+            options.push({
+              id: 'downgrade',
+              name: 'Downgrade Current Subscription',
+              description: `Downgrade from "${existingSubscription.plan_name}" to "${newPlan.name}" immediately`,
+              warning: `Client will receive ${Math.abs(proRatedPriceDifference).toFixed(0)} ALL refund pro-rated for remaining ${daysRemaining} days`,
+              refundAmount: Math.abs(proRatedPriceDifference), // Positive = client gets refund
+              paymentRequired: 0,
+              classAdjustment: classDifference < 0 ? `${classDifference} classes` : `+${classDifference} classes`,
+              recommended: false
+            });
+          } else {
+            // EXTEND/ADD CLASSES: Same price tier
+            options.push({
+              id: 'extend',
+              name: 'Add Classes to Current Subscription',
+              description: `Add ${newPlan.monthly_classes} classes to existing "${existingSubscription.plan_name}" subscription`,
+              warning: null,
+              refundAmount: 0,
+              paymentRequired: newPlan.monthly_price,
+              classAdjustment: `+${newPlan.monthly_classes} classes`,
+              recommended: true
+            });
+          }
+        } else if (!existingIsDayPass && newIsDayPass) {
+          // Monthly subscription + Day pass
+          options.push({
+            id: 'extend',
+            name: 'Add Day Pass as Classes',
+            description: `Add ${newPlan.monthly_classes} classes from "${newPlan.name}" to existing "${existingSubscription.plan_name}" subscription`,
             warning: null,
             refundAmount: 0,
+            paymentRequired: newPlan.monthly_price,
+            classAdjustment: `+${newPlan.monthly_classes} classes`,
             recommended: true
-          },
-          {
-            id: 'extend',
-            name: 'Extend Current Subscription',
-            description: `Add ${newPlan.monthly_classes} classes to existing "${existingSubscription.plan_name}" subscription`,
-            warning: isDowngrade ? 'This is a downgrade - client will pay less but get fewer benefits' : null,
-            refundAmount: 0,
-            recommended: !isDowngrade && !isSamePlan
-          }
-        ];
+          });
+        }
 
         return {
           success: true,
@@ -958,8 +1046,21 @@ class SubscriptionService {
               endDate: existingSubscription.end_date,
               equipmentAccess: existingSubscription.equipment_access
             },
+            comparison: {
+              isUpgrade,
+              isDowngrade,
+              isSamePlan,
+              priceDifference: newPlan.monthly_price - existingSubscription.monthly_price,
+              classDifference: newPlan.monthly_classes - existingSubscription.monthly_classes
+            },
             options: options,
-            message: 'User has existing subscription. Please choose an option.'
+            message: existingIsDayPass && newIsDayPass 
+              ? 'Client has an active day pass. Please choose how to handle the existing day pass.'
+              : existingIsDayPass && !newIsDayPass
+              ? 'Client has an active day pass and wants to purchase a monthly subscription. Please choose an option.'
+              : !existingIsDayPass && newIsDayPass
+              ? `Client has an active monthly subscription "${existingSubscription.plan_name}" and wants to add a day pass. Please choose an option.`
+              : 'Client has an existing subscription. Please choose an option.'
           }
         };
       }
@@ -982,11 +1083,11 @@ class SubscriptionService {
     userId: string | number, 
     planId: string | number, 
     notes?: string, // Added notes parameter
-    action?: 'new' | 'extend' | 'queue' | 'replace'
+    action?: 'new' | 'extend' | 'queue' | 'replace' | 'upgrade' | 'downgrade'
   ): Promise<ApiResponse<any>> {
     try {
       if (this.useSupabase()) {
-        //console.log(`🚀 Assigning subscription for user ${userId}, plan ${planId} with action: ${action}`);
+        // Assigning subscription
         
         // Step 1: Get all necessary details (plan, user, existing subscription)
         const { data: plan, error: planError } = await supabase
@@ -1082,6 +1183,278 @@ class SubscriptionService {
         }
         
         return { success: true, data: { operationType: 'extended', classesAdded: plan.monthly_classes, paymentAmount: plan.monthly_price, subscription: data } };
+        }
+
+        // --- ACTION: UPGRADE ---
+        // This action upgrades the existing subscription plan, handling different upgrade types
+        if (action === 'upgrade' && existingSubscription) {
+          // Get existing plan details to understand the upgrade type
+          const existingPlan = await supabase
+            .from('subscription_plans')
+            .select('monthly_classes, duration, duration_unit, monthly_price')
+            .eq('id', existingSubscription.plan_id)
+            .single();
+
+          if (existingPlan.error || !existingPlan.data) {
+            return { success: false, error: 'Could not find existing plan details' };
+          }
+
+          const existingPlanData = existingPlan.data;
+          
+          // Determine upgrade type:
+          // 1. Class upgrade: same duration, more classes per month (1M/12 → 1M/20)
+          // 2. Duration upgrade: longer duration, same classes per month (1M/20 → 3M/20)
+          // 3. Both upgrade: longer duration AND more classes per month (1M/12 → 3M/20)
+          
+          const isClassUpgrade = existingPlanData.monthly_classes < plan.monthly_classes;
+          const isDurationUpgrade = existingPlanData.duration < plan.duration;
+          
+          let finalRemainingClasses;
+          let upgradedEndDate = existingSubscription.end_date; // Default to existing end date
+
+          if (isDurationUpgrade && !isClassUpgrade) {
+            // DURATION UPGRADE: 1M/20 → 3M/20 (extend subscription, keep same classes)
+            // Keep existing remaining classes, extend the end date
+            finalRemainingClasses = existingSubscription.remaining_classes;
+            
+            // Calculate new end date based on plan duration
+            const currentEndDate = new Date(existingSubscription.end_date);
+            if (plan.duration_unit === 'months') {
+              currentEndDate.setMonth(currentEndDate.getMonth() + (plan.duration - existingPlanData.duration));
+            } else if (plan.duration_unit === 'days') {
+              currentEndDate.setDate(currentEndDate.getDate() + (plan.duration - existingPlanData.duration));
+            }
+            upgradedEndDate = currentEndDate.toISOString().split('T')[0];
+            
+          } else if (isClassUpgrade && !isDurationUpgrade) {
+            // CLASS UPGRADE: 1M/8 → 1M/12 (more classes, same duration)  
+            // Calculate how many classes the user has already used from their original plan
+            const usedClasses = existingPlanData.monthly_classes - existingSubscription.remaining_classes;
+            // New remaining = new plan total - classes already used
+            finalRemainingClasses = Math.max(0, plan.monthly_classes - usedClasses);
+            // Class upgrade processed
+            
+          } else if (isClassUpgrade && isDurationUpgrade) {
+            // BOTH UPGRADE: 1M/12 → 3M/20 (more classes AND longer duration)
+            const usedClasses = existingPlanData.monthly_classes - existingSubscription.remaining_classes;
+            finalRemainingClasses = Math.max(0, plan.monthly_classes - usedClasses);
+            // Both upgrade processed
+            
+            // Also extend the end date
+            const currentEndDate = new Date(existingSubscription.end_date);
+            if (plan.duration_unit === 'months') {
+              currentEndDate.setMonth(currentEndDate.getMonth() + (plan.duration - existingPlanData.duration));
+            } else if (plan.duration_unit === 'days') {
+              currentEndDate.setDate(currentEndDate.getDate() + (plan.duration - existingPlanData.duration));
+            }
+            upgradedEndDate = currentEndDate.toISOString().split('T')[0];
+            
+          } else {
+            // No upgrade? This shouldn't happen
+            return { success: false, error: 'Invalid upgrade: new plan is not better than existing plan' };
+          }
+
+          // Update the existing subscription with new plan and calculated values
+          const { data, error } = await supabase
+            .from('user_subscriptions')
+            .update({ 
+              plan_id: planId,
+              end_date: upgradedEndDate,
+              remaining_classes: finalRemainingClasses, 
+              updated_at: new Date().toISOString() 
+            })
+            .eq('id', existingSubscription.id)
+            .select()
+            .single();
+
+          if (error) throw new Error(`Failed to upgrade subscription: ${error.message}`);
+
+          // Create payment record for upgrade
+          const generateUUID = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+          });
+
+          try {
+            const existingPlanPrice = existingPlanData.monthly_price || 0;
+            const newPlanPrice = plan.monthly_price || 0;
+            const priceDifference = newPlanPrice - existingPlanPrice;
+            // Payment calculation processed
+            // Plan objects processed
+            
+            // Ensure we have a valid amount (never null or undefined)
+            const paymentAmount = Math.max(0, Math.abs(priceDifference) || 0);
+            // Final payment amount calculated
+            
+            // Skip payment record creation if amount is 0 (no price difference)
+            if (paymentAmount === 0) {
+              // Skipping payment record - no price difference
+            } else {
+            
+            const { data: payment, error: paymentError } = await supabase
+              .from('payments')
+              .insert({
+                user_id: userId,
+                subscription_id: generateUUID(),
+                amount: paymentAmount, // Ensure this is never null
+                payment_method: 'manual',
+                status: 'completed',
+                payment_date: new Date().toISOString().split('T')[0]
+              })
+              .select()
+              .single();
+
+              if (paymentError) {
+                console.error('❌ Failed to create payment record for upgrade:', paymentError);
+              } else {
+                // Payment record created successfully for upgrade
+              }
+            }
+          } catch (paymentError) {
+            console.error('❌ Payment creation error for upgrade:', paymentError);
+          }
+          
+          // Send notification for subscription upgrade
+          try {
+            let upgradeMessage;
+            if (isDurationUpgrade && !isClassUpgrade) {
+              upgradeMessage = `Upgraded to ${plan.name}. Subscription extended, remaining classes: ${finalRemainingClasses}`;
+            } else if (isClassUpgrade && !isDurationUpgrade) {
+              const usedClasses = existingPlanData.monthly_classes - existingSubscription.remaining_classes;
+              upgradeMessage = `Upgraded to ${plan.name}. Remaining classes: ${finalRemainingClasses} (${usedClasses} already used)`;
+            } else {
+              const usedClasses = existingPlanData.monthly_classes - existingSubscription.remaining_classes;
+              upgradeMessage = `Upgraded to ${plan.name}. Extended duration and updated classes: ${finalRemainingClasses} (${usedClasses} already used)`;
+            }
+            
+            await supabaseNotificationService.createSubscriptionUpdateNotification(
+              userId.toString(),
+              'extended', // Use 'extended' instead of 'upgraded' to match allowed types
+              upgradeMessage,
+              'Reception Staff'
+            );
+          } catch (notificationError) {
+            console.error('❌ Failed to send upgrade notification:', notificationError);
+          }
+        
+          return { 
+            success: true, 
+            data: { 
+              operationType: 'upgraded', 
+              upgradeType: isDurationUpgrade && !isClassUpgrade ? 'duration' : 
+                          isClassUpgrade && !isDurationUpgrade ? 'classes' : 'both',
+              previousPlan: existingSubscription.plan_name,
+              newPlan: plan.name,
+              newEndDate: upgradedEndDate,
+              newRemainingClasses: finalRemainingClasses,
+              paymentAmount: Math.abs(plan.monthly_price - existingPlanData.monthly_price),
+              subscription: data 
+            } 
+          };
+        }
+
+        // --- ACTION: DOWNGRADE ---
+        // This action downgrades the existing subscription plan, preserving used classes and calculating refund
+        if (action === 'downgrade' && existingSubscription) {
+          // Get existing plan details to understand the downgrade
+          const existingPlan = await supabase
+            .from('subscription_plans')
+            .select('monthly_classes, duration, duration_unit, monthly_price')
+            .eq('id', existingSubscription.plan_id)
+            .single();
+
+          if (existingPlan.error || !existingPlan.data) {
+            return { success: false, error: 'Could not find existing plan details' };
+          }
+
+          const existingPlanData = existingPlan.data;
+          
+          // Calculate used classes and new remaining classes
+          const usedClasses = existingPlanData.monthly_classes - existingSubscription.remaining_classes;
+          const finalRemainingClasses = Math.max(0, plan.monthly_classes - usedClasses);
+          
+          // Class downgrade processed
+
+          // Update the existing subscription with new plan and calculated values
+          const { data, error } = await supabase
+            .from('user_subscriptions')
+            .update({ 
+              plan_id: planId,
+              remaining_classes: finalRemainingClasses, 
+              updated_at: new Date().toISOString() 
+            })
+            .eq('id', existingSubscription.id)
+            .select()
+            .single();
+
+          if (error) throw new Error(`Failed to downgrade subscription: ${error.message}`);
+
+          // Calculate refund amount (pro-rated for remaining days)
+          const endDate = new Date(existingSubscription.end_date);
+          const todayDate = new Date();
+          const daysRemaining = Math.max(0, Math.ceil((endDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24)));
+          const startDate = new Date(existingSubscription.start_date);
+          const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+          
+          const priceDifference = existingPlanData.monthly_price - plan.monthly_price;
+          const refundAmount = totalDays > 0 ? (daysRemaining / totalDays) * priceDifference : priceDifference;
+          
+          // Refund calculation processed
+
+          // Create negative payment record for refund (if refund amount > 0)
+          if (refundAmount > 0) {
+            const generateUUID = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+              var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+              return v.toString(16);
+            });
+
+            try {
+              const { data: payment, error: paymentError } = await supabase
+                .from('payments')
+                .insert({
+                  user_id: userId,
+                  subscription_id: generateUUID(),
+                  amount: -Math.abs(refundAmount), // Negative amount for refund
+                  payment_method: 'refund',
+                  status: 'completed',
+                  payment_date: new Date().toISOString().split('T')[0]
+                })
+                .select()
+                .single();
+
+              if (paymentError) {
+                console.error('❌ Failed to create refund record for downgrade:', paymentError);
+              }
+            } catch (paymentError) {
+              console.error('❌ Refund creation error for downgrade:', paymentError);
+            }
+          }
+          
+          // Send notification for subscription downgrade
+          try {
+            const downgradeMessage = `Downgraded to ${plan.name}. Remaining classes: ${finalRemainingClasses} (${usedClasses} already used)${refundAmount > 0 ? `. Refund: ${refundAmount.toFixed(0)} ALL` : ''}`;
+            
+            await supabaseNotificationService.createSubscriptionUpdateNotification(
+              userId.toString(),
+              'extended', // Use 'extended' type for downgrade notifications too
+              downgradeMessage,
+              'Reception Staff'
+            );
+          } catch (notificationError) {
+            console.error('❌ Failed to send downgrade notification:', notificationError);
+          }
+        
+          return { 
+            success: true, 
+            data: { 
+              operationType: 'downgraded',
+              previousPlan: existingSubscription.plan_name,
+              newPlan: plan.name,
+              newRemainingClasses: finalRemainingClasses,
+              refundAmount: Math.max(0, refundAmount),
+              subscription: data 
+            } 
+          };
         }
 
         // --- ACTION: QUEUE, REPLACE, OR NEW ---

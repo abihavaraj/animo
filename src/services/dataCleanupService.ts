@@ -24,23 +24,29 @@ class DataCleanupService {
     try {
       devLog(`🧹 Cleaning up classes older than ${options.daysOld} days...`);
       
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - options.daysOld);
-      const cutoffISO = cutoffDate.toISOString().split('T')[0];
+      let query = supabase.from('classes').delete();
       
-      let query = supabase
-        .from('classes')
-        .delete()
-        .lt('date', cutoffISO);
-      
-      // Add user filter if specified
+      // Add user filter if specified (for instructor classes)
       if (options.userId) {
         query = query.eq('instructor_id', options.userId);
       }
       
-      // Add status filter if specified
-      if (options.status) {
-        query = query.eq('status', options.status);
+      // If daysOld is 0, delete ALL data for the user
+      if (options.daysOld === 0) {
+        devLog(`🔥 Deleting ALL class data for user (0 days specified)`);
+        // No additional filters - delete everything for this user
+      } else {
+        // Normal date-based cleanup
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - options.daysOld);
+        const cutoffISO = cutoffDate.toISOString().split('T')[0];
+        
+        query = query.lt('date', cutoffISO);
+        
+        // Add status filter if specified
+        if (options.status) {
+          query = query.eq('status', options.status);
+        }
       }
       
       const { error, count } = await query;
@@ -66,18 +72,24 @@ class DataCleanupService {
     try {
       devLog(`🧹 Cleaning up notifications older than ${options.daysOld} days...`);
       
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - options.daysOld);
-      const cutoffISO = cutoffDate.toISOString();
-      
-      let query = supabase
-        .from('notifications')
-        .delete()
-        .lt('created_at', cutoffISO);
+      let query = supabase.from('notifications').delete();
       
       // Add user filter if specified
       if (options.userId) {
         query = query.eq('user_id', options.userId);
+      }
+      
+      // If daysOld is 0, delete ALL data for the user
+      if (options.daysOld === 0) {
+        devLog(`🔥 Deleting ALL notification data for user (0 days specified)`);
+        // No additional filters - delete everything for this user
+      } else {
+        // Normal date-based cleanup
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - options.daysOld);
+        const cutoffISO = cutoffDate.toISOString();
+        
+        query = query.lt('created_at', cutoffISO);
       }
       
       const { error, count } = await query;
@@ -110,28 +122,34 @@ class DataCleanupService {
         return { success: true, deletedCount: 0 }; // Return success but 0 deleted
       }
       
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - options.daysOld);
-      const dateColumn = this.getDateColumnForTable('bookings'); // booking_date
-      
-      // Use appropriate date format
-      const cutoffValue = dateColumn === 'booking_date' 
-        ? cutoffDate.toISOString().split('T')[0] 
-        : cutoffDate.toISOString();
-      
-      let query = supabase
-        .from('bookings')
-        .delete()
-        .lt(dateColumn, cutoffValue);
+      let query = supabase.from('bookings').delete();
       
       // Add user filter if specified
       if (options.userId) {
         query = query.eq('user_id', options.userId);
       }
       
-      // Add status filter if specified
-      if (options.status) {
-        query = query.eq('status', options.status);
+      // If daysOld is 0, delete ALL data for the user
+      if (options.daysOld === 0) {
+        devLog(`🔥 Deleting ALL booking data for user (0 days specified)`);
+        // No additional filters - delete everything for this user
+      } else {
+        // Normal date-based cleanup
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - options.daysOld);
+        const dateColumn = this.getDateColumnForTable('bookings'); // booking_date
+        
+        // Use appropriate date format
+        const cutoffValue = dateColumn === 'booking_date' 
+          ? cutoffDate.toISOString().split('T')[0] 
+          : cutoffDate.toISOString();
+        
+        query = query.lt(dateColumn, cutoffValue);
+        
+        // Add status filter if specified
+        if (options.status) {
+          query = query.eq('status', options.status);
+        }
       }
       
       const { error, count } = await query;
@@ -164,19 +182,25 @@ class DataCleanupService {
         return { success: true, deletedCount: 0 };
       }
       
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - options.daysOld);
-      const dateColumn = this.getDateColumnForTable('payments'); // created_at
-      const cutoffISO = cutoffDate.toISOString();
-      
-      let query = supabase
-        .from('payments')
-        .delete()
-        .lt(dateColumn, cutoffISO);
+      let query = supabase.from('payments').delete();
       
       // Add user filter if specified
       if (options.userId) {
         query = query.eq('user_id', options.userId);
+      }
+      
+      // If daysOld is 0, delete ALL data for the user
+      if (options.daysOld === 0) {
+        devLog(`🔥 Deleting ALL payment data for user (0 days specified)`);
+        // No additional filters - delete everything for this user
+      } else {
+        // Normal date-based cleanup
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - options.daysOld);
+        const dateColumn = this.getDateColumnForTable('payments'); // created_at
+        const cutoffISO = cutoffDate.toISOString();
+        
+        query = query.lt(dateColumn, cutoffISO);
       }
       
       const { error, count } = await query;
@@ -209,20 +233,25 @@ class DataCleanupService {
         return { success: true, deletedCount: 0 };
       }
       
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - options.daysOld);
-      const dateColumn = this.getDateColumnForTable('user_subscriptions'); // end_date
-      const cutoffValue = cutoffDate.toISOString().split('T')[0]; // Use date format for end_date
-      
-      let query = supabase
-        .from('user_subscriptions')
-        .delete()
-        .lt(dateColumn, cutoffValue)
-        .eq('status', 'expired'); // Only delete expired subscriptions
+      let query = supabase.from('user_subscriptions').delete();
       
       // Add user filter if specified
       if (options.userId) {
         query = query.eq('user_id', options.userId);
+      }
+      
+      // If daysOld is 0, delete ALL data for the user (ignore date and status filters)
+      if (options.daysOld === 0) {
+        devLog(`🔥 Deleting ALL subscription data for user (0 days specified)`);
+        // No additional filters - delete everything for this user
+      } else {
+        // Normal date-based cleanup with status filter
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - options.daysOld);
+        const dateColumn = this.getDateColumnForTable('user_subscriptions'); // end_date
+        const cutoffValue = cutoffDate.toISOString().split('T')[0]; // Use date format for end_date
+        
+        query = query.lt(dateColumn, cutoffValue).eq('status', 'expired'); // Only delete expired subscriptions
       }
       
       const { error, count } = await query;
@@ -255,19 +284,25 @@ class DataCleanupService {
         return { success: true, deletedCount: 0 };
       }
       
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - options.daysOld);
-      const dateColumn = this.getDateColumnForTable('waitlist'); // created_at
-      const cutoffISO = cutoffDate.toISOString();
-      
-      let query = supabase
-        .from('waitlist')
-        .delete()
-        .lt(dateColumn, cutoffISO);
+      let query = supabase.from('waitlist').delete();
       
       // Add user filter if specified
       if (options.userId) {
         query = query.eq('user_id', options.userId);
+      }
+      
+      // If daysOld is 0, delete ALL data for the user
+      if (options.daysOld === 0) {
+        devLog(`🔥 Deleting ALL waitlist data for user (0 days specified)`);
+        // No additional filters - delete everything for this user
+      } else {
+        // Normal date-based cleanup
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - options.daysOld);
+        const dateColumn = this.getDateColumnForTable('waitlist'); // created_at
+        const cutoffISO = cutoffDate.toISOString();
+        
+        query = query.lt(dateColumn, cutoffISO);
       }
       
       const { error, count } = await query;
@@ -291,7 +326,7 @@ class DataCleanupService {
    */
   async cleanupOldUsers(options: CleanupOptions): Promise<CleanupResult> {
     try {
-      devLog(`🧹 Cleaning up inactive users older than ${options.daysOld} days...`);
+      devLog(`🧹 Cleaning up users older than ${options.daysOld} days...`);
       
       // Check if users table exists
       const testQuery = await supabase.from('users').select('id', { count: 'exact', head: true }).limit(1);
@@ -300,21 +335,34 @@ class DataCleanupService {
         return { success: true, deletedCount: 0 };
       }
       
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - options.daysOld);
-      const dateColumn = this.getDateColumnForTable('users'); // created_at
-      const cutoffISO = cutoffDate.toISOString();
-      
-      // Only delete inactive users to prevent accidental deletion of active accounts
-      let query = supabase
-        .from('users')
-        .delete()
-        .lt(dateColumn, cutoffISO)
-        .eq('status', 'inactive'); // Only delete inactive users
+      let query = supabase.from('users').delete();
       
       // Add user filter if specified (for specific user cleanup)
       if (options.userId) {
         query = query.eq('id', options.userId);
+      }
+      
+      // If daysOld is 0, delete ALL data (use with extreme caution!)
+      if (options.daysOld === 0) {
+        devLog(`🔥 WARNING: Deleting ALL user data (0 days specified) - USE WITH EXTREME CAUTION!`);
+        // When cleaning specific user, no additional filters
+        // When cleaning all users, add safety filter to only delete clients to prevent admin deletion
+        if (!options.userId) {
+          query = query.eq('role', 'client'); // Safety: only delete client users in bulk cleanup
+        }
+      } else {
+        // Normal date-based cleanup with safety filters
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - options.daysOld);
+        const dateColumn = this.getDateColumnForTable('users'); // created_at
+        const cutoffISO = cutoffDate.toISOString();
+        
+        query = query.lt(dateColumn, cutoffISO);
+        
+        // Safety filters for normal cleanup
+        if (!options.userId) {
+          query = query.eq('status', 'inactive').eq('role', 'client'); // Only delete inactive client users in bulk
+        }
       }
       
       const { error, count } = await query;
@@ -324,7 +372,7 @@ class DataCleanupService {
         return { success: false, deletedCount: 0, error: error.message };
       }
       
-      devLog(`✅ Successfully deleted ${count || 0} old inactive users`);
+      devLog(`✅ Successfully deleted ${count || 0} users`);
       return { success: true, deletedCount: count || 0 };
       
     } catch (error) {
@@ -338,7 +386,7 @@ class DataCleanupService {
    */
   async cleanupOldPlans(options: CleanupOptions): Promise<CleanupResult> {
     try {
-      devLog(`🧹 Cleaning up old subscription plans older than ${options.daysOld} days...`);
+      devLog(`🧹 Cleaning up subscription plans older than ${options.daysOld} days...`);
       
       // Check if subscription_plans table exists
       const testQuery = await supabase.from('subscription_plans').select('id', { count: 'exact', head: true }).limit(1);
@@ -347,17 +395,22 @@ class DataCleanupService {
         return { success: true, deletedCount: 0 };
       }
       
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - options.daysOld);
-      const dateColumn = this.getDateColumnForTable('subscription_plans'); // created_at
-      const cutoffISO = cutoffDate.toISOString();
+      let query = supabase.from('subscription_plans').delete();
       
-      // Only delete inactive plans
-      let query = supabase
-        .from('subscription_plans')
-        .delete()
-        .lt(dateColumn, cutoffISO)
-        .eq('is_active', false); // Only delete inactive plans
+      // If daysOld is 0, delete ALL plans (use with caution!)
+      if (options.daysOld === 0) {
+        devLog(`🔥 WARNING: Deleting ALL subscription plans (0 days specified) - USE WITH CAUTION!`);
+        // For safety, still only delete inactive plans in bulk cleanup to avoid breaking active subscriptions
+        query = query.eq('is_active', false);
+      } else {
+        // Normal date-based cleanup
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - options.daysOld);
+        const dateColumn = this.getDateColumnForTable('subscription_plans'); // created_at
+        const cutoffISO = cutoffDate.toISOString();
+        
+        query = query.lt(dateColumn, cutoffISO).eq('is_active', false); // Only delete inactive plans
+      }
       
       const { error, count } = await query;
       
@@ -366,7 +419,7 @@ class DataCleanupService {
         return { success: false, deletedCount: 0, error: error.message };
       }
       
-      devLog(`✅ Successfully deleted ${count || 0} old subscription plans`);
+      devLog(`✅ Successfully deleted ${count || 0} subscription plans`);
       return { success: true, deletedCount: count || 0 };
       
     } catch (error) {
@@ -402,6 +455,99 @@ class DataCleanupService {
   }
   
   /**
+   * Clean up client-related data (notes, documents, activities, etc.)
+   */
+  async cleanupClientData(options: CleanupOptions): Promise<CleanupResult> {
+    try {
+      devLog(`🧹 Cleaning up client data older than ${options.daysOld} days...`);
+      
+      if (!options.userId) {
+        return { success: false, deletedCount: 0, error: 'User ID required for client data cleanup' };
+      }
+      
+      let totalDeleted = 0;
+      const clientTables = [
+        'client_notes',
+        'client_documents', 
+        'client_activity_log',
+        'client_lifecycle',
+        'client_medical_updates',
+        'client_progress_assessments',
+        'client_progress_photos',
+        'instructor_client_assignments',
+        'manual_credits',
+        'notification_settings',
+        'push_tokens'
+      ];
+      
+      for (const tableName of clientTables) {
+        try {
+          // Check if table exists
+          const testQuery = await supabase.from(tableName).select('id', { count: 'exact', head: true }).limit(1);
+          if (testQuery.error) {
+            devLog(`⚠️ Table ${tableName} not accessible: ${testQuery.error.message}`);
+            continue;
+          }
+          
+          let query = supabase.from(tableName).delete();
+          
+          // Different user ID columns for different tables
+          const userIdColumn = this.getUserIdColumnForTable(tableName);
+          query = query.eq(userIdColumn, options.userId);
+          
+          // If daysOld is 0, delete ALL data for the user
+          if (options.daysOld !== 0) {
+            // Apply date filter for normal cleanup
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - options.daysOld);
+            const dateColumn = this.getDateColumnForTable(tableName);
+            const cutoffISO = cutoffDate.toISOString();
+            
+            query = query.lt(dateColumn, cutoffISO);
+          }
+          
+          const { error, count } = await query;
+          
+          if (!error && count) {
+            totalDeleted += count;
+            devLog(`✅ Deleted ${count} records from ${tableName}`);
+          }
+        } catch (error) {
+          devLog(`⚠️ Error cleaning ${tableName}:`, error);
+        }
+      }
+      
+      devLog(`✅ Successfully deleted ${totalDeleted} client data records`);
+      return { success: true, deletedCount: totalDeleted };
+      
+    } catch (error) {
+      devLog('❌ Exception in cleanupClientData:', error);
+      return { success: false, deletedCount: 0, error: 'Failed to cleanup client data' };
+    }
+  }
+
+  /**
+   * Get the correct user ID column name for a table
+   */
+  private getUserIdColumnForTable(tableName: string): string {
+    const userIdColumnMap: { [key: string]: string } = {
+      'client_notes': 'client_id',
+      'client_documents': 'client_id',
+      'client_activity_log': 'client_id',
+      'client_lifecycle': 'client_id',
+      'client_medical_updates': 'client_id',
+      'client_progress_assessments': 'client_id',
+      'client_progress_photos': 'client_id',
+      'instructor_client_assignments': 'client_id',
+      'manual_credits': 'user_id',
+      'notification_settings': 'user_id',
+      'push_tokens': 'user_id'
+    };
+    
+    return userIdColumnMap[tableName] || 'user_id';
+  }
+
+  /**
    * Clean up all data for a specific user
    */
   async cleanupUserData(userId: string, daysOld: number): Promise<{
@@ -411,6 +557,7 @@ class DataCleanupService {
     payments: CleanupResult;
     subscriptions: CleanupResult;
     waitlist: CleanupResult;
+    clientData: CleanupResult;
     totalDeleted: number;
   }> {
     devLog(`🧹 Cleaning up all data for user ${userId} older than ${daysOld} days...`);
@@ -423,14 +570,16 @@ class DataCleanupService {
       notificationsResult,
       paymentsResult,
       subscriptionsResult,
-      waitlistResult
+      waitlistResult,
+      clientDataResult
     ] = await Promise.all([
       this.cleanupOldClasses(options),
       this.cleanupOldBookings(options),
       this.cleanupOldNotifications(options),
       this.cleanupOldPayments(options),
       this.cleanupOldSubscriptions(options),
-      this.cleanupOldWaitlist(options)
+      this.cleanupOldWaitlist(options),
+      this.cleanupClientData(options)
     ]);
     
     const totalDeleted = 
@@ -439,7 +588,8 @@ class DataCleanupService {
       notificationsResult.deletedCount +
       paymentsResult.deletedCount +
       subscriptionsResult.deletedCount +
-      waitlistResult.deletedCount;
+      waitlistResult.deletedCount +
+      clientDataResult.deletedCount;
     
     devLog(`🎯 User cleanup completed. Total deleted: ${totalDeleted} records`);
     
@@ -450,6 +600,7 @@ class DataCleanupService {
       payments: paymentsResult,
       subscriptions: subscriptionsResult,
       waitlist: waitlistResult,
+      clientData: clientDataResult,
       totalDeleted
     };
   }
@@ -468,7 +619,18 @@ class DataCleanupService {
       'user_subscriptions': 'end_date',
       'waitlist': 'created_at',
       'users': 'created_at',
-      'subscription_plans': 'created_at'
+      'subscription_plans': 'created_at',
+      'client_notes': 'created_at',
+      'client_documents': 'created_at',
+      'client_activity_log': 'created_at',
+      'client_lifecycle': 'created_at',
+      'client_medical_updates': 'created_at',
+      'client_progress_assessments': 'created_at',
+      'client_progress_photos': 'created_at',
+      'instructor_client_assignments': 'created_at',
+      'manual_credits': 'created_at',
+      'notification_settings': 'created_at',
+      'push_tokens': 'created_at'
     };
     
     return dateColumnMap[tableName] || 'created_at';

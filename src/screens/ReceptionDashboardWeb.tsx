@@ -3,7 +3,6 @@ import { ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text, TouchableO
 import { Modal, Portal, TextInput } from 'react-native-paper';
 import { useSelector } from 'react-redux';
 import WebCompatibleIcon from '../components/WebCompatibleIcon';
-import { NotificationSettings } from '../services/notificationService';
 import { unifiedApiService } from '../services/unifiedApi';
 import { RootState, useAppDispatch } from '../store';
 import { logoutUser } from '../store/authSlice';
@@ -122,8 +121,24 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
     totalClients: 0,
     todayClasses: 0,
     pendingBookings: 0,
-    activeSubscriptions: 0
+    activeSubscriptions: 0,
+    subscriptionsEndingSoon: 0
   });
+  const [additionalStats, setAdditionalStats] = useState({
+    upcomingClasses: 0,
+    waitlistCount: 0,
+    recentBookings: 0,
+    instructorCount: 0
+  });
+  const [classMetrics, setClassMetrics] = useState({
+    todayClasses: [] as any[],
+    tomorrowClasses: [] as any[],
+    thisWeekClasses: [] as any[],
+    waitlistToday: [] as any[],
+    fullClassesToday: [] as any[]
+  });
+  const [activeClassFilter, setActiveClassFilter] = useState<'today' | 'tomorrow' | 'week'>('today');
+  const [lastUpdateTime, setLastUpdateTime] = useState<Date>(new Date());
   const [recentActivity, setRecentActivity] = useState<any[]>([]);
   const [allActivities, setAllActivities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -145,6 +160,14 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
   const [hasMoreActivities, setHasMoreActivities] = useState(false);
   const [loadingMoreActivities, setLoadingMoreActivities] = useState(false);
 
+  // Client modal states
+  const [clientModalVisible, setClientModalVisible] = useState(false);
+  const [selectedClass, setSelectedClass] = useState<any>(null);
+  const [subscriptionsEndingModalVisible, setSubscriptionsEndingModalVisible] = useState(false);
+  const [subscriptionsEndingSoon, setSubscriptionsEndingSoon] = useState<any[]>([]);
+  const [activeSubscriptionsModalVisible, setActiveSubscriptionsModalVisible] = useState(false);
+  const [activeSubscriptionsList, setActiveSubscriptionsList] = useState<any[]>([]);
+
   useEffect(() => {
     loadDashboardData();
     
@@ -154,29 +177,120 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
     }, 2 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Helper function to fetch subscriptions with proper user and plan data joins
+  const getSubscriptionsWithUserData = async () => {
+    try {
+      const { supabase } = require('../config/supabase.config');
+      
+      // Try the simple join first
+      let { data, error } = await supabase
+        .from('user_subscriptions')
+        .select(`
+          *,
+          users(id, name, email),
+          subscription_plans(id, name, description, monthly_price, monthly_classes, equipment_access)
+        `)
+        .order('created_at', { ascending: false });
+
+      // If the join fails, fetch data separately and manually join
+      if (error && error.message.includes('relationship')) {
+        console.log('🔄 Join failed, fetching data separately and joining manually...');
+        
+        // Fetch subscriptions
+        const { data: subscriptions, error: subError } = await supabase
+          .from('user_subscriptions')
+          .select('*')
+          .order('created_at', { ascending: false });
+          
+        if (subError) {
+          console.error('❌ Error fetching subscriptions:', subError);
+          return { success: false, error: subError.message };
+        }
+
+        // Fetch users
+        const { data: users, error: usersError } = await supabase
+          .from('users')
+          .select('id, name, email, first_name, last_name');
+          
+        if (usersError) {
+          console.error('❌ Error fetching users:', usersError);
+          return { success: false, error: usersError.message };
+        }
+
+        // Fetch subscription plans
+        const { data: plans, error: plansError } = await supabase
+          .from('subscription_plans')
+          .select('id, name, description, monthly_price, monthly_classes, equipment_access');
+          
+        if (plansError) {
+          console.error('❌ Error fetching subscription plans:', plansError);
+          return { success: false, error: plansError.message };
+        }
+
+        // Manually join the data
+        data = subscriptions.map(subscription => {
+          const user = users.find(u => u.id === subscription.user_id);
+          const plan = plans.find(p => p.id === subscription.plan_id);
+          
+          return {
+            ...subscription,
+            users: user,
+            subscription_plans: plan
+          };
+        });
+        
+        console.log('✅ Successfully fetched and joined subscription data manually:', data?.length || 0, 'records');
+      } else if (error) {
+        console.error('❌ Error fetching subscriptions with user data:', error);
+        return { success: false, error: error.message };
+      } else {
+        console.log('✅ Successfully fetched subscriptions with user data via join:', data?.length || 0, 'records');
+      }
+
+      return { success: true, data: data || [] };
+    } catch (error) {
+      console.error('❌ Exception fetching subscriptions with user data:', error);
+      return { success: false, error: error.message };
+    }
+  };
   
   const loadDashboardData = async () => {
     try {
       setLoading(true);
       
       console.log('📊 Loading dashboard data from REST API...');
+      console.log('🔧 Current API mode:', unifiedApiService.getCurrentMode());
       
       // Load real data from unified API in parallel
       const [usersResponse, classesResponse, bookingsResponse, subscriptionsResponse] = await Promise.allSettled([
         unifiedApiService.getUsers(),
         unifiedApiService.getClasses(),
         unifiedApiService.getBookings(),
-        unifiedApiService.getSubscriptions()
+        // Load subscriptions with proper joins for user and plan data
+        getSubscriptionsWithUserData()
       ]);
+
+      console.log('📋 API Responses:', {
+        users: usersResponse,
+        classes: classesResponse,
+        bookings: bookingsResponse,
+        subscriptions: subscriptionsResponse
+      });
 
       // Process users stats with better error handling
       let totalClients = 0;
       if (usersResponse.status === 'fulfilled' && usersResponse.value.success && usersResponse.value.data && Array.isArray(usersResponse.value.data)) {
         const clients = usersResponse.value.data.filter((user: any) => user.role === 'client');
         totalClients = clients.length;
-        console.log('✅ Loaded users data successfully');
+        console.log('✅ Loaded users data successfully:', { totalUsers: usersResponse.value.data.length, totalClients });
       } else {
         console.log('⚠️ Failed to load users data:', usersResponse.status === 'rejected' ? usersResponse.reason : usersResponse.value?.error);
+        if (usersResponse.status === 'rejected') {
+          console.error('❌ Users API rejected:', usersResponse.reason);
+        } else if (usersResponse.value) {
+          console.error('❌ Users API failed:', usersResponse.value.error);
+        }
       }
 
       // Process classes with better error handling  
@@ -186,9 +300,14 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
         totalClasses = classesResponse.value.data.length;
         const today = new Date().toISOString().split('T')[0];
         todayClasses = classesResponse.value.data.filter((class_: any) => class_.date === today).length;
-        console.log('✅ Loaded classes data successfully');
+        console.log('✅ Loaded classes data successfully:', { totalClasses, todayClasses, today });
       } else {
         console.log('⚠️ Failed to load classes data:', classesResponse.status === 'rejected' ? classesResponse.reason : classesResponse.value?.error);
+        if (classesResponse.status === 'rejected') {
+          console.error('❌ Classes API rejected:', classesResponse.reason);
+        } else if (classesResponse.value) {
+          console.error('❌ Classes API failed:', classesResponse.value.error);
+        }
       }
 
       // Process bookings with better error handling
@@ -200,28 +319,370 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
         todayBookings = bookingsResponse.value.data.filter((booking: any) => {
           return booking.class_date === today || booking.date === today;
         }).length;
-        console.log('✅ Loaded bookings data successfully');
+        console.log('✅ Loaded bookings data successfully:', { totalBookings, todayBookings, today });
       } else {
         console.log('⚠️ Failed to load bookings data:', bookingsResponse.status === 'rejected' ? bookingsResponse.reason : bookingsResponse.value?.error);
+        if (bookingsResponse.status === 'rejected') {
+          console.error('❌ Bookings API rejected:', bookingsResponse.reason);
+        } else if (bookingsResponse.value) {
+          console.error('❌ Bookings API failed:', bookingsResponse.value.error);
+        }
       }
 
       // Process subscriptions with better error handling
       let activeSubscriptions = 0;
+      let subscriptionsEndingSoon = 0;
+      let subscriptionsEndingSoonList: any[] = [];
+      
       if (subscriptionsResponse.status === 'fulfilled' && subscriptionsResponse.value.success && subscriptionsResponse.value.data && Array.isArray(subscriptionsResponse.value.data)) {
         activeSubscriptions = subscriptionsResponse.value.data.filter((sub: any) => sub.status === 'active').length;
-        console.log('✅ Loaded subscriptions data successfully');
+        
+        // Calculate subscriptions ending soon (within next 10 days)
+        const now = new Date();
+        const tenDaysFromNow = new Date(now.getTime() + (10 * 24 * 60 * 60 * 1000));
+        
+        subscriptionsEndingSoonList = subscriptionsResponse.value.data.filter((sub: any) => {
+          if (sub.status !== 'active' || !sub.end_date) return false;
+          
+          const endDate = new Date(sub.end_date);
+          return endDate <= tenDaysFromNow && endDate > now;
+        }).map((sub: any) => ({
+          ...sub,
+          // Ensure we have proper user name fallback
+          user_name: sub.users?.name || sub.user_name || 'Unknown Client',
+          // Ensure we have proper plan name
+          plan_name: sub.subscription_plans?.name || 'Unknown Plan',
+          // Add additional useful data
+          user_email: sub.users?.email || 'No email',
+          plan_price: sub.subscription_plans?.monthly_price || 0,
+          equipment_access: sub.subscription_plans?.equipment_access || 'unknown'
+        }));
+        
+        subscriptionsEndingSoon = subscriptionsEndingSoonList.length;
+        
+        console.log('✅ Loaded subscriptions data successfully:', { 
+          totalSubscriptions: subscriptionsResponse.value.data.length, 
+          activeSubscriptions,
+          subscriptionsEndingSoon 
+        });
       } else {
         console.log('⚠️ Failed to load subscriptions data:', subscriptionsResponse.status === 'rejected' ? subscriptionsResponse.reason : subscriptionsResponse.value?.error);
+        if (subscriptionsResponse.status === 'rejected') {
+          console.error('❌ Subscriptions API rejected:', subscriptionsResponse.reason);
+        } else if (subscriptionsResponse.value) {
+          console.error('❌ Subscriptions API failed:', subscriptionsResponse.value.error);
+        }
       }
 
       const newStats = {
         totalClients,
         todayClasses,
         pendingBookings: todayBookings,
-        activeSubscriptions
+        activeSubscriptions,
+        subscriptionsEndingSoon
       };
 
+      // Add more dynamic metrics for better live updates
+      const additionalStats = {
+        upcomingClasses: 0,
+        waitlistCount: 0,
+        recentBookings: 0,
+        instructorCount: 0
+      };
+
+      // Calculate upcoming classes (next 7 days)
+      if (classesResponse.status === 'fulfilled' && classesResponse.value.success && classesResponse.value.data && Array.isArray(classesResponse.value.data)) {
+        const now = new Date();
+        const nextWeek = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000));
+        
+        additionalStats.upcomingClasses = classesResponse.value.data.filter((class_: any) => {
+          const classDate = new Date(class_.date);
+          return classDate > now && classDate <= nextWeek;
+        }).length;
+
+        // Count instructors
+        const instructorIds = new Set(classesResponse.value.data.map((class_: any) => class_.instructor_id).filter(Boolean));
+        additionalStats.instructorCount = instructorIds.size;
+
+        // Enhanced class metrics calculation
+        const today = new Date().toISOString().split('T')[0];
+        const tomorrow = new Date(now.getTime() + (24 * 60 * 60 * 1000)).toISOString().split('T')[0];
+        const endOfWeek = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000));
+
+        // Today's classes with detailed metrics
+        const todayClasses = classesResponse.value.data.filter((class_: any) => class_.date === today);
+        const todayClassesWithBookings = todayClasses.map((class_: any) => {
+          const classBookings = bookingsResponse.status === 'fulfilled' && bookingsResponse.value.success && Array.isArray(bookingsResponse.value.data)
+            ? bookingsResponse.value.data.filter((booking: any) => 
+                booking.class_id === class_.id && 
+                (booking.status === 'confirmed' || booking.status === 'active')
+              )
+            : [];
+          
+          const waitlistBookings = bookingsResponse.status === 'fulfilled' && bookingsResponse.value.success && Array.isArray(bookingsResponse.value.data)
+            ? bookingsResponse.value.data.filter((booking: any) => 
+                booking.class_id === class_.id && 
+                booking.status === 'waitlist'
+              )
+            : [];
+
+          // Get actual class capacity or use a reasonable default
+          const actualCapacity = class_.max_capacity || class_.capacity || 8; // Use 8 as default instead of 20
+
+          // Get client details from users data
+          const getClientDetails = (userId: any) => {
+            if (usersResponse.status === 'fulfilled' && usersResponse.value.success && Array.isArray(usersResponse.value.data)) {
+              const user = usersResponse.value.data.find((u: any) => u.id === userId);
+              return user ? {
+                id: user.id,
+                name: user.name || user.first_name + ' ' + user.last_name || 'Unknown Client',
+                email: user.email || 'No email'
+              } : {
+                id: userId,
+                name: 'Unknown Client',
+                email: 'No email'
+              };
+            }
+            return {
+              id: userId,
+              name: 'Unknown Client',
+              email: 'No email'
+            };
+          };
+
+          // Get instructor details
+          const getInstructorDetails = (instructorId: any) => {
+            if (instructorId && usersResponse.status === 'fulfilled' && usersResponse.value.success && Array.isArray(usersResponse.value.data)) {
+              const instructor = usersResponse.value.data.find((u: any) => u.id === instructorId && u.role === 'instructor');
+              return instructor ? {
+                id: instructor.id,
+                name: instructor.name || instructor.first_name + ' ' + instructor.last_name || 'Unknown Instructor'
+              } : null;
+            }
+            return null;
+          };
+
+          const instructorDetails = getInstructorDetails(class_.instructor_id);
+
+          return {
+            ...class_,
+            confirmedBookings: classBookings.length,
+            waitlistCount: waitlistBookings.length,
+            isFull: classBookings.length >= actualCapacity,
+            availableSpots: Math.max(0, actualCapacity - classBookings.length),
+            bookingPercentage: Math.round((classBookings.length / actualCapacity) * 100),
+            instructorDetails: instructorDetails,
+            // Store actual client data for the View Clients functionality
+            confirmedClients: classBookings.map((booking: any) => {
+              const clientDetails = getClientDetails(booking.user_id);
+              return {
+                ...clientDetails,
+                status: 'confirmed'
+              };
+            }),
+            waitlistClients: waitlistBookings.map((booking: any) => {
+              const clientDetails = getClientDetails(booking.user_id);
+              return {
+                ...clientDetails,
+                status: 'waitlist'
+              };
+            })
+          };
+        });
+
+        // Tomorrow's classes
+        const tomorrowClasses = classesResponse.value.data.filter((class_: any) => class_.date === tomorrow);
+
+        // This week's classes (next 7 days)
+        const thisWeekClasses = classesResponse.value.data.filter((class_: any) => {
+          const classDate = new Date(class_.date);
+          return classDate > now && classDate <= endOfWeek;
+        });
+
+        // Calculate metrics for tomorrow and this week classes
+        const tomorrowClassesWithBookings = tomorrowClasses.map((class_: any) => {
+          const classBookings = bookingsResponse.status === 'fulfilled' && bookingsResponse.value.success && Array.isArray(bookingsResponse.value.data)
+            ? bookingsResponse.value.data.filter((booking: any) => 
+                booking.class_id === class_.id && 
+                (booking.status === 'confirmed' || booking.status === 'active')
+              )
+            : [];
+          
+          const waitlistBookings = bookingsResponse.status === 'fulfilled' && bookingsResponse.value.success && Array.isArray(bookingsResponse.value.data)
+            ? bookingsResponse.value.data.filter((booking: any) => 
+                booking.class_id === class_.id && 
+                booking.status === 'waitlist'
+              )
+            : [];
+
+          const actualCapacity = class_.max_capacity || class_.capacity || 8;
+
+          // Get client details from users data
+          const getClientDetails = (userId: any) => {
+            if (usersResponse.status === 'fulfilled' && usersResponse.value.success && Array.isArray(usersResponse.value.data)) {
+              const user = usersResponse.value.data.find((u: any) => u.id === userId);
+              return user ? {
+                id: user.id,
+                name: user.name || user.first_name + ' ' + user.last_name || 'Unknown Client',
+                email: user.email || 'No email'
+              } : {
+                id: userId,
+                name: 'Unknown Client',
+                email: 'No email'
+              };
+            }
+            return {
+              id: userId,
+              name: 'Unknown Client',
+              email: 'No email'
+            };
+          };
+
+          return {
+            ...class_,
+            confirmedBookings: classBookings.length,
+            waitlistCount: waitlistBookings.length,
+            isFull: classBookings.length >= actualCapacity,
+            availableSpots: Math.max(0, actualCapacity - classBookings.length),
+            bookingPercentage: Math.round((classBookings.length / actualCapacity) * 100),
+            confirmedClients: classBookings.map((booking: any) => {
+              const clientDetails = getClientDetails(booking.user_id);
+              return {
+                ...clientDetails,
+                status: 'confirmed'
+              };
+            }),
+            waitlistClients: waitlistBookings.map((booking: any) => {
+              const clientDetails = getClientDetails(booking.user_id);
+              return {
+                ...clientDetails,
+                status: 'waitlist'
+              };
+            })
+          };
+        });
+
+        const thisWeekClassesWithBookings = thisWeekClasses.map((class_: any) => {
+          const classBookings = bookingsResponse.status === 'fulfilled' && bookingsResponse.value.success && Array.isArray(bookingsResponse.value.data)
+            ? bookingsResponse.value.data.filter((booking: any) => 
+                booking.class_id === class_.id && 
+                (booking.status === 'confirmed' || booking.status === 'active')
+              )
+            : [];
+          
+          const waitlistBookings = bookingsResponse.status === 'fulfilled' && bookingsResponse.value.success && Array.isArray(bookingsResponse.value.data)
+            ? bookingsResponse.value.data.filter((booking: any) => 
+                booking.class_id === class_.id && 
+                booking.status === 'waitlist'
+              )
+            : [];
+
+          const actualCapacity = class_.max_capacity || class_.capacity || 8;
+
+          // Get client details from users data
+          const getClientDetails = (userId: any) => {
+            if (usersResponse.status === 'fulfilled' && usersResponse.value.success && Array.isArray(usersResponse.value.data)) {
+              const user = usersResponse.value.data.find((u: any) => u.id === userId);
+              return user ? {
+                id: user.id,
+                name: user.name || user.first_name + ' ' + user.last_name || 'Unknown Client',
+                email: user.email || 'No email'
+              } : {
+                id: userId,
+                name: 'Unknown Client',
+                email: 'No email'
+              };
+            }
+            return {
+              id: userId,
+              name: 'Unknown Client',
+              email: 'No email'
+            };
+          };
+
+          return {
+            ...class_,
+            confirmedBookings: classBookings.length,
+            waitlistCount: waitlistBookings.length,
+            isFull: classBookings.length >= actualCapacity,
+            availableSpots: Math.max(0, actualCapacity - classBookings.length),
+            bookingPercentage: Math.round((classBookings.length / actualCapacity) * 100),
+            confirmedClients: classBookings.map((booking: any) => {
+              const clientDetails = getClientDetails(booking.user_id);
+              return {
+                ...clientDetails,
+                status: 'confirmed'
+              };
+            }),
+            waitlistClients: waitlistBookings.map((booking: any) => {
+              const clientDetails = getClientDetails(booking.user_id);
+              return {
+                ...clientDetails,
+                status: 'waitlist'
+              };
+            })
+          };
+        });
+
+        // Waitlist for today
+        const waitlistToday = bookingsResponse.status === 'fulfilled' && bookingsResponse.value.success && Array.isArray(bookingsResponse.value.data)
+          ? bookingsResponse.value.data.filter((booking: any) => 
+              booking.status === 'waitlist' && 
+              (() => {
+                const class_ = Array.isArray(classesResponse.value.data) ? classesResponse.value.data.find((c: any) => c.id === booking.class_id) : null;
+                return class_ && class_.date === today;
+              })()
+            )
+          : [];
+
+        // Full classes today
+        const fullClassesToday = todayClassesWithBookings.filter((class_: any) => class_.isFull);
+
+        setClassMetrics({
+          todayClasses: todayClassesWithBookings,
+          tomorrowClasses: tomorrowClassesWithBookings,
+          thisWeekClasses: thisWeekClassesWithBookings,
+          waitlistToday,
+          fullClassesToday
+        });
+      }
+
+      // Calculate waitlist count
+      if (bookingsResponse.status === 'fulfilled' && bookingsResponse.value.success && bookingsResponse.value.data && Array.isArray(bookingsResponse.value.data)) {
+        const now = new Date();
+        additionalStats.waitlistCount = bookingsResponse.value.data.filter((booking: any) => 
+          booking.status === 'waitlist'
+        ).length;
+
+        // Count recent bookings (last 24 hours)
+        const oneDayAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+        additionalStats.recentBookings = bookingsResponse.value.data.filter((booking: any) => 
+          new Date(booking.created_at) > oneDayAgo
+        ).length;
+      }
+
+      console.log('📊 Final stats calculated:', newStats);
+      console.log('📊 Additional dynamic stats:', additionalStats);
       setStats(newStats);
+      setAdditionalStats(additionalStats); // Update the new state variable
+      setSubscriptionsEndingSoon(subscriptionsEndingSoonList); // Store the list for the modal
+      
+      // Store all active subscriptions for the Active Plans modal
+      if (subscriptionsResponse.status === 'fulfilled' && subscriptionsResponse.value.success && subscriptionsResponse.value.data) {
+        const allActiveSubscriptions = subscriptionsResponse.value.data
+          .filter((sub: any) => sub.status === 'active')
+          .map((sub: any) => ({
+            ...sub,
+            user_name: sub.users?.name || sub.user_name || 'Unknown Client',
+            user_email: sub.users?.email || sub.user_email || '',
+            plan_name: sub.subscription_plans?.name || sub.plan_name || 'Unknown Plan',
+            plan_price: sub.subscription_plans?.monthly_price || 0,
+            equipment_access: sub.subscription_plans?.equipment_access || 'mat'
+          }));
+        setActiveSubscriptionsList(allActiveSubscriptions);
+      }
+      
+      setLastUpdateTime(new Date()); // Update timestamp
       
       // Update parent component stats for sidebar badges
       if (onStatsUpdate) {
@@ -265,9 +726,14 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
       if (bookingsResponse.status === 'fulfilled' && bookingsResponse.value.success && bookingsResponse.value.data && Array.isArray(bookingsResponse.value.data)) {
         const recentBookings = bookingsResponse.value.data.filter((booking: any) => isRecent(booking.created_at));
         recentBookings.forEach((booking: any) => {
+          // Get class date and time for better context
+          const classDate = booking.class_date ? new Date(booking.class_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+          const classTime = booking.class_time ? booking.class_time.slice(0, 5) : '';
+          const classInfo = classDate && classTime ? ` (${classDate} at ${classTime})` : '';
+          
           activities.push({
             id: `booking-${booking.id}`,
-            text: `Booking: ${booking.user_name || 'Client'} → ${booking.class_name || 'Class'}`,
+            text: `${booking.user_name || 'Client'} booked "${booking.class_name || 'Class'}"${classInfo}`,
             time: getTimeAgo(new Date(booking.created_at)),
             type: 'booking',
             icon: 'event',
@@ -285,9 +751,14 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
           booking.status === 'cancelled' && isRecent(booking.updated_at || booking.created_at)
         );
         cancelledBookings.forEach((booking: any) => {
+          // Get class date and time for better context
+          const classDate = booking.class_date ? new Date(booking.class_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+          const classTime = booking.class_time ? booking.class_time.slice(0, 5) : '';
+          const classInfo = classDate && classTime ? ` (${classDate} at ${classTime})` : '';
+          
           activities.push({
             id: `cancellation-${booking.id}`,
-            text: `Class cancelled: ${booking.class_name || 'Class'} by ${booking.user_name || 'Client'}`,
+            text: `${booking.user_name || 'Client'} cancelled "${booking.class_name || 'Class'}"${classInfo}`,
             time: getTimeAgo(new Date(booking.updated_at || booking.created_at)),
             type: 'cancellation',
             icon: 'event-busy',
@@ -337,7 +808,14 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
         totalClients: 0,
         todayClasses: 0,
         pendingBookings: 0,
-        activeSubscriptions: 0
+        activeSubscriptions: 0,
+        subscriptionsEndingSoon: 0
+      });
+      setAdditionalStats({
+        upcomingClasses: 0,
+        waitlistCount: 0,
+        recentBookings: 0,
+        instructorCount: 0
       });
       setAllActivities([]);
       setFilteredActivity([]);
@@ -591,27 +1069,397 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
       </View>
 
       {/* Stats Cards */}
-      <View style={styles.statsGrid}>
-        <View style={styles.statCard}>
-          <WebCompatibleIcon name="people" size={32} color="#4CAF50" />
-          <Text style={styles.statNumber}>{stats.totalClients}</Text>
-          <Text style={styles.statLabel}>Total Clients</Text>
+      <View style={styles.statsSection}>
+        <View style={styles.statsHeader}>
+          <Text style={styles.sectionTitle}>Live Metrics</Text>
+          <View style={styles.statsStatus}>
+            <View style={[styles.liveIndicator, { backgroundColor: loading ? '#FF9800' : '#4CAF50' }]}>
+              <Text style={styles.liveIndicatorText}>
+                {loading ? '🔄 Updating...' : '● Live'}
+              </Text>
+            </View>
+            <TouchableOpacity 
+              style={[styles.refreshButton, loading && styles.refreshButtonDisabled]}
+              onPress={loadDashboardData}
+              disabled={loading}
+            >
+              <WebCompatibleIcon 
+                name={loading ? "hourglass-empty" : "refresh"} 
+                size={20} 
+                color={loading ? "#9CA3AF" : "#9B8A7D"} 
+              />
+              <Text style={[styles.refreshText, loading && styles.refreshTextDisabled]}>
+                {loading ? 'Loading...' : 'Refresh Metrics'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
-        <View style={styles.statCard}>
-          <WebCompatibleIcon name="fitness-center" size={32} color="#2196F3" />
-          <Text style={styles.statNumber}>{stats.todayClasses}</Text>
-          <Text style={styles.statLabel}>Today's Classes</Text>
+        <View style={styles.statsTimestamp}>
+          <Text style={styles.timestampText}>
+            Last updated: {lastUpdateTime.toLocaleTimeString()} • Auto-refresh every 2 minutes
+          </Text>
         </View>
-        <View style={styles.statCard}>
-          <WebCompatibleIcon name="schedule" size={32} color="#FF9800" />
-          <Text style={styles.statNumber}>{stats.pendingBookings}</Text>
-          <Text style={styles.statLabel}>Pending Bookings</Text>
+        <View style={styles.statsGrid}>
+          <View style={styles.statCard}>
+            <WebCompatibleIcon name="people" size={32} color="#4CAF50" />
+            <Text style={styles.statNumber}>{stats.totalClients}</Text>
+            <Text style={styles.statLabel}>Total Clients</Text>
+          </View>
+          <TouchableOpacity 
+            style={styles.statCard}
+            onPress={() => setActiveSubscriptionsModalVisible(true)}
+          >
+            <WebCompatibleIcon name="card-membership" size={32} color="#9C27B0" />
+            <Text style={styles.statNumber}>{stats.activeSubscriptions}</Text>
+            <Text style={styles.statLabel}>Active Plans</Text>
+            <Text style={styles.statSubtext}>Click to view</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[
+              styles.statCard,
+              stats.subscriptionsEndingSoon > 0 && styles.statCardWarning
+            ]}
+            onPress={() => setSubscriptionsEndingModalVisible(true)}
+          >
+            <WebCompatibleIcon 
+              name={stats.subscriptionsEndingSoon > 0 ? "warning" : "schedule"} 
+              size={32} 
+              color={stats.subscriptionsEndingSoon > 0 ? "#F44336" : "#FF9800"} 
+            />
+            <Text style={[
+              styles.statNumber,
+              stats.subscriptionsEndingSoon > 0 && styles.statNumberWarning
+            ]}>
+              {stats.subscriptionsEndingSoon}
+            </Text>
+            <Text style={styles.statLabel}>Ending Soon</Text>
+            <Text style={styles.statSubtext}>
+              {stats.subscriptionsEndingSoon > 0 ? '⚠️ Click to view' : 'Click to view'}
+            </Text>
+          </TouchableOpacity>
         </View>
-        <View style={styles.statCard}>
-          <WebCompatibleIcon name="card-membership" size={32} color="#9C27B0" />
-          <Text style={styles.statNumber}>{stats.activeSubscriptions}</Text>
-          <Text style={styles.statLabel}>Active Plans</Text>
+      </View>
+
+      {/* Enhanced Class Metrics */}
+      <View style={styles.classMetricsSection}>
+        {/* Quick Summary */}
+        {classMetrics.todayClasses.length > 0 && (
+          <View style={styles.quickSummary}>
+            <View style={styles.summaryCard}>
+              <Text style={styles.summaryTitle}>📊 Today's Summary</Text>
+              <View style={styles.summaryGrid}>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Total Classes:</Text>
+                  <Text style={styles.summaryValue}>{classMetrics.todayClasses.length}</Text>
+                </View>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Full Classes:</Text>
+                  <Text style={[styles.summaryValue, { color: classMetrics.fullClassesToday.length > 0 ? '#F44336' : '#4CAF50' }]}>
+                    {classMetrics.fullClassesToday.length}
+                  </Text>
+                </View>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Waitlist:</Text>
+                  <Text style={[styles.summaryValue, { color: classMetrics.waitlistToday.length > 0 ? '#FF9800' : '#4CAF50' }]}>
+                    {classMetrics.waitlistToday.length}
+                  </Text>
+                </View>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Total Bookings:</Text>
+                  <Text style={styles.summaryValue}>
+                    {classMetrics.todayClasses.reduce((total: number, c: any) => total + (c.confirmedBookings || 0), 0)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        )}
+
+        <View style={styles.classMetricsHeader}>
+          <Text style={styles.sectionTitle}>Class Overview</Text>
+          <View style={styles.classMetricsControls}>
+            <View style={styles.classFilterTabs}>
+              <TouchableOpacity 
+                style={[styles.filterTab, { backgroundColor: '#2196F3' }]}
+                onPress={() => setActiveClassFilter('today')}
+              >
+                <Text style={styles.filterTabText}>Today</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.filterTab, { backgroundColor: '#9C27B0' }]}
+                onPress={() => setActiveClassFilter('tomorrow')}
+              >
+                <Text style={styles.filterTabText}>Tomorrow</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.filterTab, { backgroundColor: '#FF9800' }]}
+                onPress={() => setActiveClassFilter('week')}
+              >
+                <Text style={styles.filterTabText}>This Week</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity 
+              style={[styles.refreshButton, loading && styles.refreshButtonDisabled]}
+              onPress={loadDashboardData}
+              disabled={loading}
+            >
+              <WebCompatibleIcon 
+                name={loading ? "hourglass-empty" : "refresh"} 
+                size={20} 
+                color={loading ? "#9CA3AF" : "#9B8A7D"} 
+              />
+              <Text style={[styles.refreshText, loading && styles.refreshTextDisabled]}>
+                {loading ? 'Loading...' : 'Refresh'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
+        <View style={styles.classMetricsGrid}>
+          {/* Today's Classes Summary */}
+          <View style={styles.classMetricCard}>
+            <View style={styles.classMetricHeader}>
+              <WebCompatibleIcon name="fitness-center" size={24} color="#2196F3" />
+              <Text style={styles.classMetricTitle}>
+                {activeClassFilter === 'today' ? "Today's Classes" : 
+                 activeClassFilter === 'tomorrow' ? "Tomorrow's Classes" : "This Week's Classes"}
+              </Text>
+            </View>
+            <Text style={styles.classMetricNumber}>
+              {activeClassFilter === 'today' ? classMetrics.todayClasses.length :
+               activeClassFilter === 'tomorrow' ? classMetrics.tomorrowClasses.length :
+               classMetrics.thisWeekClasses.length}
+            </Text>
+            <Text style={styles.classMetricSubtext}>
+              {activeClassFilter === 'today' ? 
+                `${classMetrics.fullClassesToday.length} Full • ${classMetrics.waitlistToday.length} Waitlist` :
+               activeClassFilter === 'tomorrow' ? 
+                'Classes scheduled for tomorrow' :
+                'Classes in next 7 days'}
+            </Text>
+          </View>
+
+          {/* Waitlist Count */}
+          <View style={styles.classMetricCard}>
+            <View style={styles.classMetricHeader}>
+              <WebCompatibleIcon name="schedule" size={24} color="#FF9800" />
+              <Text style={styles.classMetricTitle}>
+                {activeClassFilter === 'today' ? 'Waitlist Today' : 'Waitlist'}
+              </Text>
+            </View>
+            <Text style={styles.classMetricNumber}>
+              {activeClassFilter === 'today' ? classMetrics.waitlistToday.length : 
+               activeClassFilter === 'tomorrow' ? 0 : 0}
+            </Text>
+            <Text style={styles.classMetricSubtext}>
+              {activeClassFilter === 'today' ? 
+                (classMetrics.waitlistToday.length > 0 ? 'People waiting for spots' : 'No waitlist') :
+               'Check individual classes'}
+            </Text>
+          </View>
+
+          {/* Full Classes */}
+          <View style={styles.classMetricCard}>
+            <View style={styles.classMetricHeader}>
+              <WebCompatibleIcon name="event-busy" size={24} color="#F44336" />
+              <Text style={styles.classMetricTitle}>
+                {activeClassFilter === 'today' ? 'Full Classes' : 'At Capacity'}
+              </Text>
+            </View>
+            <Text style={styles.classMetricNumber}>
+              {activeClassFilter === 'today' ? classMetrics.fullClassesToday.length :
+               activeClassFilter === 'tomorrow' ? 
+                 classMetrics.tomorrowClasses.filter((c: any) => {
+                   const bookings = c.confirmedBookings || 0;
+                   return bookings >= (c.max_capacity || 20);
+                 }).length :
+                 classMetrics.thisWeekClasses.filter((c: any) => {
+                   const bookings = c.confirmedBookings || 0;
+                   return bookings >= (c.max_capacity || 20);
+                 }).length}
+            </Text>
+            <Text style={styles.classMetricSubtext}>
+              {activeClassFilter === 'today' ? 
+                (classMetrics.fullClassesToday.length > 0 ? 'At capacity' : 'All classes have spots') :
+               'Classes that are full'}
+            </Text>
+          </View>
+
+          {/* Available Spots */}
+          <View style={styles.classMetricCard}>
+            <View style={styles.classMetricHeader}>
+              <WebCompatibleIcon name="event-available" size={24} color="#4CAF50" />
+              <Text style={styles.classMetricTitle}>Available Spots</Text>
+            </View>
+            <Text style={styles.classMetricNumber}>
+              {(() => {
+                const classes = activeClassFilter === 'today' ? classMetrics.todayClasses :
+                               activeClassFilter === 'tomorrow' ? classMetrics.tomorrowClasses :
+                               classMetrics.thisWeekClasses;
+                return classes.reduce((total: number, c: any) => {
+                  const bookings = c.confirmedBookings || 0;
+                  const capacity = c.max_capacity || 20;
+                  return total + Math.max(0, capacity - bookings);
+                }, 0);
+              })()}
+            </Text>
+            <Text style={styles.classMetricSubtext}>
+              Total available spots across all classes
+            </Text>
+          </View>
+        </View>
+
+        {/* Today's Classes Detail */}
+        {(() => {
+          const classesToShow = activeClassFilter === 'today' ? classMetrics.todayClasses :
+                               activeClassFilter === 'tomorrow' ? classMetrics.tomorrowClasses :
+                               classMetrics.thisWeekClasses;
+          
+          if (classesToShow.length === 0) {
+            return (
+              <View style={styles.todayClassesDetail}>
+                <Text style={styles.subsectionTitle}>
+                  {activeClassFilter === 'today' ? "Today's Classes" :
+                   activeClassFilter === 'tomorrow' ? "Tomorrow's Classes" :
+                   "This Week's Classes"}
+                </Text>
+                <View style={styles.emptyClasses}>
+                  <WebCompatibleIcon name="fitness-center" size={48} color="#9CA3AF" />
+                  <Text style={styles.emptyClassesText}>
+                    No classes scheduled for {activeClassFilter === 'today' ? 'today' :
+                                          activeClassFilter === 'tomorrow' ? 'tomorrow' :
+                                          'this week'}
+                  </Text>
+                </View>
+              </View>
+            );
+          }
+
+          return (
+            <View style={styles.todayClassesDetail}>
+              <Text style={styles.subsectionTitle}>
+                {activeClassFilter === 'today' ? "Today's Class Details" :
+                 activeClassFilter === 'tomorrow' ? "Tomorrow's Class Details" :
+                 "This Week's Class Details"}
+              </Text>
+              <View style={styles.classesList}>
+                {classesToShow.map((class_, index) => {
+                  // Calculate metrics for classes that don't have them yet
+                  const confirmedBookings = class_.confirmedBookings || 0;
+                  const waitlistCount = class_.waitlistCount || 0;
+                  const maxCapacity = class_.max_capacity || class_.capacity || 8; // Use actual capacity
+                  const isFull = confirmedBookings >= maxCapacity;
+                  const availableSpots = Math.max(0, maxCapacity - confirmedBookings);
+                  const bookingPercentage = Math.round((confirmedBookings / maxCapacity) * 100);
+
+                  return (
+                    <View key={class_.id || index} style={[styles.classItem, isFull && styles.fullClassItem]}>
+                      <View style={styles.classHeader}>
+                        <View style={styles.classInfo}>
+                          <Text style={styles.className}>{class_.name || 'Unnamed Class'}</Text>
+                          <Text style={styles.classTime}>
+                            {class_.date} at {class_.time || 'No time'} • {class_.instructorDetails?.name || class_.instructor_name || 'No instructor'}
+                          </Text>
+                        </View>
+                        <View style={styles.classStatus}>
+                          {isFull ? (
+                            <View style={styles.fullClassBadge}>
+                              <Text style={styles.fullClassBadgeText}>FULL</Text>
+                            </View>
+                          ) : (
+                            <View style={styles.availableClassBadge}>
+                              <Text style={styles.availableClassBadgeText}>
+                                {availableSpots} spots
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      </View>
+                      
+                      <View style={styles.classMetrics}>
+                        <View style={styles.classMetric}>
+                          <Text style={styles.classMetricLabel}>Bookings:</Text>
+                          <Text style={styles.classMetricValue}>
+                            {confirmedBookings}/{maxCapacity}
+                          </Text>
+                        </View>
+                        <View style={styles.classMetric}>
+                          <Text style={styles.classMetricLabel}>Waitlist:</Text>
+                          <Text style={styles.classMetricValue}>{waitlistCount}</Text>
+                        </View>
+                        <View style={styles.classMetric}>
+                          <Text style={styles.classMetricLabel}>Capacity:</Text>
+                          <Text style={styles.classMetricValue}>
+                            {bookingPercentage}%
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* Progress Bar */}
+                      <View style={styles.capacityBar}>
+                        <View 
+                          style={[
+                            styles.capacityFill, 
+                            { 
+                              width: `${bookingPercentage}%`,
+                              backgroundColor: isFull ? '#F44336' : 
+                                             bookingPercentage > 80 ? '#FF9800' : '#4CAF50'
+                            }
+                          ]} 
+                        />
+                      </View>
+
+                      {/* View Clients Button */}
+                      <View style={styles.classActions}>
+                        <TouchableOpacity 
+                          style={styles.viewClientsButton}
+                          onPress={() => {
+                            setSelectedClass(class_);
+                            setClientModalVisible(true);
+                          }}
+                        >
+                          <WebCompatibleIcon name="people" size={16} color="#2196F3" />
+                          <Text style={styles.viewClientsButtonText}>
+                            View Clients ({confirmedBookings + waitlistCount})
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          );
+        })()}
+
+        {/* Waitlist Details */}
+        {classMetrics.waitlistToday.length > 0 && (
+          <View style={styles.waitlistDetail}>
+            <Text style={styles.subsectionTitle}>Waitlist Details</Text>
+            <View style={styles.waitlistList}>
+              {classMetrics.waitlistToday.map((waitlistItem, index) => {
+                const class_ = classMetrics.todayClasses.find((c: any) => c.id === waitlistItem.class_id);
+                return (
+                  <View key={waitlistItem.id || index} style={styles.waitlistItem}>
+                    <View style={styles.waitlistInfo}>
+                      <Text style={styles.waitlistClientName}>
+                        {waitlistItem.user_name || 'Unknown Client'}
+                      </Text>
+                      <Text style={styles.waitlistClassInfo}>
+                        Waiting for: {class_?.name || 'Unknown Class'} at {class_?.time || 'Unknown Time'}
+                      </Text>
+                    </View>
+                    <View style={styles.waitlistActions}>
+                      <TouchableOpacity style={styles.waitlistActionButton}>
+                        <WebCompatibleIcon name="check" size={16} color="#4CAF50" />
+                        <Text style={styles.waitlistActionText}>Move to Class</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
       </View>
 
       {/* Quick Actions */}
@@ -755,6 +1603,487 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
 
       {/* Bottom padding for scroll */}
       <View style={styles.bottomPadding} />
+
+      {/* Client Modal */}
+      <Portal>
+        <Modal
+          visible={clientModalVisible}
+          onDismiss={() => setClientModalVisible(false)}
+          contentContainerStyle={styles.modalContainer}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <View style={styles.modalIcon}>
+                  <WebCompatibleIcon name="people" size={24} color="#2196F3" />
+                </View>
+                <Text style={styles.modalTitle}>
+                  {selectedClass?.name || 'Class'} - Client List
+                </Text>
+                <TouchableOpacity 
+                  onPress={() => setClientModalVisible(false)}
+                  style={styles.closeButton}
+                >
+                  <WebCompatibleIcon name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+              
+              {selectedClass && (
+                <View style={styles.clientModalContent}>
+                  {/* Class Info */}
+                  <View style={styles.classInfoCard}>
+                    <Text style={styles.classInfoTitle}>Class Information</Text>
+                    <View style={styles.classInfoGrid}>
+                      <View style={styles.classInfoItem}>
+                        <Text style={styles.classInfoLabel}>Date & Time:</Text>
+                        <Text style={styles.classInfoValue}>
+                          {selectedClass.date} at {selectedClass.time || 'No time'}
+                        </Text>
+                      </View>
+                                             <View style={styles.classInfoItem}>
+                         <Text style={styles.classInfoLabel}>Instructor:</Text>
+                         <Text style={styles.classInfoValue}>
+                           {selectedClass.instructorDetails?.name || selectedClass.instructor_name || 'No instructor'}
+                         </Text>
+                       </View>
+                      <View style={styles.classInfoItem}>
+                        <Text style={styles.classInfoLabel}>Capacity:</Text>
+                        <Text style={styles.classInfoValue}>
+                          {selectedClass.confirmedBookings || 0}/{selectedClass.max_capacity || selectedClass.capacity || 8}
+                        </Text>
+                      </View>
+                      <View style={styles.classInfoItem}>
+                        <Text style={styles.classInfoLabel}>Waitlist:</Text>
+                        <Text style={styles.classInfoValue}>
+                          {selectedClass.waitlistCount || 0}
+                        </Text>
+                      </View>
+                      <View style={styles.classInfoItem}>
+                        <Text style={styles.classInfoLabel}>Instructor:</Text>
+                        <Text style={styles.classInfoValue}>
+                          {selectedClass.instructorDetails?.name || selectedClass.instructor_name || 'No instructor'}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Confirmed Clients */}
+                  {selectedClass.confirmedClients && selectedClass.confirmedClients.length > 0 && (
+                    <View style={styles.clientSection}>
+                      <Text style={styles.clientSectionTitle}>
+                        ✅ Confirmed Clients ({selectedClass.confirmedClients.length})
+                      </Text>
+                      <View style={styles.clientList}>
+                        {selectedClass.confirmedClients.map((client: any, index: number) => (
+                          <View key={client.id || index} style={styles.clientItem}>
+                            <View style={styles.clientAvatar}>
+                              <WebCompatibleIcon name="person" size={20} color="#4CAF50" />
+                            </View>
+                            <View style={styles.clientInfo}>
+                              <Text style={styles.clientName}>{client.name}</Text>
+                              <Text style={styles.clientEmail}>{client.email}</Text>
+                            </View>
+                            <View style={styles.clientStatus}>
+                              <Text style={styles.confirmedStatus}>Confirmed</Text>
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Waitlist Clients */}
+                  {selectedClass.waitlistClients && selectedClass.waitlistClients.length > 0 && (
+                    <View style={styles.clientSection}>
+                      <Text style={styles.clientSectionTitle}>
+                        ⏳ Waitlist Clients ({selectedClass.waitlistClients.length})
+                      </Text>
+                      <View style={styles.clientList}>
+                        {selectedClass.waitlistClients.map((client: any, index: number) => (
+                          <View key={client.id || index} style={styles.clientItem}>
+                            <View style={styles.clientAvatar}>
+                              <WebCompatibleIcon name="person" size={20} color="#FF9800" />
+                            </View>
+                            <View style={styles.clientInfo}>
+                              <Text style={styles.clientName}>{client.name}</Text>
+                              <Text style={styles.clientEmail}>{client.email}</Text>
+                            </View>
+                            <View style={styles.clientStatus}>
+                              <Text style={styles.waitlistStatus}>Waitlist</Text>
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+
+                  {/* No Clients Message */}
+                  {(!selectedClass.confirmedClients || selectedClass.confirmedClients.length === 0) && 
+                   (!selectedClass.waitlistClients || selectedClass.waitlistClients.length === 0) && (
+                    <View style={styles.noClientsMessage}>
+                      <WebCompatibleIcon name="people-outline" size={48} color="#9CA3AF" />
+                      <Text style={styles.noClientsText}>No clients registered for this class</Text>
+                      <Text style={styles.noClientsSubtext}>
+                        Clients will appear here once they book or join the waitlist
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
+              
+              <View style={styles.modalActions}>
+                <TouchableOpacity 
+                  onPress={() => setClientModalVisible(false)}
+                  style={styles.modalCancelButton}
+                >
+                  <Text style={styles.modalCancelButtonText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </Portal>
+
+      {/* Subscriptions Ending Soon Modal */}
+      <Portal>
+        <Modal
+          visible={subscriptionsEndingModalVisible}
+          onDismiss={() => setSubscriptionsEndingModalVisible(false)}
+          contentContainerStyle={styles.modalContainer}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <View style={styles.modalIcon}>
+                  <WebCompatibleIcon name="schedule" size={24} color="#FF9800" />
+                </View>
+                <Text style={styles.modalTitle}>
+                  Subscriptions Ending Soon
+                  {subscriptionsEndingSoon.length > 0 && (
+                    <Text style={styles.modalSubtitle}>
+                      {'\n'}(Within next 10 days)
+                    </Text>
+                  )}
+                </Text>
+                <TouchableOpacity 
+                  onPress={() => setSubscriptionsEndingModalVisible(false)}
+                  style={styles.closeButton}
+                >
+                  <WebCompatibleIcon name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+              
+                            <View style={styles.subscriptionsEndingContent}>
+                {subscriptionsEndingSoon.length > 0 ? (
+                  <>
+                    {/* Summary stats */}
+                    <View style={styles.modalSummary}>
+                      <View style={styles.modalSummaryItem}>
+                        <Text style={styles.modalSummaryNumber}>{subscriptionsEndingSoon.length}</Text>
+                        <Text style={styles.modalSummaryLabel}>Total Expiring</Text>
+                      </View>
+                      <View style={styles.modalSummaryItem}>
+                        <Text style={styles.modalSummaryNumber}>
+                          {subscriptionsEndingSoon.filter(s => {
+                            const days = Math.ceil((new Date(s.end_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                            return days <= 7;
+                          }).length}
+                        </Text>
+                        <Text style={styles.modalSummaryLabel}>This Week</Text>
+                      </View>
+                      <View style={styles.modalSummaryItem}>
+                        <Text style={styles.modalSummaryNumber}>
+                          ${subscriptionsEndingSoon.reduce((total, s) => total + (s.plan_price || 0), 0).toFixed(0)}
+                        </Text>
+                        <Text style={styles.modalSummaryLabel}>Monthly Revenue</Text>
+                      </View>
+                    </View>
+
+                    {/* Subscription list */}
+                    <ScrollView style={styles.subscriptionsList} showsVerticalScrollIndicator={true}>
+                      {subscriptionsEndingSoon.map((subscription, index) => {
+                        const daysUntilExpiry = Math.ceil(
+                          (new Date(subscription.end_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
+                        );
+                        
+                        const urgencyLevel = daysUntilExpiry <= 7 ? 'critical' : 
+                                           daysUntilExpiry <= 14 ? 'warning' : 'normal';
+                        
+                         return (
+                           <TouchableOpacity 
+                             key={subscription.id || index} 
+                             style={[
+                               styles.subscriptionItem,
+                               urgencyLevel === 'critical' && styles.subscriptionItemCritical,
+                               urgencyLevel === 'warning' && styles.subscriptionItemWarning
+                             ]}
+                             onPress={() => {
+                               // Navigate to client profile
+                               if (subscription.user_id && navigation && navigation.navigate) {
+                                 const userName = subscription.user_name || 'Unknown Client';
+                                 try {
+                                   navigation.navigate('ClientProfile', { 
+                                     userId: subscription.user_id.toString(), 
+                                     userName: userName 
+                                   });
+                                   setSubscriptionsEndingModalVisible(false);
+                                 } catch (error) {
+                                   console.error('Navigation failed:', error);
+                                 }
+                               }
+                             }}
+                           >
+                             <View style={[
+                               styles.subscriptionAvatar,
+                               urgencyLevel === 'critical' && { backgroundColor: '#FFEBEE' },
+                               urgencyLevel === 'warning' && { backgroundColor: '#FFF3E0' }
+                             ]}>
+                               <WebCompatibleIcon 
+                                 name={urgencyLevel === 'critical' ? "warning" : "person"} 
+                                 size={20} 
+                                 color={urgencyLevel === 'critical' ? '#F44336' : '#FF9800'} 
+                               />
+                             </View>
+                             <View style={styles.subscriptionInfo}>
+                               <Text style={styles.subscriptionClientName}>
+                                 {subscription.user_name}
+                               </Text>
+                               <Text style={styles.subscriptionEmail}>
+                                 {subscription.user_email}
+                               </Text>
+                               <View style={styles.subscriptionPlanRow}>
+                                 <Text style={styles.subscriptionPlanName}>
+                                   {subscription.plan_name}
+                                 </Text>
+                                 {subscription.plan_price > 0 && (
+                                   <Text style={styles.subscriptionPrice}>
+                                     ${subscription.plan_price}/mo
+                                   </Text>
+                                 )}
+                               </View>
+                               <Text style={styles.subscriptionEndDate}>
+                                 Ends: {new Date(subscription.end_date).toLocaleDateString('en-US', {
+                                   weekday: 'short',
+                                   month: 'short', 
+                                   day: 'numeric',
+                                   year: 'numeric'
+                                 })}
+                               </Text>
+                               {subscription.equipment_access && subscription.equipment_access !== 'unknown' && (
+                                 <Text style={styles.subscriptionEquipment}>
+                                   Access: {subscription.equipment_access.charAt(0).toUpperCase() + subscription.equipment_access.slice(1)}
+                                 </Text>
+                               )}
+                             </View>
+                             <View style={styles.subscriptionStatus}>
+                               <View style={[
+                                 styles.expiryBadge,
+                                 { backgroundColor: urgencyLevel === 'critical' ? '#FFEBEE' : 
+                                                   urgencyLevel === 'warning' ? '#FFF3E0' : '#F3F4F6' }
+                               ]}>
+                                 <Text style={[
+                                   styles.expiryWarning,
+                                   { color: urgencyLevel === 'critical' ? '#F44336' : 
+                                           urgencyLevel === 'warning' ? '#FF9800' : '#FFC107' }
+                                 ]}>
+                                   {daysUntilExpiry === 0 ? 'Today' :
+                                    daysUntilExpiry === 1 ? 'Tomorrow' :
+                                    `${daysUntilExpiry} days`}
+                                 </Text>
+                               </View>
+                               <WebCompatibleIcon name="chevron-right" size={16} color="#9CA3AF" />
+                             </View>
+                           </TouchableOpacity>
+                         );
+                       })}
+                     </ScrollView>
+                  </>
+                ) : (
+                  <View style={styles.noSubscriptionsMessage}>
+                    <WebCompatibleIcon name="check-circle" size={48} color="#4CAF50" />
+                    <Text style={styles.noSubscriptionsText}>No subscriptions ending soon</Text>
+                    <Text style={styles.noSubscriptionsSubtext}>
+                      All active subscriptions are valid for more than 10 days
+                    </Text>
+                  </View>
+                )}
+              </View>
+              
+              <View style={styles.modalActions}>
+                <TouchableOpacity 
+                  onPress={() => setSubscriptionsEndingModalVisible(false)}
+                  style={styles.modalCancelButton}
+                >
+                  <Text style={styles.modalCancelButtonText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </Portal>
+
+      {/* Active Subscriptions Modal */}
+      <Portal>
+        <Modal
+          visible={activeSubscriptionsModalVisible}
+          onDismiss={() => setActiveSubscriptionsModalVisible(false)}
+          contentContainerStyle={styles.modalContainer}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <View style={styles.modalIcon}>
+                  <WebCompatibleIcon name="card-membership" size={24} color="#9C27B0" />
+                </View>
+                <Text style={styles.modalTitle}>
+                  Active Subscriptions
+                  {activeSubscriptionsList.length > 0 && (
+                    <Text style={styles.modalSubtitle}>
+                      {'\n'}({activeSubscriptionsList.length} active plans)
+                    </Text>
+                  )}
+                </Text>
+                <TouchableOpacity 
+                  onPress={() => setActiveSubscriptionsModalVisible(false)}
+                  style={styles.closeButton}
+                >
+                  <WebCompatibleIcon name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.subscriptionsEndingContent}>
+                {activeSubscriptionsList.length > 0 ? (
+                  <>
+                    {/* Summary stats */}
+                    <View style={styles.modalSummary}>
+                      <View style={styles.modalSummaryItem}>
+                        <Text style={styles.modalSummaryNumber}>{activeSubscriptionsList.length}</Text>
+                        <Text style={styles.modalSummaryLabel}>Total Active</Text>
+                      </View>
+                      <View style={styles.modalSummaryItem}>
+                        <Text style={styles.modalSummaryNumber}>
+                          {[...new Set(activeSubscriptionsList.map(s => s.plan_name))].length}
+                        </Text>
+                        <Text style={styles.modalSummaryLabel}>Different Plans</Text>
+                      </View>
+                      <View style={styles.modalSummaryItem}>
+                        <Text style={styles.modalSummaryNumber}>
+                          ${activeSubscriptionsList.reduce((total, s) => total + (s.plan_price || 0), 0).toFixed(0)}
+                        </Text>
+                        <Text style={styles.modalSummaryLabel}>Monthly Revenue</Text>
+                      </View>
+                    </View>
+
+                    {/* Active subscriptions list */}
+                    <ScrollView style={styles.subscriptionsList} showsVerticalScrollIndicator={true}>
+                      {activeSubscriptionsList.map((subscription, index) => {
+                        const startDate = new Date(subscription.start_date);
+                        const endDate = new Date(subscription.end_date);
+                        const daysRemaining = Math.ceil((endDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                        
+                        return (
+                          <TouchableOpacity 
+                            key={subscription.id || index} 
+                            style={styles.subscriptionItem}
+                            onPress={() => {
+                              // Navigate to client profile
+                              if (subscription.user_id && navigation && navigation.navigate) {
+                                const userName = subscription.user_name || 'Unknown Client';
+                                try {
+                                  navigation.navigate('ClientProfile', { 
+                                    userId: subscription.user_id.toString(), 
+                                    userName: userName 
+                                  });
+                                  setActiveSubscriptionsModalVisible(false);
+                                } catch (error) {
+                                  console.error('Navigation failed:', error);
+                                }
+                              }
+                            }}
+                          >
+                            <View style={styles.subscriptionAvatar}>
+                              <WebCompatibleIcon name="person" size={20} color="#9C27B0" />
+                            </View>
+                            <View style={styles.subscriptionInfo}>
+                              <Text style={styles.subscriptionClientName}>
+                                {subscription.user_name}
+                              </Text>
+                              <Text style={styles.subscriptionEmail}>
+                                {subscription.user_email}
+                              </Text>
+                              <View style={styles.subscriptionPlanRow}>
+                                <Text style={styles.subscriptionPlanName}>
+                                  {subscription.plan_name}
+                                </Text>
+                                {subscription.plan_price > 0 && (
+                                  <Text style={styles.subscriptionPrice}>
+                                    ${subscription.plan_price}/mo
+                                  </Text>
+                                )}
+                              </View>
+                              <Text style={styles.subscriptionEndDate}>
+                                Expires: {endDate.toLocaleDateString('en-US', {
+                                  weekday: 'short',
+                                  month: 'short', 
+                                  day: 'numeric',
+                                  year: 'numeric'
+                                })}
+                              </Text>
+                              {subscription.equipment_access && subscription.equipment_access !== 'unknown' && (
+                                <Text style={styles.subscriptionEquipment}>
+                                  Access: {subscription.equipment_access.charAt(0).toUpperCase() + subscription.equipment_access.slice(1)}
+                                </Text>
+                              )}
+                              {subscription.remaining_classes !== undefined && (
+                                <Text style={styles.subscriptionRemainingClasses}>
+                                  Remaining: {subscription.remaining_classes} classes
+                                </Text>
+                              )}
+                            </View>
+                            <View style={styles.subscriptionStatus}>
+                              <View style={[
+                                styles.expiryBadge,
+                                { backgroundColor: daysRemaining <= 10 ? '#FFF3E0' : '#E8F5E8' }
+                              ]}>
+                                <Text style={[
+                                  styles.expiryWarning,
+                                  { color: daysRemaining <= 10 ? '#FF9800' : '#4CAF50' }
+                                ]}>
+                                  {daysRemaining <= 0 ? 'Expired' :
+                                   daysRemaining === 1 ? '1 day left' :
+                                   `${daysRemaining} days left`}
+                                </Text>
+                              </View>
+                              <WebCompatibleIcon name="chevron-right" size={16} color="#9CA3AF" />
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </>
+                ) : (
+                  <View style={styles.noSubscriptionsMessage}>
+                    <WebCompatibleIcon name="card-membership" size={48} color="#9CA3AF" />
+                    <Text style={styles.noSubscriptionsText}>No active subscriptions</Text>
+                    <Text style={styles.noSubscriptionsSubtext}>
+                      Active subscriptions will appear here once clients sign up for plans
+                    </Text>
+                  </View>
+                )}
+              </View>
+              
+              <View style={styles.modalActions}>
+                <TouchableOpacity 
+                  style={styles.modalButton}
+                  onPress={() => setActiveSubscriptionsModalVisible(false)}
+                >
+                  <Text style={styles.modalButtonText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </Portal>
     </>
   );
 }
@@ -786,7 +2115,7 @@ function ReceptionSidebar({ activeScreen, onNavigate, stats }: any) {
           </View>
         </View>
       </View>
-
+      
       {/* Navigation Menu */}
       <ScrollView style={styles.sidebarMenu}>
         {displayMenuItems.map((item) => (
@@ -894,7 +2223,8 @@ function ReceptionPCLayout({ navigation }: any) {
     totalClients: 0,
     todayClasses: 0,
     pendingBookings: 0,
-    activeSubscriptions: 0
+    activeSubscriptions: 0,
+    subscriptionsEndingSoon: 0
   });
   
 
@@ -905,7 +2235,7 @@ function ReceptionPCLayout({ navigation }: any) {
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
 
-  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
+  const [notificationSettings, setNotificationSettings] = useState({
     enableNotifications: true,
     defaultReminderMinutes: 5,
     enablePushNotifications: true,
@@ -929,14 +2259,20 @@ function ReceptionPCLayout({ navigation }: any) {
   };
 
   const renderMainContent = () => {
+    console.log('🔧 renderMainContent called with activeScreen:', activeScreen);
+    
     switch (activeScreen) {
       case 'Clients':
+        console.log('🔧 Rendering ClientsScreen');
         return <ClientsScreen navigation={navigation} />;
       case 'Classes':
+        console.log('🔧 Rendering ClassesScreen');
         return <ClassesScreen navigation={navigation} />;
       case 'Plans':
-        return <PlansScreen navigation={navigation} />;
+        console.log('🔧 Rendering PlansScreen');
+        return <PCSubscriptionPlans />;
       case 'Reports':
+        console.log('🔧 Rendering ReportsScreen');
         return <ReceptionReports />;
       case 'ClientProfile':
         console.log('🔧 Rendering ClientProfile with navigationParams:', navigationParams);
@@ -964,6 +2300,7 @@ function ReceptionPCLayout({ navigation }: any) {
         );
       case 'Dashboard':
       default:
+        console.log('🔧 Rendering ReceptionDashboard (default case)');
         return (
           <ReceptionDashboard 
             navigation={navigation} 
@@ -1407,7 +2744,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 32,
     marginBottom: 40,
-    justifyContent: 'space-between',
+    justifyContent: 'center',
   },
   statCard: {
     flex: 1,
@@ -1428,6 +2765,21 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginTop: 4,
     textAlign: 'center',
+  },
+  statSubtext: {
+    fontSize: 10,
+    color: '#9CA3AF',
+    marginTop: 2,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  statCardWarning: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#F44336',
+    backgroundColor: '#FEF2F2',
+  },
+  statNumberWarning: {
+    color: '#F44336',
   },
 
   // Quick Actions
@@ -1694,6 +3046,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 20,
   },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: 'normal',
+  },
   closeButton: {
     padding: 5,
   },
@@ -1833,672 +3190,649 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '500',
   },
-});
 
-// Profile-specific styles
-const profileStyles = StyleSheet.create({
-  tabsContainer: {
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    paddingHorizontal: 20,
+  // Stats Section
+  statsSection: {
+    marginBottom: 32,
   },
-  tabsScrollView: {
+  statsHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
   },
-  tab: {
+  statsStatus: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginRight: 8,
-    borderRadius: 8,
-    backgroundColor: '#F3F4F6',
+    gap: 10,
   },
-  activeTab: {
-    backgroundColor: '#6B8E7F',
-  },
-  tabText: {
-    marginLeft: 8,
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#6B8E7F',
-  },
-  activeTabText: {
-    color: '#ffffff',
-  },
-  contentContainer: {
-    flex: 1,
-  },
-  tabContent: {
-    padding: 20,
-  },
-  clientHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ffffff',
-    padding: 20,
+  liveIndicator: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: 12,
-    marginBottom: 20,
-    elevation: 2,
-  },
-  clientAvatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
   },
-  clientInfo: {
-    flex: 1,
-  },
-  clientName: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginBottom: 4,
-  },
-  clientEmail: {
-    fontSize: 16,
-    color: '#6B7280',
-    marginBottom: 8,
-  },
-  clientStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 16,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: 'bold',
+  liveIndicatorText: {
+    fontSize: 10,
     color: '#ffffff',
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 16,
-    marginBottom: 20,
-  },
-  statCard: {
-    flex: 1,
-    minWidth: 140,
-    backgroundColor: '#ffffff',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    elevation: 2,
-  },
-  statNumber: {
-    fontSize: 24,
     fontWeight: 'bold',
-    color: '#1F2937',
-    marginTop: 8,
   },
-  statLabel: {
+  statsTimestamp: {
+    alignSelf: 'center',
+    marginTop: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+  },
+  timestampText: {
     fontSize: 12,
     color: '#6B7280',
-    marginTop: 4,
     textAlign: 'center',
   },
-  detailsSection: {
-    backgroundColor: '#ffffff',
-    padding: 20,
-    borderRadius: 12,
-    elevation: 2,
+
+  // Enhanced Class Metrics Section
+  classMetricsSection: {
+    marginBottom: 32,
   },
-  sectionTitle: {
+  quickSummary: {
+    marginBottom: 20,
+  },
+  summaryCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 20,
+    elevation: 3,
+    borderLeftWidth: 4,
+    borderLeftColor: '#2196F3',
+  },
+  summaryTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#1F2937',
-    marginBottom: 16,
+    marginBottom: 15,
   },
-  detailRow: {
+  summaryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 20,
+  },
+  summaryItem: {
+    flex: 1,
+    minWidth: 120,
+  },
+  summaryLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 4,
+  },
+  summaryValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1F2937',
+  },
+  classMetricsHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  classMetricsControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  classFilterTabs: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  filterTab: {
+    paddingHorizontal: 16,
     paddingVertical: 8,
+    borderRadius: 20,
+  },
+  filterTabText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  classMetricsGrid: {
+    flexDirection: 'row',
+    gap: 20,
+    marginBottom: 20,
+  },
+  classMetricCard: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    padding: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+    elevation: 3,
+  },
+  classMetricHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  classMetricTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginLeft: 8,
+  },
+  classMetricNumber: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 5,
+  },
+  classMetricSubtext: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  todayClassesDetail: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 20,
+    elevation: 3,
+  },
+  subsectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 15,
+  },
+  classesList: {
+    //
+  },
+  emptyClasses: {
+    alignItems: 'center',
+    padding: 40,
+  },
+  emptyClassesText: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginTop: 12,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  classItem: {
+    flexDirection: 'column',
+    paddingVertical: 15,
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
   },
-  detailLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#6B7280',
+  fullClassItem: {
+    backgroundColor: '#FFFBEB', // Light yellow background for full classes
+    borderLeftWidth: 4,
+    borderLeftColor: '#F59E0B', // Orange border for full classes
   },
-  detailValue: {
-    fontSize: 14,
-    color: '#1F2937',
+  classHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  classInfo: {
     flex: 1,
-    textAlign: 'right',
   },
-  subscriptionCard: {
-    backgroundColor: '#ffffff',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    elevation: 2,
-  },
-  subscriptionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  subscriptionName: {
+  className: {
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '500',
     color: '#1F2937',
+    marginBottom: 2,
   },
-  subscriptionDetails: {
-    gap: 8,
-  },
-  subscriptionDetail: {
-    fontSize: 14,
-    color: '#6B7280',
-  },
-  bookingCard: {
-    backgroundColor: '#ffffff',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    elevation: 2,
-  },
-  bookingHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  bookingClass: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1F2937',
-  },
-  bookingInstructor: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 4,
-  },
-  bookingDateTime: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 4,
-  },
-  bookingEquipment: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 4,
-  },
-  bookingDate: {
+  classTime: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#6B7280',
   },
-  paymentCard: {
-    backgroundColor: '#ffffff',
-    padding: 16,
+  classStatus: {
+    //
+  },
+  fullClassBadge: {
+    backgroundColor: '#F59E0B',
     borderRadius: 12,
-    marginBottom: 12,
-    elevation: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
-  paymentHeader: {
+  fullClassBadgeText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  availableClassBadge: {
+    backgroundColor: '#E0F2F7',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  availableClassBadgeText: {
+    color: '#2196F3',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  classMetrics: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
+    justifyContent: 'space-around',
+    marginTop: 10,
   },
-  paymentAmount: {
+  classMetric: {
+    alignItems: 'center',
+  },
+  classMetricLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 4,
+  },
+  classMetricValue: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#10B981',
+    color: '#1F2937',
   },
-  paymentDate: {
-    fontSize: 14,
-    color: '#6B7280',
+  capacityBar: {
+    height: 8,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 4,
+    marginTop: 10,
+    overflow: 'hidden',
   },
-  paymentMethod: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 4,
+  capacityFill: {
+    height: '100%',
+    borderRadius: 4,
   },
-  paymentPlan: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 8,
-  },
-  noteCard: {
+  waitlistDetail: {
     backgroundColor: '#ffffff',
-    padding: 16,
     borderRadius: 12,
-    marginBottom: 12,
-    elevation: 2,
+    padding: 20,
+    elevation: 3,
   },
-  noteHeader: {
+  waitlistList: {
+    //
+  },
+  waitlistItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
   },
-  noteTitle: {
+  waitlistInfo: {
+    flex: 1,
+  },
+  waitlistClientName: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1F2937',
+  },
+  waitlistClassInfo: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  waitlistActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  waitlistActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#E0F2F7',
+    borderRadius: 8,
+  },
+  waitlistActionText: {
+    fontSize: 12,
+    color: '#2196F3',
+    fontWeight: '500',
+    marginLeft: 5,
+  },
+
+  // Debug Section
+  debugSection: {
+    marginTop: 20,
+    padding: 16,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  debugTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 10,
+  },
+  debugGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  debugItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  debugLabel: {
+    fontSize: 14,
+    color: '#555',
+    fontWeight: '500',
+  },
+  debugValue: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '600',
+  },
+  debugActions: {
+    marginTop: 15,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    gap: 10,
+  },
+  debugButton: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: '#4CAF50',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  debugButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  classActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    marginTop: 15,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  viewClientsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#E0F2F7',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2196F3',
+  },
+  viewClientsButtonText: {
+    fontSize: 12,
+    color: '#2196F3',
+    fontWeight: '500',
+    marginLeft: 5,
+  },
+  clientModalContent: {
+    padding: 20,
+  },
+  classInfoCard: {
+    marginBottom: 20,
+  },
+  classInfoTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 15,
+  },
+  classInfoGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 15,
+  },
+  classInfoItem: {
+    flex: 1,
+    minWidth: 120,
+  },
+  classInfoLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  classInfoValue: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1F2937',
+  },
+  clientSection: {
+    marginBottom: 15,
+  },
+  clientSectionTitle: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#1F2937',
+    marginBottom: 5,
   },
-  noteDate: {
-    fontSize: 12,
-    color: '#9CA3AF',
+  clientList: {
+    //
   },
-  noteContent: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 8,
-  },
-  noteAuthor: {
-    fontSize: 12,
-    color: '#9CA3AF',
-    fontStyle: 'italic',
-  },
-  activityCard: {
-    backgroundColor: '#ffffff',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    elevation: 2,
+  clientItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
   },
-  activityIcon: {
+  clientAvatar: {
     width: 40,
     height: 40,
     borderRadius: 20,
     backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  clientInfo: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  clientName: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1F2937',
+  },
+  clientEmail: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 2,
+  },
+  clientStatus: {
+    //
+  },
+  confirmedStatus: {
+    fontSize: 12,
+    color: '#4CAF50',
+    fontWeight: '500',
+  },
+  waitlistStatus: {
+    fontSize: 12,
+    color: '#FF9800',
+    fontWeight: '500',
+  },
+  noClientsMessage: {
+    alignItems: 'center',
+    padding: 40,
+  },
+  noClientsText: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginTop: 12,
+    fontWeight: '500',
+  },
+  noClientsSubtext: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+
+  // Subscriptions Ending Soon Modal Styles
+  subscriptionsEndingContent: {
+    marginBottom: 20,
+    maxHeight: 500,
+  },
+  modalSummary: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 20,
+  },
+  modalSummaryItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  modalSummaryNumber: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1F2937',
+  },
+  modalSummaryLabel: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  subscriptionsList: {
+    maxHeight: 350,
+    paddingHorizontal: 4, // Add padding for better scrollbar visibility
+  },
+  subscriptionItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+    backgroundColor: '#ffffff',
+  },
+  subscriptionItemCritical: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#F44336',
+    backgroundColor: '#FFFBFB',
+  },
+  subscriptionItemWarning: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF9800',
+    backgroundColor: '#FFFEF7',
+  },
+  subscriptionAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFF3E0',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 12,
   },
-  activityContent: {
+  subscriptionInfo: {
     flex: 1,
   },
-  activityText: {
-    fontSize: 14,
+  subscriptionClientName: {
+    fontSize: 15,
+    fontWeight: '600',
     color: '#1F2937',
+    marginBottom: 2,
+  },
+  subscriptionEmail: {
+    fontSize: 12,
+    color: '#6B7280',
     marginBottom: 4,
   },
-  activityDate: {
-    fontSize: 12,
-    color: '#9CA3AF',
-  },
-  lifecycleCard: {
-    backgroundColor: '#ffffff',
-    padding: 16,
-    borderRadius: 12,
-    elevation: 2,
-  },
-  lifecycleStage: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginBottom: 8,
-  },
-  lifecycleRisk: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 8,
-  },
-  lifecycleNotes: {
-    fontSize: 14,
-    color: '#6B7280',
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#9CA3AF',
-    textAlign: 'center',
-    paddingVertical: 40,
-    fontStyle: 'italic',
-  },
-  backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#9B8A7D',
-    padding: 15,
-    borderRadius: 8,
-    marginTop: 20,
-    marginBottom: 40,
-  },
-  backButtonText: {
-    color: '#ffffff',
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-  documentCard: {
-    backgroundColor: '#ffffff',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    elevation: 2,
-  },
-  documentHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  documentInfo: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  documentName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1F2937',
-  },
-  documentType: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  documentDescription: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 8,
-  },
-  documentMeta: {
+  subscriptionPlanRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 4,
   },
-  documentDate: {
+  subscriptionPlanName: {
+    fontSize: 13,
+    color: '#4B5563',
+    fontWeight: '500',
+    flex: 1,
+  },
+  subscriptionPrice: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#059669',
+    fontWeight: '600',
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
-  documentUploader: {
+  subscriptionEndDate: {
     fontSize: 12,
-    color: '#9CA3AF',
-    fontStyle: 'italic',
+    color: '#6B7280',
+    marginBottom: 2,
   },
-  sensitiveTag: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    backgroundColor: '#EF4444',
+  subscriptionEquipment: {
+    fontSize: 11,
+    color: '#8B5CF6',
+    backgroundColor: '#F5F3FF',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+  },
+  subscriptionRemainingClasses: {
+    fontSize: 11,
+    color: '#2563EB',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  subscriptionStatus: {
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 40,
+  },
+  expiryBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
-  },
-  sensitiveText: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    color: '#ffffff',
-  },
-  subscriptionActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    backgroundColor: '#F9FAFB',
     marginBottom: 4,
   },
-  actionButtonText: {
-    fontSize: 12,
-    fontWeight: '500',
-    marginLeft: 4,
-  },
-  addClassButton: {
-    borderColor: '#10B981',
-  },
-  removeClassButton: {
-    borderColor: '#F59E0B',
-  },
-  pauseButton: {
-    borderColor: '#6B7280',
-  },
-  resumeButton: {
-    borderColor: '#10B981',
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  addButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#6B8E7F',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  addButtonText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  modalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    padding: 20,
-    borderRadius: 12,
-    width: '90%',
-    maxWidth: 500,
-    maxHeight: '80%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-    paddingBottom: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  closeButton: {
-    padding: 5,
-  },
-  modalScrollView: {
-    maxHeight: 400,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#2c3e50',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  modalLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#34495e',
-    marginTop: 15,
-    marginBottom: 5,
-  },
-  modalInput: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 14,
-    backgroundColor: '#f8f9fa',
-  },
-  pickerContainer: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    backgroundColor: '#f8f9fa',
-  },
-  picker: {
-    width: '100%',
-    padding: 12,
-    backgroundColor: 'transparent',
-    fontSize: 14,
-  } as any,
-  checkboxRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 15,
-    marginBottom: 5,
-  },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderWidth: 2,
-    borderColor: '#6B8E7F',
-    borderRadius: 4,
-    marginRight: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  checkboxChecked: {
-    backgroundColor: '#6B8E7F',
-  },
-  checkmark: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  checkboxLabel: {
-    fontSize: 14,
-    color: '#34495e',
-    fontWeight: '500',
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 25,
-    gap: 15,
-  },
-  modalButton: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  cancelButton: {
-    backgroundColor: '#e74c3c',
-  },
-  createButton: {
-    backgroundColor: '#6B8E7F',
-  },
-  cancelButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  createButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  textArea: {
-    height: 100,
-  },
-  formRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  formColumn: {
-    flex: 1,
-  },
-  reminderSection: {
-    marginBottom: 16,
-  },
-  fileInput: {
-    display: 'none',
-  },
-  fileInputButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    backgroundColor: '#f8f9fa',
-    marginTop: 5,
-  },
-  fileInputText: {
-    fontSize: 14,
-    color: '#6B8E7F',
-    marginLeft: 8,
-    fontWeight: '500',
-  },
-  hiddenInput: {
-    display: 'none',
-  },
-  fileName: {
-    fontSize: 12,
-    color: '#6B8E7F',
-    marginTop: 8,
-    fontStyle: 'italic',
-  },
-  uploadButton: {
-    backgroundColor: '#6B8E7F',
-    padding: 12,
-    borderRadius: 6,
-    marginTop: 15,
-  },
-  uploadButtonText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  deleteButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff5f5',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    marginTop: 8,
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: '#fecaca',
-  },
-  deleteButtonText: {
-    color: '#dc3545',
-    fontSize: 12,
-    fontWeight: '600',
-    marginLeft: 4,
-  },
-  activityScrollView: {
-    maxHeight: 400,
-  },
-  activityScrollContent: {
-    paddingBottom: 20,
-  },
-  clickHint: {
+  expiryWarning: {
     fontSize: 11,
-    color: '#9B8A7D',
-    fontStyle: 'italic',
-    marginLeft: 8,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  noSubscriptionsMessage: {
+    alignItems: 'center',
+    padding: 40,
+  },
+  noSubscriptionsText: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginTop: 12,
+    fontWeight: '500',
+  },
+  noSubscriptionsSubtext: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+
+  // Modal button styles
+  modalButton: {
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    minWidth: 100,
+  },
+  modalButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 
-export default ReceptionDashboardWeb; 
+export default ReceptionDashboardWeb;

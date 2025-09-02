@@ -50,6 +50,8 @@ interface SubscriptionConflictData {
     description: string;
     warning: string | null;
     refundAmount: number;
+    paymentRequired?: number;
+    classAdjustment?: string;
     recommended: boolean;
   }[];
   message: string;
@@ -229,11 +231,25 @@ export function SubscriptionConflictDialog({
                             </Chip>
                           )}
                         </View>
-                        {option.refundAmount > 0 && (
-                          <Caption style={styles.refundAmount}>
-                            Est. Refund: {formatCurrency(option.refundAmount)}
-                          </Caption>
-                        )}
+                        
+                        {/* Pricing Information */}
+                        <View style={styles.pricingInfo}>
+                          {option.refundAmount > 0 && (
+                            <Caption style={styles.refundAmount}>
+                              💰 Refund: {formatCurrency(option.refundAmount)}
+                            </Caption>
+                          )}
+                          {option.paymentRequired && option.paymentRequired > 0 && (
+                            <Caption style={styles.paymentRequired}>
+                              💳 Additional Payment: {formatCurrency(option.paymentRequired)}
+                            </Caption>
+                          )}
+                          {option.classAdjustment && (
+                            <Caption style={styles.classAdjustment}>
+                              📚 Classes: {option.classAdjustment}
+                            </Caption>
+                          )}
+                        </View>
                       </View>
                       
                       <Caption style={styles.optionDescription}>
@@ -408,10 +424,21 @@ const styles = StyleSheet.create({
     color: Colors.light.textOnAccent,
     fontSize: 10,
   },
+  pricingInfo: {
+    marginTop: spacing.xs,
+    gap: spacing.xs / 2,
+  },
   refundAmount: {
     color: Colors.light.success,
     fontWeight: '500',
-    marginTop: spacing.xs,
+  },
+  paymentRequired: {
+    color: Colors.light.warning,
+    fontWeight: '500',
+  },
+  classAdjustment: {
+    color: Colors.light.primary,
+    fontWeight: '500',
   },
   optionDescription: {
     color: Colors.light.textSecondary,

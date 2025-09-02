@@ -17,7 +17,7 @@ import {
     Title,
 } from 'react-native-paper';
 import { useSelector } from 'react-redux';
-import { Colors } from '../../constants/Colors';
+import { Colors } from '../../../constants/Colors';
 import { instructorClientService } from '../../services/instructorClientService';
 import { userService } from '../../services/userService';
 import { RootState } from '../../store';
@@ -204,17 +204,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
-    backgroundColor: Colors.background,
+    backgroundColor: Colors.light.background,
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 8,
-    color: Colors.primary,
+    color: Colors.light.primary,
   },
   subtitle: {
     fontSize: 14,
-    color: Colors.textSecondary,
+    color: Colors.light.textSecondary,
     marginBottom: 16,
   },
   searchbar: {
@@ -242,7 +242,7 @@ const styles = StyleSheet.create({
   },
   clientEmail: {
     fontSize: 14,
-    color: Colors.textSecondary,
+    color: Colors.light.textSecondary,
   },
   assignButton: {
     marginLeft: 12,
@@ -257,7 +257,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   selectedInstructor: {
-    backgroundColor: Colors.primaryLight,
+    backgroundColor: Colors.light.surfaceVariant,
   },
   instructorChip: {
     width: 40,
