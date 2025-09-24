@@ -3,19 +3,19 @@ import { RouteProp, useRoute } from '@react-navigation/native';
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Image, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
-    ActivityIndicator,
-    Avatar,
-    Button,
-    Card,
-    Checkbox,
-    Chip,
-    Dialog,
-    IconButton,
-    Paragraph,
-    Portal,
-    Surface,
-    TextInput,
-    Title
+  ActivityIndicator,
+  Avatar,
+  Button,
+  Card,
+  Checkbox,
+  Chip,
+  Dialog,
+  IconButton,
+  Paragraph,
+  Portal,
+  Surface,
+  TextInput,
+  Title
 } from 'react-native-paper';
 import { useSelector } from 'react-redux';
 import { supabase } from '../../config/supabase.config';
@@ -331,7 +331,6 @@ function ClientProfile({ userId: propUserId, userName: propUserName }: { userId?
     }
     
     try {
-      console.log('📊 Loading client stats for user:', userId);
       
       // Get booking stats using bookingService (Supabase)
       const bookingStatsResponse = await bookingService.getBookingStatsForUser(userId);

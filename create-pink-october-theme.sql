@@ -1,0 +1,47 @@
+-- Create Pink October Breast Cancer Awareness theme in the database
+INSERT INTO themes (
+  id,
+  name,
+  display_name,
+  description,
+  colors,
+  is_active,
+  created_by,
+  created_at,
+  updated_at
+) VALUES (
+  gen_random_uuid(),
+  'pink_october',
+  '🌸 Pink October',
+  'Breast Cancer Awareness Month theme with pink ribbons, hope, and support messages.',
+  '{
+    "primary": "#E91E63",
+    "secondary": "#F8BBD9",
+    "accent": "#C2185B",
+    "background": "#FCE4EC",
+    "surface": "#FFFFFF",
+    "surfaceVariant": "#F8BBD9",
+    "surfaceElevated": "#FFFFFF",
+    "text": "#1A1A1A",
+    "textSecondary": "#E91E63",
+    "textMuted": "#9E9E9E",
+    "textOnAccent": "#FFFFFF",
+    "border": "#E91E63",
+    "borderLight": "#F8BBD9",
+    "divider": "#F8BBD9",
+    "error": "#F44336",
+    "warning": "#FF9800",
+    "success": "#4CAF50",
+    "info": "#2196F3",
+    "pink": "#E91E63",
+    "ribbon": "#E91E63",
+    "awareness": "#C2185B",
+    "hope": "#F8BBD9",
+    "strength": "#AD1457",
+    "support": "#F48FB1"
+  }'::jsonb,
+  true,
+  (SELECT id FROM users LIMIT 1),
+  NOW(),
+  NOW()
+);

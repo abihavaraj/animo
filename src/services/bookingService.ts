@@ -18,6 +18,7 @@ export interface Booking {
   bookingDate: string;
   createdAt: string;
   updatedAt: string;
+  cancelledBy?: 'user' | 'studio' | 'reception';
   
   // Backend fields (snake_case)
   user_id?: string;
@@ -26,6 +27,7 @@ export interface Booking {
   booking_date?: string;
   created_at?: string;
   updated_at?: string;
+  cancelled_by?: string;
   
   // Class details from JOIN query
   class_name?: string;
@@ -118,6 +120,7 @@ class BookingService {
           user_id,
           class_id,
           status,
+          cancelled_by,
           booking_date,
           created_at,
           classes (
@@ -226,7 +229,6 @@ class BookingService {
   }
 
   async createBooking(bookingData: BookingRequest): Promise<ApiResponse<Booking | { waitlisted: true, position: number }>> {
-    console.time('🚀 [BOOKING] Total booking process');
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -234,20 +236,17 @@ class BookingService {
       }
       
       // Get class details to check capacity, category, and equipment requirements
-      console.time('🔍 [BOOKING] Class details query');
       const { data: classDetails, error: classError } = await supabase
         .from('classes')
         .select('id, name, capacity, date, time, category, equipment_type, instructor_id')
         .eq('id', bookingData.classId)
         .single();
-      console.timeEnd('🔍 [BOOKING] Class details query');
       
       if (classError) {
         return { success: false, error: 'Class not found' };
       }
       
       // Get user's current subscription to validate personal class access
-      console.time('🔍 [BOOKING] User subscription query');
       const { data: userSubscription, error: subscriptionError } = await supabase
         .from('user_subscriptions')
         .select(`
@@ -267,7 +266,6 @@ class BookingService {
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
-      console.timeEnd('🔍 [BOOKING] User subscription query');
       
       if (subscriptionError || !userSubscription) {
         return { success: false, error: 'No active subscription found. Please purchase a subscription plan to book classes.' };
@@ -345,14 +343,12 @@ class BookingService {
       }
       
       // Check if there's an existing booking for this user and class
-      console.time('🔍 [BOOKING] Existing booking check');
       const { data: existingBooking } = await supabase
         .from('bookings')
         .select('id, status')
         .eq('user_id', user.id)
         .eq('class_id', bookingData.classId)
         .single();
-      console.timeEnd('🔍 [BOOKING] Existing booking check');
       
       // If user already has a confirmed booking, don't allow duplicate
       if (existingBooking && existingBooking.status === 'confirmed') {
@@ -360,13 +356,11 @@ class BookingService {
       }
       
       // Check current enrollment
-      console.time('🔍 [BOOKING] Current enrollment check');
       const { data: currentBookings, error: bookingsError } = await supabase
         .from('bookings')
         .select('id')
         .eq('class_id', bookingData.classId)
         .eq('status', 'confirmed');
-      console.timeEnd('🔍 [BOOKING] Current enrollment check');
       
       if (bookingsError) {
         return { success: false, error: 'Failed to check class availability' };
@@ -378,12 +372,8 @@ class BookingService {
       if (currentEnrollment >= classDetails.capacity) {
         const waitlistResult = await this.joinWaitlist({ classId: bookingData.classId });
         if (waitlistResult.success && waitlistResult.data) {
-          // Send waitlist notification
-          await notificationService.sendClassNotification(
-            bookingData.classId,
-            'update',
-            `You've been added to the waitlist for "${classDetails.name}" on ${new Date(classDetails.date).toLocaleDateString()}. You're position ${waitlistResult.data.position} on the list.`
-          );
+          // The translated notification is already sent in joinWaitlist method
+          // No need for additional notification here
           
           return { 
             success: true, 
@@ -401,7 +391,6 @@ class BookingService {
       
       if (existingBooking) {
         // Update existing booking (reactivate if cancelled)
-        console.time('🔍 [BOOKING] Update existing booking');
         const { data, error } = await supabase
           .from('bookings')
           .update({
@@ -412,7 +401,6 @@ class BookingService {
           .eq('id', existingBooking.id)
           .select('*')
           .single();
-        console.timeEnd('🔍 [BOOKING] Update existing booking');
         
         if (error) {
           return { success: false, error: error.message };
@@ -421,7 +409,6 @@ class BookingService {
         result = data;
       } else {
         // Create new booking
-        console.time('🔍 [BOOKING] Create new booking');
         const { data, error } = await supabase
           .from('bookings')
           .insert({
@@ -432,7 +419,6 @@ class BookingService {
           })
           .select('*')
           .single();
-        console.timeEnd('🔍 [BOOKING] Create new booking');
         
         if (error) {
           return { success: false, error: error.message };
@@ -445,16 +431,12 @@ class BookingService {
       if (result && (existingBooking?.status === 'cancelled' || !existingBooking) && !isUnlimited) {
         const creditDeducted = await this.deductClassFromSubscription(user.id);
         if (!creditDeducted) {
-          console.error(`❌ CRITICAL: Credit deduction FAILED for booking user ${user.id}`);
-          console.error(`❌ Rolling back booking to prevent free class...`);
-          
           // Delete the booking we just created since credit deduction failed
           await supabase
             .from('bookings')
             .delete()
             .eq('id', result.id);
           
-
           return { success: false, error: 'Insufficient class credits or subscription not found. Please check your subscription status.' };
         }
       }
@@ -467,35 +449,32 @@ class BookingService {
         // 1. Get user's notification preferences
         const { data: userSettings } = await notificationService.getNotificationSettings();
         
-        // 2. Send confirmation notification to the specific user
-        // Send notification directly to user using Supabase
-        const { data: userNotificationData, error: userNotificationError } = await supabase
-          .from('notifications')
-          .insert({
-            user_id: user.id,
-            type: 'class_update',
-            title: 'Booking Confirmed',
-            message: `✅ Booking confirmed for "${classDetails.name}" on ${new Date(classDetails.date).toLocaleDateString()} at ${classDetails.time}. See you there!`,
-            scheduled_for: new Date().toISOString(),
-            metadata: {
-              class_id: bookingData.classId,
-              notification_type: 'booking_confirmation'
-            },
-            is_read: false
-          })
-          .select()
+        // 2. Create translated booking confirmation notification for dashboard
+        // Get instructor name
+        const { data: instructorData } = await supabase
+          .from('users')
+          .select('name')
+          .eq('id', classDetails.instructor_id)
           .single();
+        
+        const bookingConfirmationNotification = await notificationService.createTranslatedNotification(
+          user.id,
+          'class_booked',
+          {
+            type: 'class_booked',
+            className: classDetails.name,
+            instructorName: instructorData?.name || 'your instructor',
+            date: new Date(classDetails.date).toLocaleDateString(),
+            time: classDetails.time
+          }
+        );
 
-        if (userNotificationError) {
-          console.error('❌ Failed to send booking confirmation notification:', userNotificationError);
-        } else {
-    
+        if (!bookingConfirmationNotification.success) {
+          // Silent error handling for production
         }
 
         // 3. Schedule class reminder ONLY for this specific class (performance optimization)
-        console.time('🔍 [BOOKING] Notification scheduling');
         await pushNotificationService.scheduleClassReminder(user.id, bookingData.classId);
-        console.timeEnd('🔍 [BOOKING] Notification scheduling');
 
         // 4. Check if class is now full and send notification to instructor
         const { data: finalBookings } = await supabase
@@ -507,9 +486,6 @@ class BookingService {
         const finalEnrollment = finalBookings?.length || 0;
         
         if (finalEnrollment >= classDetails.capacity) {
-          console.log(`🎉 Class "${classDetails.name}" is now full (${finalEnrollment}/${classDetails.capacity}). Notifying instructor.`);
-          console.log(`📧 [BOOKING] Sending class full notification - ClassID: ${bookingData.classId}, InstructorID: ${classDetails.instructor_id}, BookingUserID: ${user.id}`);
-          
           // Send full class notification to instructor
           await notificationService.sendClassFullNotification(
             bookingData.classId,
@@ -549,13 +525,7 @@ class BookingService {
           const shouldSendEnrollmentNotification = !enrollmentSettingsError && 
             (instructorSettings?.new_enrollment_notifications === true);
 
-          console.log(`📧 [NOTIFICATION] Instructor enrollment notification check:`, {
-            instructorId: classDetails.instructor_id,
-            settingsError: !!enrollmentSettingsError,
-            settingValue: instructorSettings?.new_enrollment_notifications,
-            willSend: shouldSendEnrollmentNotification,
-            reason: enrollmentSettingsError ? 'skipping_due_to_settings_error' : 'using_preference_value'
-          });
+          // Silent logging for production
 
           // Send notification to instructor if they have new enrollment notifications enabled (default false)
           if (shouldSendEnrollmentNotification) {
@@ -588,41 +558,36 @@ class BookingService {
               .single();
 
             if (notificationError) {
-              console.error('❌ Failed to send enrollment notification to instructor:', notificationError);
+              // Silent error handling for production
             } else {
-        
-
               // Send PUSH notification to instructor
               try {
-                console.log('📱 [NOTIFICATION] Sending push notification to instructor for new enrollment...');
                 await notificationService.sendPushNotificationToUser(
                   classDetails.instructor_id,
                   'New Student Enrollment',
                   `${studentName} enrolled in "${classDetails.name}"`
                 );
-                console.log('✅ [NOTIFICATION] Push notification sent to instructor successfully');
               } catch (pushError) {
-                console.error('❌ [NOTIFICATION] Error sending push notification to instructor:', pushError);
+                // Silent error handling for production
               }
             }
 
-            console.log(`✅ New enrollment notification sent to instructor for class ${classDetails.name}`);
           } else {
-            console.log('📧 [NOTIFICATION] Instructor enrollment notification skipped - not enabled or settings error');
+            // Silent logging for production
           }
         }
       }
       
-      console.timeEnd('🚀 [BOOKING] Total booking process');
       return { success: true, data: result };
     } catch (error) {
-      console.timeEnd('🚀 [BOOKING] Total booking process');
       return { success: false, error: 'Failed to create booking' };
     }
   }
 
   async cancelBooking(id: string): Promise<ApiResponse<Booking>> {
     try {
+      console.log('🚀 [CANCEL_TRACKING] Starting cancellation process for booking ID:', id);
+      console.log('🚀 [CANCEL_TRACKING] Timestamp:', new Date().toISOString());
       
       // First get the booking details before cancelling
       const { data: originalBooking, error: fetchError } = await supabase
@@ -632,14 +597,22 @@ class BookingService {
         .single();
       
       if (fetchError) {
-        console.error('❌ Error fetching original booking:', fetchError);
+        console.error('❌ [CANCEL_TRACKING] STEP 1 FAILED - Error fetching original booking:', fetchError);
+        console.error('❌ [CANCEL_TRACKING] Database error details:', {
+          message: fetchError.message,
+          code: fetchError.code,
+          details: fetchError.details,
+          hint: fetchError.hint
+        });
         return { success: false, error: fetchError.message };
       }
+      
       
       const { data, error } = await supabase
         .from('bookings')
         .update({ 
           status: 'cancelled',
+          cancelled_by: 'user', // Mark as user-initiated cancellation
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
@@ -651,24 +624,63 @@ class BookingService {
         .single();
       
       if (error) {
-        console.error('❌ Error cancelling booking:', error);
+        console.error('❌ [CANCEL_TRACKING] STEP 2 FAILED - Error updating booking status to cancelled:', error);
+        console.error('❌ [CANCEL_TRACKING] Database error details:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+          bookingId: id
+        });
         return { success: false, error: error.message };
       }
       
+      
       // Restore class back to subscription when booking is cancelled
       if (data && data.user_id) {
-        await this.restoreClassToSubscription(data.user_id);
-
+        console.log('🚀 [CANCEL_TRACKING] STEP 3 STARTING - Credit refund process for user:', data.user_id);
+        try {
+          await this.restoreClassToSubscription(data.user_id);
+        } catch (refundError) {
+          console.error('❌ [CANCEL_TRACKING] STEP 3 FAILED - Credit refund error:', refundError);
+          console.error('❌ [CANCEL_TRACKING] Refund error details:', {
+            userId: data.user_id,
+            bookingId: id,
+            error: refundError,
+            timestamp: new Date().toISOString()
+          });
+          // Don't fail the entire cancellation if refund fails - this is the key insight!
+          // The booking is already cancelled, but user needs manual credit restoration
+        }
       } else {
-        console.error('❌ No user_id found in cancelled booking data');
+        console.error('❌ [CANCEL_TRACKING] STEP 3 SKIPPED - No user_id found in cancelled booking data');
+        console.error('❌ [CANCEL_TRACKING] Data received:', data);
       }
       
       // Handle waitlist promotion if there's a waitlist for this class
       let waitlistPromoted = false;
-
       
       if (originalBooking && originalBooking.class_id) {
-        waitlistPromoted = await this.promoteFromWaitlist(originalBooking.class_id);
+        console.log('🚀 [CANCEL_TRACKING] STEP 4 STARTING - Waitlist promotion check for class:', originalBooking.class_id);
+        try {
+          waitlistPromoted = await this.promoteFromWaitlist(originalBooking.class_id);
+        } catch (waitlistError) {
+          console.error('❌ [CANCEL_TRACKING] STEP 4 FAILED - Waitlist promotion error:', waitlistError);
+          // Don't fail cancellation if waitlist promotion fails
+        }
+      } else {
+        console.log('⚠️ [CANCEL_TRACKING] STEP 4 SKIPPED - No class_id for waitlist promotion');
+      }
+
+      // Cancel scheduled class reminder notification for the user
+      if (originalBooking && originalBooking.user_id && originalBooking.class_id) {
+        console.log('🚀 [CANCEL_TRACKING] STEP 5 STARTING - Cancelling scheduled class reminder notification');
+        try {
+          await pushNotificationService.cancelClassReminder(originalBooking.user_id, originalBooking.class_id);
+        } catch (notificationError) {
+          console.error('❌ [CANCEL_TRACKING] STEP 5 FAILED - Failed to cancel class reminder notification:', notificationError);
+          // Don't fail the booking cancellation if notification cancellation fails
+        }
       }
 
       // Send notification to instructor about cancellation
@@ -702,6 +714,21 @@ class BookingService {
       }
       
       // Return data with waitlist promotion info
+      console.log('🎉 [CANCEL_TRACKING] CANCELLATION COMPLETED SUCCESSFULLY:', {
+        bookingId: id,
+        userId: originalBooking.user_id,
+        classId: originalBooking.class_id,
+        className: (originalBooking.classes as any)?.name,
+        waitlistPromoted: waitlistPromoted,
+        timestamp: new Date().toISOString(),
+        summary: {
+          step1_fetch_booking: '✅ SUCCESS',
+          step2_update_status: '✅ SUCCESS', 
+          step3_refund_credit: '✅ SUCCESS',
+          step4_waitlist_promotion: waitlistPromoted ? '✅ PROMOTED' : '✅ NO_PROMOTION'
+        }
+      });
+      
       return { 
         success: true, 
         data: {
@@ -710,16 +737,27 @@ class BookingService {
         }
       };
     } catch (error) {
-      console.error('❌ Error in cancelBooking:', error);
+      console.error('💥 [CANCEL_TRACKING] CANCELLATION FAILED WITH EXCEPTION:', error);
+      console.error('💥 [CANCEL_TRACKING] Error details:', {
+        bookingId: id,
+        error: error,
+        stack: error instanceof Error ? error.stack : 'No stack trace',
+        timestamp: new Date().toISOString()
+      });
       return { success: false, error: 'Failed to cancel booking' };
     }
   }
 
   private async restoreClassToSubscription(userId: string): Promise<void> {
     try {
+      console.log('🔍 [REFUND_TRACKING] Starting credit restoration for user:', userId);
+      console.log('🔍 [REFUND_TRACKING] Timestamp:', new Date().toISOString());
+      
       // First, try to restore to user_subscriptions table (for subscription users)
       // Use the same query logic as deductClassFromSubscription for consistency
       const today = new Date().toISOString().split('T')[0];
+      console.log('🔍 [REFUND_TRACKING] Querying active subscriptions for user:', userId, 'after date:', today);
+      
       const { data: subscriptions, error: fetchError } = await supabase
         .from('user_subscriptions')
         .select('id, remaining_classes, subscription_plans:plan_id(name, duration, duration_unit, monthly_classes)')
@@ -729,11 +767,42 @@ class BookingService {
         .order('created_at', { ascending: false })
         .limit(1);
         
+      if (fetchError) {
+        console.error('❌ [REFUND_TRACKING] Error querying subscriptions:', fetchError);
+        console.error('❌ [REFUND_TRACKING] Database error details:', {
+          message: fetchError.message,
+          code: fetchError.code,
+          details: fetchError.details,
+          hint: fetchError.hint,
+          userId: userId
+        });
+        throw fetchError;
+      }
+      
+      console.log('📊 [REFUND_TRACKING] Subscriptions query result:', {
+        userId: userId,
+        subscriptionsFound: subscriptions?.length || 0,
+        subscriptions: subscriptions?.map(s => ({
+          id: s.id,
+          remaining_classes: s.remaining_classes,
+          plan_name: (s.subscription_plans as any)?.name
+        }))
+      });
+        
       const subscription = subscriptions && subscriptions.length > 0 ? subscriptions[0] : null;
 
       if (!fetchError && subscription) {
         // User has a subscription - restore to subscription
-        const newRemainingClasses = subscription.remaining_classes + 1;
+        const oldRemainingClasses = subscription.remaining_classes;
+        const newRemainingClasses = oldRemainingClasses + 1;
+        
+        console.log('🔄 [REFUND_TRACKING] SUBSCRIPTION REFUND - Updating subscription:', {
+          subscriptionId: subscription.id,
+          userId: userId,
+          oldRemainingClasses: oldRemainingClasses,
+          newRemainingClasses: newRemainingClasses,
+          planName: (subscription.subscription_plans as any)?.name
+        });
         
         const { data: updateData, error: updateError } = await supabase
           .from('user_subscriptions')
@@ -746,17 +815,25 @@ class BookingService {
           .single();
         
         if (updateError) {
-          console.warn('⚠️ Error updating subscription for refund:', updateError);
-          return;
+          console.error('❌ [REFUND_TRACKING] SUBSCRIPTION REFUND FAILED:', updateError);
+          console.error('❌ [REFUND_TRACKING] Database error details:', {
+            message: updateError.message,
+            code: updateError.code,
+            details: updateError.details,
+            hint: updateError.hint,
+            subscriptionId: subscription.id,
+            userId: userId
+          });
+          throw updateError;
         }
         
         const planName = (subscription.subscription_plans as any)?.name || 'Unknown Plan';
-
+        
         return;
       }
 
       // No subscription found - restore to user's daypass credits
-      console.log('📝 No active subscription found, restoring to daypass credits...');
+      console.log('🔄 [REFUND_TRACKING] DAYPASS REFUND - No active subscription found, restoring to daypass credits for user:', userId);
       
       const { data: userData, error: userError } = await supabase
         .from('users')
@@ -765,16 +842,29 @@ class BookingService {
         .single();
       
       if (userError) {
-        console.warn('⚠️ Error fetching user data for credit restoration:', userError);
-        return;
+        console.error('❌ [REFUND_TRACKING] DAYPASS REFUND FAILED - Error fetching user data:', userError);
+        console.error('❌ [REFUND_TRACKING] Database error details:', {
+          message: userError.message,
+          code: userError.code,
+          details: userError.details,
+          hint: userError.hint,
+          userId: userId
+        });
+        throw userError;
       }
       
       const currentCreditBalance = userData.credit_balance || 0;
       const currentRemainingClasses = userData.remaining_classes || 0;
-      
-      // Restore 1 class to user's daypass credits
       const newRemainingClasses = currentRemainingClasses + 1;
       
+      console.log('🔄 [REFUND_TRACKING] DAYPASS REFUND - Updating user credits:', {
+        userId: userId,
+        oldRemainingClasses: currentRemainingClasses,
+        newRemainingClasses: newRemainingClasses,
+        creditBalance: currentCreditBalance
+      });
+      
+      // Restore 1 class to user's daypass credits
       const { error: updateUserError } = await supabase
         .from('users')
         .update({
@@ -783,13 +873,17 @@ class BookingService {
         .eq('id', userId);
       
       if (updateUserError) {
-        console.warn('⚠️ Error updating user daypass credits for refund:', updateUserError);
-        return;
+        console.error('❌ [REFUND_TRACKING] DAYPASS REFUND FAILED - Error updating user credits:', updateUserError);
+        console.error('❌ [REFUND_TRACKING] Database error details:', {
+          message: updateUserError.message,
+          code: updateUserError.code,
+          details: updateUserError.details,
+          hint: updateUserError.hint,
+          userId: userId
+        });
+        throw updateUserError;
       }
       
-      console.log(`✅ SUCCESS: Refunded 1 class to daypass credits!`);
-      console.log(`📊 Daypass class count: ${currentRemainingClasses} → ${newRemainingClasses}`);
-      console.log(`💰 Credit balance unchanged: ${currentCreditBalance}`);
       
     } catch (error) {
       console.error('❌ Error restoring class to subscription/credits:', error);
@@ -800,33 +894,19 @@ class BookingService {
     try {
       // Ensure userId is string for Supabase UUID compatibility
       const userIdString = userId.toString();
-      console.log(`💰 [DEDUCT] Starting credit deduction for user ${userIdString}`);
       
-      // CRITICAL DEBUG: Check if ANY subscriptions exist for this user  
-      console.log(`🔍 [DEDUCT] BEFORE QUERY: Checking if user has ANY subscriptions...`);
-      console.log(`🔍 [DEDUCT] userIdString:`, userIdString);
-      console.log(`🔍 [DEDUCT] userIdString type:`, typeof userIdString);
-      console.log(`🔍 [DEDUCT] userIdString length:`, userIdString?.length);
-      
-      // Also try to get current auth user for comparison
+      // Get current auth user for comparison
       const { data: { user: authUser } } = await supabase.auth.getUser();
-      console.log(`🔍 [DEDUCT] COMPARISON - authUser.id:`, authUser?.id);
-      console.log(`🔍 [DEDUCT] COMPARISON - authUser matches userIdString:`, authUser?.id === userIdString);
-      
-      // CRITICAL FIX: If user doesn't match auth context, we need to use admin client
-      const shouldUseAdminContext = authUser?.id !== userIdString;
-      console.log(`🔍 [DEDUCT] Should use admin context:`, shouldUseAdminContext);
       
       // Use admin client when looking up different user's data
+      const shouldUseAdminContext = authUser?.id !== userIdString;
       const clientToUse = shouldUseAdminContext ? supabaseAdmin : supabase;
-      console.log(`🔍 [DEDUCT] Using client:`, shouldUseAdminContext ? 'ADMIN' : 'USER');
       
       // First, try to deduct from user_subscriptions table (for subscription users)
       // Use SAME logic as getCurrentSubscription to find active subscriptions
-      console.log(`🔍 [DEDUCT] Checking user_subscriptions table...`);
       const today = new Date().toISOString().split('T')[0]; // Get today's date in YYYY-MM-DD format
       
-      // CRITICAL FIX: For waitlist promotion, we always query by specific user_id regardless of auth context
+      // Query for active subscriptions
       const { data: subscriptions, error: fetchError } = await clientToUse
         .from('user_subscriptions')
         .select('id, remaining_classes, status, end_date, subscription_plans:plan_id(name, duration, duration_unit, monthly_classes)')
@@ -835,12 +915,6 @@ class BookingService {
         .eq('status', 'active') // Only active subscriptions
         .order('created_at', { ascending: false })
         .limit(1);
-
-      console.log(`🔍 [DEDUCT] Subscription query result:`, { 
-        subscriptions, 
-        error: fetchError,
-        foundCount: subscriptions?.length || 0
-      });
       
 
 
@@ -850,24 +924,13 @@ class BookingService {
       if (!fetchError && subscriptions && subscriptions.length > 0) {
         // User has a subscription - deduct from the first (most recent) one
         const subscription = subscriptions[0];
-        console.log(`📋 [DEDUCT] Found active subscription:`, {
-          id: subscription.id,
-          planName: (subscription.subscription_plans as any)?.name,
-          remainingClasses: subscription.remaining_classes,
-          status: subscription.status,
-          endDate: subscription.end_date
-        });
         
         if (subscription.remaining_classes <= 0) {
-          console.warn(`⚠️ [DEDUCT] User has no remaining classes to deduct from subscription`);
-          console.warn(`⚠️ [DEDUCT] Remaining classes: ${subscription.remaining_classes}`);
           return false; // ❌ Failed - no classes to deduct
         }
         
         const newRemainingClasses = subscription.remaining_classes - 1;
-        console.log(`💰 [DEDUCT] Deducting 1 class: ${subscription.remaining_classes} → ${newRemainingClasses}`);
         
-        console.time('🔍 [BOOKING] Credit deduction update');
         const { data: updateData, error: updateError } = await clientToUse
           .from('user_subscriptions')
           .update({
@@ -877,27 +940,19 @@ class BookingService {
           .eq('id', subscription.id)
           .select('remaining_classes')
           .single();
-        console.timeEnd('🔍 [BOOKING] Credit deduction update');
         
         if (updateError) {
-          console.warn(`⚠️ [DEDUCT] Error updating subscription for deduction:`, updateError);
           return false; // ❌ Failed - database error
         }
         
-        const planName = (subscription.subscription_plans as any)?.name || 'Unknown Plan';
-        console.log(`✅ [DEDUCT] SUCCESS: Deducted 1 class from ${planName} subscription!`);
-        console.log(`📊 [DEDUCT] Subscription class count: ${subscription.remaining_classes} → ${updateData?.remaining_classes || newRemainingClasses}`);
         return true; // ✅ Success - deducted from subscription
       }
       
       // No subscription found - user needs an active subscription to book classes
-      console.log(`❌ [DEDUCT] No active subscription found (error: ${fetchError?.message || 'none'})`);
-      console.log(`❌ [DEDUCT] User must have an active subscription in user_subscriptions table to book classes`);
-      console.log(`💡 [DEDUCT] Solution: Create a subscription for this user via admin/reception`);
       return false; // ❌ Failed - no active subscription
       
     } catch (error) {
-      console.error('❌ Error deducting class from subscription/credits:', error);
+      // Silent error handling for production
       return false; // ❌ Failed - exception occurred
     }
   }
@@ -1018,9 +1073,9 @@ class BookingService {
       const creditDeducted = await this.deductClassFromSubscription(waitlistEntry.user_id);
       
       if (!creditDeducted) {
-        console.error(`❌ Credit deduction FAILED for waitlist promotion - rolling back booking`);
+        console.log(`⚠️ [WAITLIST] User ${waitlistEntry.user_id} has no remaining classes - skipping and trying next person`);
         
-        // Delete the booking we just created since credit deduction failed
+        // Delete the booking we just created since user has no credits
         await supabase
           .from('bookings')
           .delete()
@@ -1036,6 +1091,7 @@ class BookingService {
         await this.updateWaitlistPositions(classId);
         
         // Try to promote the NEXT person in line who might have credits
+        console.log(`🔄 [WAITLIST] Trying to promote next person in line for class ${classId}`);
         return await this.promoteFromWaitlist(classId);
       }
       
@@ -1043,21 +1099,34 @@ class BookingService {
       try {
         const classInfo = waitlistEntry.classes as any;
         if (classInfo) {
-          const message = `🎉 Congratulations! You've been promoted from the waitlist to confirmed for "${classInfo.name}" on ${new Date(classInfo.date).toLocaleDateString()} at ${classInfo.time}. See you there!`;
-          
           console.log(`📢 [NOTIFICATION] Sending waitlist to booking promotion notification to user ${waitlistEntry.user_id}`);
+          console.log(`📢 [NOTIFICATION] Class info:`, classInfo);
           
-          await notificationService.sendClassNotification(
-            classId,
-            'waitlist_promotion',
-            message,
-            [waitlistEntry.user_id]
+          // Use translated notification service for proper language support
+          const translatedNotification = await notificationService.createTranslatedNotification(
+            waitlistEntry.user_id,
+            'waitlist_promoted',
+            {
+              type: 'waitlist_promoted',
+              className: classInfo.name,
+              date: new Date(classInfo.date).toLocaleDateString(),
+              time: classInfo.time
+            }
           );
+
+          // Also send push notification to user's mobile device
+          if (translatedNotification.success && translatedNotification.data) {
+            await notificationService.sendPushNotificationToUser(
+              waitlistEntry.user_id,
+              translatedNotification.data.title,
+              translatedNotification.data.message
+            );
+          }
+
 
           // Schedule class reminder for the promoted user based on their preferences (performance optimization)
           await pushNotificationService.scheduleClassReminder(waitlistEntry.user_id, classId);
           
-          console.log(`✅ [NOTIFICATION] Waitlist promotion notification sent successfully`);
         }
       } catch (notifyError) {
         console.error('❌ [NOTIFICATION] Failed to send waitlist promotion notification:', notifyError);
@@ -1130,7 +1199,7 @@ class BookingService {
         return;
       }
       
-      console.log(`📊 [WAITLIST] Found ${waitlistEntries?.length || 0} entries to update`);
+      
       
       if (waitlistEntries && waitlistEntries.length > 0) {
         // First, update all positions
@@ -1166,7 +1235,6 @@ class BookingService {
           if (updateError) {
             console.error(`❌ [WAITLIST] Error updating position for entry ${update.id}:`, updateError);
           } else {
-            console.log(`✅ [WAITLIST] Updated entry ${update.id}: position ${update.currentPosition} → ${update.newPosition}`);
             // Add to notifications list for later sending
             notificationsToSend.push({
               user_id: update.user_id,
@@ -1190,15 +1258,36 @@ class BookingService {
               .single();
 
             if (classInfo) {
-              const message = `🎯 You've moved to position #${notification.newPosition} on the waitlist for "${classInfo.name}" on ${new Date(classInfo.date).toLocaleDateString()} at ${classInfo.time}.`;
-              await notificationService.sendClassNotification(classId, 'update', message, [notification.user_id]);
+              console.log(`📢 [WAITLIST] Sending position update notification to user ${notification.user_id}: position #${notification.newPosition}`);
+              
+              // Use translated notification service for proper language support
+              const translatedNotification = await notificationService.createTranslatedNotification(
+                notification.user_id,
+                'waitlist_moved_up',
+                {
+                  type: 'waitlist_moved_up',
+                  className: classInfo.name,
+                  date: new Date(classInfo.date).toLocaleDateString(),
+                  time: classInfo.time,
+                  newPosition: notification.newPosition
+                }
+              );
+
+              // Also send push notification to user's mobile device
+              if (translatedNotification.success && translatedNotification.data) {
+                await notificationService.sendPushNotificationToUser(
+                  notification.user_id,
+                  translatedNotification.data.title,
+                  translatedNotification.data.message
+                );
+              }
+              
             }
           } catch (notifyError) {
             console.warn('⚠️ [WAITLIST] Failed to send position update notification:', notifyError);
           }
         }
 
-        console.log(`✅ [WAITLIST] Successfully updated ${waitlistEntries.length} waitlist positions and sent ${notificationsToSend.length} notifications`);
       } else {
         console.log(`📭 [WAITLIST] No waitlist entries found for class ${classId}`);
       }
@@ -1377,6 +1466,45 @@ class BookingService {
         return { success: false, error: 'User not authenticated' };
       }
       
+      // ✅ NEW: Check if user has active subscription with remaining classes
+      const today = new Date().toISOString().split('T')[0];
+      
+      const { data: subscriptions, error: subscriptionError } = await supabase
+        .from('user_subscriptions')
+        .select(`
+          id,
+          remaining_classes,
+          status,
+          end_date,
+          subscription_plans (
+            name,
+            duration_unit
+          )
+        `)
+        .eq('user_id', user.id)
+        .eq('status', 'active')
+        .gte('end_date', today)
+        .order('end_date', { ascending: true });
+      
+      if (subscriptionError) {
+        return { success: false, error: 'Failed to verify subscription status' };
+      }
+      
+      if (!subscriptions || subscriptions.length === 0) {
+        return { success: false, error: 'You need an active subscription to join the waitlist' };
+      }
+      
+      // Check if user has remaining classes (for monthly/yearly subscriptions)
+      const activeSubscription = subscriptions[0];
+      const subscriptionPlan = Array.isArray(activeSubscription.subscription_plans) 
+        ? activeSubscription.subscription_plans[0] 
+        : activeSubscription.subscription_plans;
+      const isDayPass = subscriptionPlan?.duration_unit === 'days';
+      
+      if (!isDayPass && activeSubscription.remaining_classes <= 0) {
+        return { success: false, error: 'You have no remaining classes in your subscription to join the waitlist' };
+      }
+      
       // Check if user is already on waitlist for this class
       const { data: existingEntry } = await supabase
         .from('waitlist')
@@ -1398,7 +1526,6 @@ class BookingService {
         .limit(1);
       
       if (countError) {
-        console.error('❌ Error getting waitlist count:', countError);
         return { success: false, error: countError.message };
       }
       
@@ -1414,7 +1541,6 @@ class BookingService {
       
       while (!insertSuccess && attempts < maxAttempts) {
         attempts++;
-        console.log(`🔄 [joinWaitlist] Attempt ${attempts} with position ${nextPosition}`);
         
         const { data, error } = await supabase
           .from('waitlist')
@@ -1432,38 +1558,38 @@ class BookingService {
         if (error) {
           // Check if it's a position conflict (unique constraint violation)
           if (error.code === '23505' && error.message.includes('position')) {
-            console.log(`⚠️ [joinWaitlist] Position ${nextPosition} already taken, trying next position`);
             nextPosition++;
             continue;
           } else {
-            console.error('❌ Error joining waitlist:', error);
             return { success: false, error: error.message };
           }
         } else {
           // Success! Exit the loop
           insertSuccess = true;
           
-          // 📱 Send waitlist join notification
+          // 📱 Send translated waitlist join notification
           try {
             const classInfo = data.classes;
             if (classInfo) {
-              const notificationMessage = `🎯 You've been added to the waitlist for "${classInfo.name}" on ${new Date(classInfo.date).toLocaleDateString()} at ${classInfo.time}. You are position #${nextPosition}. We'll notify you if a spot opens up!`;
-              
-              console.log('📢 [joinWaitlist] Sending waitlist join notification...');
-              
-              // Send notification to the user who joined the waitlist
-              await notificationService.sendClassNotification(
-                waitlistData.classId,
-                'update',
-                notificationMessage,
-                [user.id]
+              // Create translated notification
+              await notificationService.createTranslatedNotification(
+                user.id,
+                'waitlist_joined',
+                {
+                  type: 'waitlist_joined',
+                  className: classInfo.name,
+                  date: new Date(classInfo.date).toLocaleDateString('sq-AL', { 
+                    day: 'numeric', 
+                    month: 'short' 
+                  }),
+                  time: classInfo.time,
+                  position: nextPosition
+                }
               );
-              
-              console.log(`✅ [joinWaitlist] Waitlist join notification sent to user ${user.id}`);
             }
           } catch (notificationError) {
             // Don't fail the waitlist join if notification fails
-            console.error('⚠️ [joinWaitlist] Failed to send notification:', notificationError);
+            // Silent error handling for production
           }
           
           return { success: true, data };
@@ -1473,7 +1599,6 @@ class BookingService {
       // If we got here, all attempts failed
       return { success: false, error: 'Failed to join waitlist after multiple attempts' };
     } catch (error) {
-      console.error('❌ Error in joinWaitlist:', error);
       return { success: false, error: 'Failed to join waitlist' };
     }
   }
@@ -1580,6 +1705,42 @@ class BookingService {
     }
   }
 
+  // Get all waitlist entries for dashboard
+  async getAllWaitlistEntries(): Promise<ApiResponse<any[]>> {
+    try {
+      const { data, error } = await supabase
+        .from('waitlist')
+        .select(`
+          id,
+          user_id,
+          class_id,
+          position,
+          created_at,
+          users!waitlist_user_id_fkey (name, email),
+          classes!waitlist_class_id_fkey (
+            id,
+            name,
+            date,
+            time,
+            equipment_type,
+            room,
+            status
+          )
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('❌ Error fetching all waitlist entries:', error);
+        return { success: false, error: error.message };
+      }
+
+      return { success: true, data: data as any || [] };
+    } catch (error) {
+      console.error('❌ Error in getAllWaitlistEntries:', error);
+      return { success: false, error: 'Failed to get all waitlist entries' };
+    }
+  }
+
   // Admin/Reception methods - Simplified approach to avoid RLS issues
   async assignClientToClass(userId: number | string, classId: number | string, notes?: string, overrideRestrictions?: boolean): Promise<ApiResponse<any>> {
     try {
@@ -1627,6 +1788,40 @@ class BookingService {
 
       if (classError || !classDetails) {
         return { success: false, error: 'Class not found' };
+      }
+
+      // ALWAYS check class capacity - override only affects subscription rules, not capacity limits
+      try {
+        // Get current confirmed bookings for this class
+        const { data: currentBookings, error: bookingsError } = await supabase
+          .from('bookings')
+          .select('id')
+          .eq('class_id', classIdValue)
+          .eq('status', 'confirmed');
+
+        if (bookingsError) {
+          console.warn('⚠️ Could not check class capacity:', bookingsError);
+          return { 
+            success: false, 
+            error: 'Cannot verify class capacity. Please contact system administrator.' 
+          };
+        }
+
+        const currentEnrollment = currentBookings?.length || 0;
+        console.log(`🔍 [CAPACITY_CHECK] Class ${classDetails.name}: ${currentEnrollment}/${classDetails.capacity} (Override: ${overrideRestrictions ? 'ON' : 'OFF'})`);
+
+        if (currentEnrollment >= classDetails.capacity) {
+          return { 
+            success: false, 
+            error: `Class is at full capacity (${currentEnrollment}/${classDetails.capacity}). Cannot assign more clients. Add client to waitlist instead.` 
+          };
+        }
+      } catch (capacityError) {
+        console.warn('⚠️ Capacity check failed with exception:', capacityError);
+        return { 
+          success: false, 
+          error: 'Cannot verify class capacity. Please try again.' 
+        };
       }
 
       // Declare activeSubscription outside the validation block so it's accessible for both cases
@@ -1903,6 +2098,7 @@ class BookingService {
         .from('bookings')
         .update({ 
           status: 'cancelled',
+          cancelled_by: 'reception', // Mark as reception-initiated cancellation
           updated_at: new Date().toISOString()
         })
         .eq('user_id', userIdValue)
@@ -1915,33 +2111,50 @@ class BookingService {
         return { success: false, error: `Failed to cancel booking: ${error.message}` };
       }
       
-      // 🔧 FIX: Only restore class if it was NOT an override assignment
+      // Cancel scheduled class reminder notification for the user
       if (data && data.user_id) {
-        // Check if this booking was made with override (stored in memory)
+        console.log('🚀 [ADMIN_CANCEL] Cancelling scheduled class reminder notification for user:', data.user_id);
+        try {
+          await pushNotificationService.cancelClassReminder(data.user_id, classIdValue);
+          console.log('✅ [ADMIN_CANCEL] Class reminder notification cancelled successfully');
+        } catch (notificationError) {
+          console.error('❌ [ADMIN_CANCEL] Failed to cancel class reminder notification:', notificationError);
+          // Don't fail the booking cancellation if notification cancellation fails
+        }
+      }
+      
+      // 🔧 SMART REFUND LOGIC: Only refund if the client was actually charged
+      if (data && data.user_id) {
+        // Check if this booking was assigned with override (no charge)
         const wasOverrideAssignment = global.overrideBookings && global.overrideBookings.has(data.id);
         
-        console.log('🔍 [DEBUG] Checking override assignment:', {
-          bookingId: data.id,
-          wasOverrideAssignment,
-          overrideBookingsCache: global.overrideBookings ? Array.from(global.overrideBookings) : 'none'
-        });
-        
-        if (!wasOverrideAssignment) {
-          await this.restoreClassToSubscription(data.user_id);
-          console.log('✅ Reception cancellation: Class refunded to user subscription (normal assignment)');
+        if (wasOverrideAssignment) {
+          // Booking was assigned without charge - no refund needed
+          console.log('⚠️ Reception cancellation: Booking was assigned without charge (override), no refund given');
+          global.overrideBookings.delete(data.id);
+          console.log('🗑️ Removed booking from override tracking cache');
         } else {
-          console.log('ℹ️ Reception cancellation: No credit restored (was override assignment)');
-          // Remove from cache since booking is cancelled
-          if (global.overrideBookings) {
-            global.overrideBookings.delete(data.id);
-          }
+          // Booking was assigned with charge - refund the credit
+          await this.restoreClassToSubscription(data.user_id);
+          console.log('✅ Reception cancellation: Class was charged, credit refunded to user subscription');
         }
       }
       
       // 🚨 CRITICAL FIX: Handle waitlist promotion for admin/reception cancellations
       console.log(`🎯 [ADMIN_CANCEL] Starting waitlist promotion check for class ${classIdValue}`);
+      
+      // Check if there are people on waitlist before promotion attempt
+      const { data: waitlistCheck } = await supabase
+        .from('waitlist')
+        .select('id, user_id, position, users:user_id(name)')
+        .eq('class_id', classIdValue)
+        .order('position', { ascending: true });
+      
+      console.log(`🎯 [ADMIN_CANCEL] Found ${waitlistCheck?.length || 0} people on waitlist:`, 
+        waitlistCheck?.map(w => ({ position: w.position, name: (w.users as any)?.name })));
+      
       const waitlistPromoted = await this.promoteFromWaitlist(classIdValue as number);
-      console.log(`🎯 [ADMIN_CANCEL] Waitlist promotion result: ${waitlistPromoted ? 'SUCCESS' : 'NO_PROMOTION'}`);
+      console.log(`🎯 [ADMIN_CANCEL] Waitlist promotion result: ${waitlistPromoted ? 'SUCCESS - Someone was promoted!' : 'NO_PROMOTION - No one promoted'}`);
       
       return { 
         success: true, 
@@ -1953,6 +2166,110 @@ class BookingService {
     } catch (error) {
       console.error('❌ Error in cancelClientBooking:', error);
       return { success: false, error: 'Failed to cancel client booking' };
+    }
+  }
+
+  async removeClientBooking(userId: number | string, classId: number | string): Promise<ApiResponse<any>> {
+    try {
+      // Handle different ID types - UUIDs stay as strings, numbers stay as numbers
+      let userIdValue: number | string;
+      let classIdValue: number | string;
+      
+      if (typeof userId === 'string') {
+        // Check if it's a UUID (contains hyphens) or a number string
+        if (userId.includes('-')) {
+          userIdValue = userId; // Keep UUID as string
+        } else {
+          userIdValue = parseInt(userId); // Convert number string to number
+          if (isNaN(userIdValue)) {
+            return { success: false, error: 'Invalid user ID' };
+          }
+        }
+      } else {
+        userIdValue = userId;
+      }
+      
+      if (typeof classId === 'string') {
+        // Check if it's a UUID (contains hyphens) or a number string
+        if (classId.includes('-')) {
+          classIdValue = classId; // Keep UUID as string
+        } else {
+          classIdValue = parseInt(classId); // Convert number string to number
+          if (isNaN(classIdValue)) {
+            return { success: false, error: 'Invalid class ID' };
+          }
+        }
+      } else {
+        classIdValue = classId;
+      }
+      
+      // First get the booking to check if it was an override assignment
+      const { data: bookingData, error: fetchError } = await supabase
+        .from('bookings')
+        .select('*')
+        .eq('user_id', userIdValue)
+        .eq('class_id', classIdValue)
+        .single();
+      
+      if (fetchError) {
+        console.error('Error fetching booking:', fetchError);
+        return { success: false, error: `Booking not found: ${fetchError.message}` };
+      }
+      
+      // Delete the booking completely
+      const { data, error } = await supabase
+        .from('bookings')
+        .delete()
+        .eq('user_id', userIdValue)
+        .eq('class_id', classIdValue)
+        .select('*')
+        .single();
+      
+      if (error) {
+        console.error('Error removing booking:', error);
+        return { success: false, error: `Failed to remove booking: ${error.message}` };
+      }
+      
+      // 🔧 FIX: Always restore class credit for admin/reception client removals
+      // This ensures that when reception/admin removes a client (whether originally assigned 
+      // with or without override), the user always gets their class credit back
+      if (bookingData && bookingData.user_id) {
+        await this.restoreClassToSubscription(bookingData.user_id);
+        console.log('✅ Client removal: Class credit always refunded to user subscription');
+        
+        // Clean up override tracking cache if this booking was tracked
+        if (global.overrideBookings && global.overrideBookings.has(bookingData.id)) {
+          global.overrideBookings.delete(bookingData.id);
+          console.log('🗑️ Removed booking from override tracking cache');
+        }
+      }
+      
+      // 🚨 Handle waitlist promotion after client removal
+      console.log(`🎯 [CLIENT_REMOVAL] Starting waitlist promotion check for class ${classIdValue}`);
+      
+      // Check if there are people on waitlist before promotion attempt
+      const { data: waitlistCheck } = await supabase
+        .from('waitlist')
+        .select('id, user_id, position, users:user_id(name)')
+        .eq('class_id', classIdValue)
+        .order('position', { ascending: true });
+      
+      console.log(`🎯 [CLIENT_REMOVAL] Found ${waitlistCheck?.length || 0} people on waitlist:`, 
+        waitlistCheck?.map(w => ({ position: w.position, name: (w.users as any)?.name })));
+      
+      const waitlistPromoted = await this.promoteFromWaitlist(classIdValue as number);
+      console.log(`🎯 [CLIENT_REMOVAL] Waitlist promotion result: ${waitlistPromoted ? 'SUCCESS - Someone was promoted!' : 'NO_PROMOTION - No one promoted'}`);
+      
+      return { 
+        success: true, 
+        data: {
+          ...data,
+          waitlistPromoted
+        }
+      };
+    } catch (error) {
+      console.error('❌ Error in removeClientBooking:', error);
+      return { success: false, error: 'Failed to remove client booking' };
     }
   }
 

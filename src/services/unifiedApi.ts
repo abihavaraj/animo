@@ -207,6 +207,14 @@ class UnifiedApiService {
     );
   }
 
+  // ===== WAITLIST =====
+  async getAllWaitlistEntries() {
+    return this.withFallback(
+      () => supabaseApiService.getAllWaitlistEntries(),
+      () => apiService.get('/api/waitlist')
+    );
+  }
+
   // ===== REAL-TIME SUBSCRIPTIONS (Supabase only) =====
   subscribeToClasses(callback: (payload: any) => void) {
     if (this.currentMode === 'SUPABASE') {

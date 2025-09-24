@@ -3,18 +3,34 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
 import moment from 'moment';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Dimensions, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { ActivityIndicator, Button, Card, Surface } from 'react-native-paper';
+import { useTranslation } from 'react-i18next';
+import { Alert, Animated, Dimensions, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Button, Card, Modal, Portal, Surface } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 import { Body, Caption, H1, H2, H3 } from '../../../components/ui/Typography';
-import { useThemeColor } from '../../../hooks/useThemeColor';
+import { useNewYearTheme } from '../../components/NewYearThemeProvider';
+import { usePinkOctoberTheme } from '../../components/PinkOctoberThemeProvider';
+import { WomensDayFloatingElements } from '../../components/WomensDay/WomensDayAnimations';
+import { WomensDayBadge, WomensDayElements, WomensDayHeader } from '../../components/WomensDay/WomensDayElements';
+import ChristmasFlipWelcomeText from '../../components/animations/ChristmasFlipWelcomeText';
+import RainingHearts from '../../components/animations/RainingHearts';
+import NewYearMessageCard from '../../components/ui/NewYearMessageCard';
+import PinkOctoberMessageCard from '../../components/ui/PinkOctoberMessageCard';
+import { ReceptionEidMubarakMessageCard } from '../../components/ui/ReceptionEidMubarakMessageCard';
+
+import ScrollableNotificationsModal from '../../components/ScrollableNotificationsModal';
+import { withChristmasDesign } from '../../components/withChristmasDesign';
+import { supabase } from '../../config/supabase.config';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useThemeColor } from '../../hooks/useDynamicThemeColor';
+import { Announcement, announcementService } from '../../services/announcementService';
 import { Booking, bookingService } from '../../services/bookingService';
 import { BackendClass, classService } from '../../services/classService';
 import { notificationService } from '../../services/notificationService';
 import { subscriptionService } from '../../services/subscriptionService';
 import { AppDispatch, RootState } from '../../store';
-import { createBooking } from '../../store/bookingSlice';
 import { fetchCurrentSubscription } from '../../store/subscriptionSlice';
+import { unifiedBookingUtils } from '../../utils/bookingUtils';
 import { shadows } from '../../utils/shadows';
 
 // Helper function to check equipment access validation
@@ -62,10 +78,15 @@ interface DashboardData {
 }
 
 function ClientDashboard() {
+  const { t } = useTranslation();
   const { user } = useSelector((state: RootState) => state.auth);
   const { currentSubscription } = useSelector((state: RootState) => state.subscriptions);
   const dispatch = useDispatch<AppDispatch>();
   const navigation = useNavigation();
+  const { refreshTheme, currentTheme, themeColors } = useTheme();
+  
+  const { isNewYearTheme } = useNewYearTheme();
+  const { isPinkOctoberTheme } = usePinkOctoberTheme();
   
   // Theme colors
   const backgroundColor = useThemeColor({}, 'background');
@@ -79,8 +100,23 @@ function ClientDashboard() {
   const warningColor = useThemeColor({}, 'warning');
   const errorColor = useThemeColor({}, 'error');
   
+  
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [cancellingBookings, setCancellingBookings] = useState<Set<string>>(new Set());
+  const [notificationModalVisible, setNotificationModalVisible] = useState(false);
+  const [notificationCount, setNotificationCount] = useState(0);
+  const [debugModalVisible, setDebugModalVisible] = useState(false);
+  const [debugModalTitle, setDebugModalTitle] = useState('');
+  const [debugModalMessage, setDebugModalMessage] = useState('');
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  
+  // Animation values
+  const bannerOpacity = useState(new Animated.Value(0))[0];
+  const bannerTranslateY = useState(new Animated.Value(-50))[0];
+  const cardAnimations = useState<Animated.Value[]>([])[0];
+  const pulseAnimations = useState<Animated.Value[]>([])[0];
   const [dashboardData, setDashboardData] = useState<DashboardData>({
     upcomingClasses: [],
     bookedClasses: [],
@@ -93,7 +129,129 @@ function ClientDashboard() {
 
   useEffect(() => {
     dispatch(fetchCurrentSubscription());
+    loadNotificationCount();
   }, [dispatch]);
+
+  // Load notification count
+  const loadNotificationCount = async () => {
+    try {
+      const response = await notificationService.getUserNotifications(user?.id || '');
+      if (response.success && response.data) {
+        const notifications = response.data as any[];
+        const unreadCount = notifications.filter(n => !n.is_read).length;
+        const totalCount = notifications.length;
+        setUnreadNotificationCount(unreadCount);
+        setNotificationCount(totalCount);
+      }
+    } catch (error) {
+      // Silently handle notification count loading errors
+    }
+  };
+
+  const markAllNotificationsAsRead = async () => {
+    try {
+      if (!user?.id) return;
+      
+      const { error } = await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('user_id', user.id)
+        .eq('is_read', false);
+
+      if (error) {
+        // Silently handle notification read marking errors
+        return;
+      }
+
+      // Reset unread count
+      setUnreadNotificationCount(0);
+    } catch (error) {
+      // Silently handle notification read marking errors
+    }
+  };
+
+  // Load announcements function
+  const loadAnnouncements = async () => {
+    try {
+      const announcementsData = await announcementService.getActiveAnnouncements();
+      setAnnouncements(announcementsData);
+      
+      // Animate banner entrance if there are announcements
+      if (announcementsData.length > 0) {
+        // Initialize card animations for each announcement
+        const newCardAnimations = announcementsData.map(() => new Animated.Value(0));
+        const newPulseAnimations = announcementsData.map(() => new Animated.Value(1));
+        cardAnimations.splice(0, cardAnimations.length, ...newCardAnimations);
+        pulseAnimations.splice(0, pulseAnimations.length, ...newPulseAnimations);
+        
+        // Animate banner entrance
+        Animated.parallel([
+          Animated.timing(bannerOpacity, {
+            toValue: 1,
+            duration: 500,
+            useNativeDriver: true,
+          }),
+          Animated.timing(bannerTranslateY, {
+            toValue: 0,
+            duration: 500,
+            useNativeDriver: true,
+          }),
+        ]).start();
+        
+        // Stagger card animations
+        cardAnimations.forEach((cardAnim, index) => {
+          Animated.timing(cardAnim, {
+            toValue: 1,
+            duration: 400,
+            delay: index * 150, // Stagger each card by 150ms
+            useNativeDriver: true,
+          }).start();
+        });
+        
+        // Start pulse animations for urgent announcements
+        announcementsData.forEach((announcement, index) => {
+          if (announcement.type === 'urgent') {
+            const pulseAnim = pulseAnimations[index];
+            const createPulseAnimation = () => {
+              Animated.sequence([
+                Animated.timing(pulseAnim, {
+                  toValue: 1.05,
+                  duration: 800,
+                  useNativeDriver: true,
+                }),
+                Animated.timing(pulseAnim, {
+                  toValue: 1,
+                  duration: 800,
+                  useNativeDriver: true,
+                }),
+              ]).start(() => {
+                // Repeat pulse animation
+                setTimeout(createPulseAnimation, 2000);
+              });
+            };
+            // Start pulse after card animation completes
+            setTimeout(createPulseAnimation, index * 150 + 400);
+          }
+        });
+      } else {
+        // Hide banner if no announcements
+        Animated.parallel([
+          Animated.timing(bannerOpacity, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.timing(bannerTranslateY, {
+            toValue: -50,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }
+    } catch (error) {
+      console.error('Error loading announcements:', error);
+    }
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -108,6 +266,8 @@ function ClientDashboard() {
       // This prevents the race condition where dashboard loads before Supabase session is restored
       setTimeout(() => {
         loadDashboardData();
+        loadAnnouncements();
+        refreshTheme();
         // Also refresh Redux store to keep it in sync
         dispatch(fetchCurrentSubscription());
       }, 0); // 🚀 OPTIMIZATION: Removed artificial delay
@@ -289,15 +449,17 @@ function ClientDashboard() {
               return false;
             }
             
-            const classDateTime = new Date(`${classDate} ${classTime}`);
-            const hoursUntilClass = (classDateTime.getTime() - dateHelpers.now.getTime()) / (1000 * 60 * 60);
+            // Use unified booking utils for Albanian timezone consistency
+            const canStayOnWaitlist = unifiedBookingUtils.canJoinWaitlist(classDate, classTime);
             
             // Auto-remove from waitlist if within 2 hours (don't wait for response)
-            if (hoursUntilClass <= 2 && hoursUntilClass > 0) {
-              bookingService.leaveWaitlist(waitlistEntry.id).catch(console.error);
+            if (!canStayOnWaitlist) {
+              unifiedBookingUtils.leaveWaitlist(waitlistEntry.id).catch(console.error);
               return false;
             }
             
+            // Double-check class is still in the future using unified utils
+            const classDateTime = new Date(`${classDate} ${classTime}`);
             return classDateTime > dateHelpers.now;
           })
           .map(waitlistEntry => {
@@ -405,7 +567,7 @@ function ClientDashboard() {
 
     } catch (error) {
               // Error loading dashboard data
-      Alert.alert('Error', 'Failed to load dashboard data');
+      Alert.alert(t('alerts.error'), t('alerts.errorLoadData'));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -423,7 +585,12 @@ function ClientDashboard() {
     const subscriptionEnd = Date.now();
             // Subscription fetch completed
     
-    loadDashboardData().finally(() => {
+    Promise.all([
+      loadDashboardData(),
+      loadAnnouncements(),
+      loadNotificationCount(),
+      refreshTheme()
+    ]).finally(() => {
       const refreshEndTime = Date.now();
               // Manual refresh completedr
     });
@@ -452,11 +619,14 @@ function ClientDashboard() {
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', { 
-      weekday: 'short', 
-      month: 'short', 
-      day: 'numeric' 
-    });
+    const weekdayIndex = date.getDay();
+    const monthIndex = date.getMonth();
+    const day = date.getDate();
+    
+    const weekdays = t('dates.weekdays.short', { returnObjects: true }) as string[];
+    const months = t('dates.months.short', { returnObjects: true }) as string[];
+    
+    return `${weekdays[weekdayIndex]}, ${months[monthIndex]} ${day}`;
   };
 
   const formatTime = (time: string) => {
@@ -478,24 +648,24 @@ function ClientDashboard() {
     const totalDays = classDateTime.diff(now, 'days');
     
     if (totalMinutes < 0) {
-      return 'Class started';
+      return t('timeDistance.classStarted');
     } else if (totalMinutes < 60) {
-      return `${totalMinutes} min${totalMinutes === 1 ? '' : 's'} away`;
+      return t('timeDistance.minutesAway', { count: totalMinutes });
     } else if (totalHours < 24) {
       const hours = Math.floor(totalHours);
       const minutes = totalMinutes - (hours * 60);
       if (minutes === 0) {
-        return `${hours} hour${hours === 1 ? '' : 's'} away`;
+        return t('timeDistance.hoursAway', { count: hours });
       } else {
-        return `${hours}h ${minutes}m away`;
+        return t('timeDistance.hourAndMinutes', { hours, minutes });
       }
     } else {
       const days = Math.floor(totalDays);
       const remainingHours = totalHours - (days * 24);
       if (remainingHours < 1) {
-        return `${days} day${days === 1 ? '' : 's'} away`;
+        return t('timeDistance.daysAway', { count: days });
       } else {
-        return `${days} day${days === 1 ? '' : 's'}, ${Math.floor(remainingHours)}h away`;
+        return t('timeDistance.daysAndHours', { days, hours: Math.floor(remainingHours) });
       }
     }
   };
@@ -505,101 +675,76 @@ function ClientDashboard() {
     const timeDisplay = formatTimeUntilClass(date, time);
     
     if (hoursUntil < 0) {
-      return { status: 'past', message: 'Class has started', color: errorColor };
+      return { status: 'past', message: t('timeDistance.classHasStarted'), color: errorColor };
     } else if (hoursUntil < 2) {
       return { 
         status: 'too_close', 
-        message: `Too close to cancel (${timeDisplay})`, 
+        message: t('timeDistance.tooCloseToCancel', { time: timeDisplay }), 
         color: errorColor 
       };
     } else if (hoursUntil < 6) {
       return { 
         status: 'warning', 
-        message: `Cancellation deadline approaching (${timeDisplay})`, 
+        message: t('timeDistance.cancellationDeadlineApproaching', { time: timeDisplay }), 
         color: warningColor 
       };
     } else {
       return { 
         status: 'ok', 
-        message: `Can cancel until 2h before class`, 
+        message: t('timeDistance.canCancelUntil2Hours'), 
         color: successColor 
       };
     }
   };
 
   const canCancelBooking = (date: string, time: string) => {
-    const hoursUntil = getHoursUntilClass(date, time);
-    return hoursUntil >= 2; // 2-hour cancellation rule
+    // Use unified booking utils for Albanian timezone consistency
+    return unifiedBookingUtils.canCancelBooking(date, time);
   };
 
   const handleCancelBooking = async (booking: Booking) => {
-    if (!booking.class_date || !booking.class_time) {
-      Alert.alert('Error', 'Unable to cancel booking - missing class information');
-      return;
+    // Prevent double cancellation
+    const bookingIdStr = booking.id?.toString();
+    if (!bookingIdStr || cancellingBookings.has(bookingIdStr)) {
+      return; // Already cancelling this booking
     }
 
-    const timeStatus = getClassTimeStatus(booking.class_date, booking.class_time);
-    
-    if (!canCancelBooking(booking.class_date, booking.class_time)) {
-      Alert.alert(
-        'Cannot Cancel Booking', 
-        `Sorry, you cannot cancel this booking. ${timeStatus.message}.\n\nOur policy requires at least 2 hours notice for cancellations.`,
-        [{ text: 'OK', style: 'default' }]
+    // Mark as cancelling to prevent double clicks
+    setCancellingBookings(prev => new Set(prev).add(bookingIdStr));
+
+    try {
+      const success = await unifiedBookingUtils.cancelBooking(
+        {
+          id: booking.id!,
+          classId: booking.class_id!,
+          class_name: booking.class_name,
+          class_date: booking.class_date,
+          class_time: booking.class_time,
+          instructor_name: booking.instructor_name
+        },
+        () => {
+          // On success callback
+          onRefresh();
+        },
+        t
       );
-      return;
+    } finally {
+      // Always remove from cancelling set
+      setCancellingBookings(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(bookingIdStr);
+        return newSet;
+      });
     }
-
-    const hoursUntil = getHoursUntilClass(booking.class_date, booking.class_time);
-    const timeDisplay = formatTimeUntilClass(booking.class_date, booking.class_time);
-    
-    Alert.alert(
-      'Cancel Booking',
-      `Are you sure you want to cancel "${booking.class_name}"?\n\nClass: ${formatDate(booking.class_date)} at ${formatTime(booking.class_time)}\nTime remaining: ${timeDisplay}\n\nYour class credit will be refunded to your account.`,
-      [
-        { text: 'Keep Booking', style: 'cancel' },
-        { 
-          text: 'Cancel Booking', 
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // Ensure booking.id is valid
-              if (!booking.id) {
-                Alert.alert('Error', 'Invalid booking ID');
-                return;
-              }
-              
-              const response = await bookingService.cancelBooking(booking.id);
-              if (response.success) {
-                const cancelData = response.data as any; // Backend returns different structure for cancellation
-                // Booking cancelled, refreshing UI
-                onRefresh();
-                Alert.alert(
-                  'Booking Cancelled', 
-                  cancelData?.waitlistPromoted 
-                    ? 'Your booking has been cancelled and your class credit refunded. The next person on the waitlist has been notified.'
-                    : 'Your booking has been cancelled and your class credit refunded.'
-                );
-              } else {
-                Alert.alert('Cancellation Failed', response.error || 'Failed to cancel booking. Please try again.');
-              }
-            } catch (error) {
-              // Cancel booking error
-              Alert.alert('Cancellation Failed', 'An error occurred while cancelling your booking. Please try again.');
-            }
-          }
-        }
-      ]
-    );
   };
 
   const handleBookClass = async (classId: string | number) => {
     const class_ = dashboardData.upcomingClasses.find(c => c.id === classId.toString());
     if (!class_) return;
 
-    // Check if user has subscription
-    if (!currentSubscription) {
-      Alert.alert('Subscription Required', 'You need an active subscription plan to book classes. Please contact reception to purchase a plan.');
-      return;
+    // Subscription check is now handled by button disabled state
+    if (!currentSubscription || currentSubscription.status !== 'active') {
+      return; // Button should be disabled, this is just a safety check
     }
 
     // Check if user has remaining classes (unless unlimited)
@@ -608,22 +753,22 @@ function ClientDashboard() {
     const isUnlimited = monthlyClasses >= 999;
     
     if (!isUnlimited && remainingClasses <= 0) {
-      Alert.alert('No Classes Remaining', 'You have no remaining classes in your subscription. Please renew or upgrade your plan.');
+      Alert.alert(t('classes.noClassesRemaining'), t('classes.noClassesRemainingDesc'));
       return;
     }
 
     // Check personal subscription restrictions
-    const subscriptionCategory = currentSubscription.category || currentSubscription.plan?.category;
+    const subscriptionCategory = currentSubscription.category;
     const isPersonalSubscription = subscriptionCategory === 'personal';
     const isPersonalClass = class_.category === 'personal';
 
     if (isPersonalSubscription && !isPersonalClass) {
-      Alert.alert('Personal Subscription Required', 'Your personal subscription only allows booking personal/private classes. Please choose a personal training session.');
+      Alert.alert(t('equipmentAccess.personalSubscriptionRequired'), t('equipmentAccess.personalOnly'));
       return;
     }
 
     if (!isPersonalSubscription && isPersonalClass) {
-      Alert.alert('Personal Training Session', 'This is a personal training session. You need a personal subscription to book this class.');
+      Alert.alert(t('equipmentAccess.personalTrainingSession'), t('equipmentAccess.needPersonalSubscription'));
       return;
     }
 
@@ -632,14 +777,17 @@ function ClientDashboard() {
     
     if (!isEquipmentAccessAllowed(planEquipment, class_.equipment_type)) {
       const accessMap = {
-        'mat': 'Mat-only',
-        'reformer': 'Reformer-only',
-        'both': 'Full equipment'
+        'mat': t('equipmentAccess.matOnly'),
+        'reformer': t('equipmentAccess.reformerOnly'),
+        'both': t('equipmentAccess.fullEquipment')
       };
       
       Alert.alert(
-        'Equipment Access Required',
-        `This class requires ${accessMap[class_.equipment_type] || class_.equipment_type} access. Your subscription only includes ${accessMap[planEquipment] || planEquipment} access. Please upgrade your plan.`
+        t('equipmentAccess.title'),
+        t('equipmentAccess.requiresAccess', { 
+          equipment: accessMap[class_.equipment_type] || class_.equipment_type, 
+          userAccess: accessMap[planEquipment] || planEquipment 
+        })
       );
       return;
     }
@@ -647,43 +795,63 @@ function ClientDashboard() {
     const remainingAfterBooking = isUnlimited ? 'unlimited' : remainingClasses - 1;
 
     Alert.alert(
-      'Confirm Booking',
-      `Book "${class_.name}" on ${formatDate(class_.date)} at ${formatTime(class_.time)}?\n\nRemaining classes after booking: ${remainingAfterBooking}`,
+      t('classes.confirmBooking'),
+      t('classes.confirmBookingMessage', { 
+        className: class_.name, 
+        date: formatDate(class_.date), 
+        time: formatTime(class_.time),
+        remaining: remainingAfterBooking
+      }),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         { 
-          text: 'Book Class', 
+          text: t('classes.bookClass'), 
           onPress: async () => {
             try {
-              await dispatch(createBooking({ classId })).unwrap();
-              // Booking successful, refreshing UI
-              onRefresh();
-              Alert.alert('Success', 'Class booked successfully!');
+              const success = await unifiedBookingUtils.bookClass(classId, currentSubscription, class_, t);
+              if (success) {
+                onRefresh();
+              }
             } catch (error: any) {
               // If booking fails, it might be because class is full - try to join waitlist
-              if (error.includes('waitlist') || error.includes('full')) {
-                Alert.alert('Class Full', 'This class is full. Would you like to join the waitlist?', [
-                  { text: 'Cancel', style: 'cancel' },
-                  { 
-                    text: 'Join Waitlist', 
-                    onPress: async () => {
-                      try {
-                        const result = await bookingService.joinWaitlist({ classId });
-                        if (result.success) {
-                          // Joined waitlist, refreshing UI
-                          onRefresh();
-                          Alert.alert('Success', `You've been added to the waitlist at position #${result.data?.position}.`);
-                        } else {
-                          Alert.alert('Error', result.error || 'Failed to join waitlist');
-                        }
-                      } catch (error) {
-                        Alert.alert('Error', 'Failed to join waitlist');
-                      }
-                    }
-                  }
-                ]);
+              if (error.includes && (error.includes('full') || error.includes('capacity'))) {
+                Alert.alert(
+                  t('classes.classFull'),
+                  t('classes.classFullJoinWaitlist'),
+                  [
+                    { text: t('common.cancel'), style: 'cancel' },
+                    { text: t('classes.joinWaitlist'), onPress: async () => {
+                      // Use the same joinWaitlist dialog logic as Calendar
+                      Alert.alert(
+                        t('classes.joinWaitlist'),
+                        `${t('classes.joinWaitlistConfirm', { 
+                          className: class_.name, 
+                          date: formatDate(class_.date), 
+                          time: formatTime(class_.time) 
+                        })}\n\n${t('classes.notifyWhenAvailable')}`,
+                        [
+                          { text: t('common.cancel'), style: 'cancel' },
+                          { 
+                            text: t('classes.joinWaitlist'), 
+                            onPress: async () => {
+                              try {
+                                const success = await unifiedBookingUtils.joinWaitlist(classId, currentSubscription, class_, t);
+                                if (success) {
+                                  onRefresh();
+                                }
+                              } catch (error: any) {
+                                console.error('❌ [Dashboard] Error joining waitlist:', error);
+                                Alert.alert(t('alerts.error'), t('alerts.errorJoinWaitlist'));
+                              }
+                            }
+                          }
+                        ]
+                      );
+                    }}
+                  ]
+                );
               } else {
-                Alert.alert('Booking Failed', error || 'Failed to book class');
+                Alert.alert(t('classes.bookingFailed'), error || t('classes.failedToBookClass'));
               }
             }
           }
@@ -696,34 +864,27 @@ function ClientDashboard() {
     const class_ = dashboardData.upcomingClasses.find(c => c.id === classId.toString());
     if (!class_) return;
 
-    // Check if user has subscription
-    if (!currentSubscription) {
-      Alert.alert('Subscription Required', 'You need an active subscription plan to join waitlists. Please contact reception to purchase a plan.');
-      return;
+    // Subscription check is now handled by button disabled state
+    if (!currentSubscription || currentSubscription.status !== 'active') {
+      return; // Button should be disabled, this is just a safety check
     }
 
     Alert.alert(
-      'Join Waitlist',
-      `Join the waitlist for "${class_.name}" on ${formatDate(class_.date)} at ${formatTime(class_.time)}?\n\nYou'll be notified if a spot becomes available.`,
+      t('classes.joinWaitlist'),
+      `${t('classes.joinWaitlistConfirm', { className: class_.name, date: formatDate(class_.date), time: formatTime(class_.time) })}\n\n${t('classes.notifyWhenAvailable')}`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         { 
-          text: 'Join Waitlist', 
+          text: t('classes.joinWaitlist'), 
           onPress: async () => {
             try {
-              const result = await bookingService.joinWaitlist({ classId });
-              if (result.success) {
-                // Joined waitlist (direct), refreshing UI
-                // Add a small delay to ensure database has been updated
-                setTimeout(() => {
-                  onRefresh(); // Refresh dashboard data
-                }, 1000);
-                Alert.alert('Success', `You've been added to the waitlist at position #${result.data?.position}.`);
-              } else {
-                Alert.alert('Error', result.error || 'Failed to join waitlist');
+              const success = await unifiedBookingUtils.joinWaitlist(classId, currentSubscription, class_, t);
+              if (success) {
+                onRefresh();
               }
-            } catch (error) {
-              Alert.alert('Error', 'Failed to join waitlist');
+            } catch (error: any) {
+              console.error('❌ [Dashboard] Error joining waitlist:', error);
+              Alert.alert(t('alerts.error'), t('alerts.errorJoinWaitlist'));
             }
           }
         }
@@ -731,59 +892,252 @@ function ClientDashboard() {
     );
   };
 
+  // Announcement helper functions
+  const getAnnouncementIcon = (type: string) => {
+    // Special Women's Day icons
+    if (currentTheme?.name === 'womens_day') {
+      switch (type) {
+        case 'warning': return 'favorite';
+        case 'urgent': return 'local-florist';
+        default: return 'spa';
+      }
+    }
+    
+    switch (type) {
+      case 'warning': return 'warning';
+      case 'urgent': return 'error';
+      default: return 'info';
+    }
+  };
+
+  const getAnnouncementColor = (type: string) => {
+    switch (type) {
+      case 'warning': return warningColor;
+      case 'urgent': return errorColor;
+      default: return accentColor;
+    }
+  };
+
   if (loading) {
     return (
       <View style={[styles.container, styles.loadingContainer, { backgroundColor }]}>
         <ActivityIndicator size="large" color={accentColor} />
-        <Body style={{ ...styles.loadingText, color: textColor }}>Loading your dashboard...</Body>
+        <Body style={{ ...styles.loadingText, color: textColor }}>{t('dashboard.loadingDashboard')}</Body>
       </View>
     );
   }
 
   return (
-    <ScrollView 
-      style={[styles.container, { backgroundColor }]} 
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          colors={[accentColor]}
-          tintColor={accentColor}
-        />
-      }
-    >
-      {/* Welcome Header */}
-      <Surface style={[styles.welcomeHeader, { backgroundColor: surfaceColor, borderBottomWidth: 1, borderBottomColor: textMutedColor }]}>
+    <View style={[styles.container, { backgroundColor }]}>
+      
+      <RainingHearts />
+      <WomensDayFloatingElements />
+      
+      <ScrollView 
+        style={styles.scrollView} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[accentColor]}
+            tintColor={accentColor}
+          />
+        }
+      >
+      {/* Animated Welcome Header */}
+      <Surface style={[
+        styles.welcomeHeader, 
+        { 
+          backgroundColor: currentTheme?.name === 'womens_day' ? 'rgba(139, 90, 107, 0.05)' : surfaceColor, 
+          borderBottomWidth: 1, 
+          borderBottomColor: textMutedColor 
+        }
+      ]}>
         <View style={styles.welcomeContent}>
-          <View>
-            <H1 style={{ ...styles.welcomeTitle, color: textColor }}>Welcome back!</H1>
-            <Body style={{ ...styles.welcomeSubtitle, color: textSecondaryColor }}>{user?.name}</Body>
+          <View style={styles.welcomeTextSection}>
+            {currentTheme?.name === 'womens_day' ? (
+              <>
+                <View style={styles.womensDayWelcomeCompact}>
+                  <MaterialIcons name="favorite" size={18} color={accentColor} />
+                  <H1 style={StyleSheet.flatten([styles.welcomeTitle, { color: primaryColor, marginLeft: 8 }])}>{t('dashboard.welcomeBack')}</H1>
+                </View>
+                <View style={styles.womensDayNameSection}>
+                  <MaterialIcons name="spa" size={14} color={accentColor} />
+                  <Body style={StyleSheet.flatten([styles.welcomeSubtitle, { color: textColor, marginLeft: 6 }])}>{user?.name}</Body>
+                </View>
+              </>
+            ) : (
+              // Check if Christmas theme is active for enhanced welcome
+              (() => {
+                const isChristmas = currentTheme && currentTheme.name !== 'default' && (
+                  currentTheme.name?.toLowerCase().includes('christmas') ||
+                  currentTheme.display_name?.toLowerCase().includes('christmas') ||
+                  currentTheme.display_name?.includes('🎄')
+                );
+                return isChristmas;
+              })() ? (
+                <ChristmasFlipWelcomeText 
+                  firstName={user?.name || 'User'} 
+                  style={styles.flipWelcomeContainer}
+                />
+              ) : (
+                // Original static welcome header for normal theme
+                <>
+                  <H1 style={StyleSheet.flatten([styles.welcomeTitle, { color: textColor }])}>
+                    {t('dashboard.welcomeBack')}
+                  </H1>
+                  <View style={styles.womensDayNameSection}>
+                    <MaterialIcons name="spa" size={14} color={accentColor} />
+                    <Body style={StyleSheet.flatten([styles.welcomeSubtitle, { color: textColor, marginLeft: 6 }])}>{user?.name}</Body>
+                  </View>
+                </>
+              )
+            )}
           </View>
           <View style={styles.welcomeActions}>
-            <Text style={styles.welcomeEmoji}>👋</Text>
+            {/* Notification Icon */}
+            <TouchableOpacity 
+              style={styles.notificationIconContainer}
+              onPress={async () => {
+                setNotificationModalVisible(true);
+                // Mark all notifications as read when modal is opened
+                await markAllNotificationsAsRead();
+              }}
+            >
+              <MaterialIcons 
+                name="notifications" 
+                size={24} 
+                color={textColor} 
+              />
+              {unreadNotificationCount > 0 && (
+                <View style={[styles.notificationBadge, { backgroundColor: errorColor }]}>
+                  <Text style={styles.notificationBadgeText}>
+                    {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            
+            {currentTheme?.name === 'womens_day' ? (
+              <MaterialIcons name="local-florist" size={24} color={accentColor} />
+            ) : (
+              <Text style={styles.welcomeEmoji}>👋</Text>
+            )}
           </View>
         </View>
       </Surface>
 
+      {/* Women's Day Celebration Header */}
+      <WomensDayHeader />
+
+      {/* Islamic Celebration Message Card */}
+      <ReceptionEidMubarakMessageCard 
+        showAnimations={true}
+      />
+
+      {/* New Year Message Card - Only show when New Year theme is active */}
+      {isNewYearTheme && (
+        <NewYearMessageCard 
+          showAnimations={true}
+        />
+      )}
+
+      {/* Pink October Message Card - Only show when Pink October theme is active */}
+      {isPinkOctoberTheme && (
+        <PinkOctoberMessageCard 
+          showAnimations={true}
+        />
+      )}
+
+      {/* Active Announcements Banner */}
+      {announcements.length > 0 && (
+        <Animated.View 
+          style={[
+            styles.announcementBanner,
+            {
+              opacity: bannerOpacity,
+              transform: [{ translateY: bannerTranslateY }]
+            }
+          ]}
+        >
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.announcementScrollContent}
+          >
+            {announcements.map((announcement, index) => {
+              const cardAnim = cardAnimations[index] || new Animated.Value(1);
+              const pulseAnim = pulseAnimations[index] || new Animated.Value(1);
+              
+              const cardScale = cardAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.8, 1],
+              });
+              const cardOpacity = cardAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, 1],
+              });
+              
+              // Combine card scale with pulse scale for urgent announcements
+              const finalScale = announcement.type === 'urgent' 
+                ? Animated.multiply(cardScale, pulseAnim)
+                : cardScale;
+              
+              return (
+                <Animated.View 
+                  key={announcement.id} 
+                  style={[
+                    styles.announcementCard,
+                    currentTheme?.name === 'womens_day' && styles.womensDayCard,
+                    { 
+                      backgroundColor: surfaceColor,
+                      borderLeftColor: getAnnouncementColor(announcement.type),
+                      transform: [{ scale: finalScale }],
+                      opacity: cardOpacity
+                    }
+                  ]}
+                >
+                  <View style={styles.announcementHeader}>
+                    <MaterialIcons 
+                      name={getAnnouncementIcon(announcement.type)} 
+                      size={16} 
+                      color={getAnnouncementColor(announcement.type)} 
+                    />
+                    <Body style={StyleSheet.flatten([styles.announcementTitle, { color: textColor }])}>
+                      {announcement.title}
+                    </Body>
+                  </View>
+                  <Caption style={StyleSheet.flatten([styles.announcementMessage, { color: textSecondaryColor }])}>
+                    {announcement.message}
+                  </Caption>
+                </Animated.View>
+              );
+            })}
+          </ScrollView>
+        </Animated.View>
+      )}
+
       {/* Subscription Status */}
       <View style={styles.subscriptionContainer}>
+        <WomensDayElements />
         {dashboardData.subscription ? (
           <Card style={[styles.subscriptionCard, { backgroundColor: surfaceColor, borderColor: textMutedColor }]}>
             <Card.Content style={styles.statCardContent}>
               <View style={styles.statHeader}>
+                <WomensDayBadge text="Empowered" icon="favorite" size="small" />
                 <MaterialIcons name="card-membership" size={24} color={primaryColor} />
                 <Caption style={{ ...styles.statLabel, color: textSecondaryColor }}>
-                  {currentSubscription?.duration_unit === 'days' ? 'Day Pass' : 'Current Plan'}
+                  {currentSubscription?.duration_unit === 'days' ? t('subscription.dayPass') : t('subscription.currentPlan')}
                 </Caption>
               </View>
               <H3 style={{ ...styles.statValue, color: textColor }}>{dashboardData.subscription.plan_name}</H3>
               <Body style={{ ...styles.statSubtext, color: textSecondaryColor }}>
                 {currentSubscription?.duration_unit === 'days' ? 
                   (dashboardData.subscription.remaining_classes > 0 ? 
-                    `Valid for ${dashboardData.subscription.remaining_classes} class${dashboardData.subscription.remaining_classes === 1 ? '' : 'es'}` :
-                    'Used') :
-                  `${dashboardData.subscription.remaining_classes} classes remaining`}
+                    `${t('subscription.validFor')} ${dashboardData.subscription.remaining_classes} ${dashboardData.subscription.remaining_classes === 1 ? t('classes.class') : t('classes.classes')}` :
+                    t('subscription.used')) :
+                  `${dashboardData.subscription.remaining_classes} ${t('dashboard.classesRemaining')}`}
               </Body>
             </Card.Content>
           </Card>
@@ -792,11 +1146,11 @@ function ClientDashboard() {
             <Card.Content style={styles.statCardContent}>
               <View style={styles.statHeader}>
                 <MaterialIcons name="emoji-emotions" size={24} color={accentColor} />
-                <Caption style={{ ...styles.statLabel, color: textSecondaryColor }}>Welcome!</Caption>
+                <Caption style={{ ...styles.statLabel, color: textSecondaryColor }}>{t('dashboard.welcome')}!</Caption>
               </View>
-              <H3 style={{ ...styles.statValue, color: textColor }}>Ready to Start?</H3>
+              <H3 style={{ ...styles.statValue, color: textColor }}>{t('dashboard.readyToStart')}?</H3>
               <Body style={{ ...styles.statSubtext, color: textSecondaryColor }}>
-                Visit reception to begin your journey
+                {t('dashboard.visitReceptionToBegin')}
               </Body>
             </Card.Content>
           </Card>
@@ -811,15 +1165,15 @@ function ClientDashboard() {
       <Card style={[styles.sectionCard, { backgroundColor: surfaceColor }]}>
         <Card.Content>
           <View style={styles.sectionHeader}>
-            <H2 style={{ ...styles.sectionTitle, color: textColor }}>{`My Booked Classes (${dashboardData.bookedClasses.length})`}</H2>
+            <H2 style={{ ...styles.sectionTitle, color: textColor }}>{`${t('dashboard.myBookings')} (${dashboardData.bookedClasses.length})`}</H2>
             <Button 
               mode="text" 
               // @ts-ignore - Navigation type issue
-              onPress={() => navigation.navigate('BookingHistory')}
+              onPress={() => navigation.navigate('History')}
               icon="arrow-right"
               textColor={accentColor}
             >
-              View All
+              {t('dashboard.viewAll')}
             </Button>
           </View>
 
@@ -835,7 +1189,7 @@ function ClientDashboard() {
                     <View style={styles.classHeader}>
                       <View style={styles.classInfo}>
                         <H3 style={{ ...styles.className, color: textColor }}>{booking.class_name || 'Class'}</H3>
-                        <Body style={{ ...styles.classInstructor, color: textSecondaryColor }}>with {booking.instructor_name || 'Instructor'}</Body>
+                        <Body style={{ ...styles.classInstructor, color: textSecondaryColor }}>{t('classes.with')} {booking.instructor_name || t('classes.teacherName')}</Body>
                       </View>
                       <View style={styles.classIcons}>
                                                  <View style={[styles.iconBadge, { backgroundColor: getEquipmentColor(booking.equipment_type || 'mat') }]}>
@@ -866,7 +1220,7 @@ function ClientDashboard() {
                       )}
                       <View style={styles.classDetailItem}>
                         <Text style={styles.iconText}>✅</Text>
-                        <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>Booked</Caption>
+                        <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>{t('classes.booked')}</Caption>
                       </View>
                     </View>
 
@@ -897,10 +1251,14 @@ function ClientDashboard() {
                       textColor={canCancel ? errorColor : backgroundColor}
                       labelStyle={canCancel ? {} : { color: backgroundColor }}
                       icon={canCancel ? "cancel" : "do-not-disturb-off"}
-                      disabled={!canCancel}
+                      disabled={!canCancel || cancellingBookings.has(booking.id?.toString() || '')}
+                      loading={cancellingBookings.has(booking.id?.toString() || '')}
                       onPress={() => handleCancelBooking(booking)}
                     >
-                      {canCancel ? 'Cancel' : 'Cannot Cancel'}
+                      {cancellingBookings.has(booking.id?.toString() || '') 
+                        ? t('classes.cancelling') 
+                        : canCancel ? t('classes.cancelBooking') : t('classes.cannotCancel')
+                      }
                     </Button>
                   </Card.Content>
                 </Card>
@@ -910,9 +1268,9 @@ function ClientDashboard() {
           ) : (
             <View style={styles.emptyState}>
               <MaterialIcons name="event-available" size={48} color={textMutedColor} />
-              <Body style={{ ...styles.emptyStateText, color: textColor }}>No booked classes yet</Body>
+              <Body style={{ ...styles.emptyStateText, color: textColor }}>{t('classes.noBookedClasses')}</Body>
               <Caption style={{ ...styles.emptyStateSubtext, color: textSecondaryColor }}>
-                Book a class below to see it here!
+                {t('classes.bookClassToSeeHere')}
               </Caption>
             </View>
           )}
@@ -924,7 +1282,7 @@ function ClientDashboard() {
         <Card style={[styles.sectionCard, { backgroundColor: surfaceColor }]}>
           <Card.Content>
             <View style={styles.sectionHeader}>
-              <H2 style={{ ...styles.sectionTitle, color: textColor }}>{`Waitlist (${dashboardData.waitlistClasses.length})`}</H2>
+              <H2 style={{ ...styles.sectionTitle, color: textColor }}>{`${t('classes.waitlist')} (${dashboardData.waitlistClasses.length})`}</H2>
               <MaterialIcons name="queue" size={24} color={warningColor} />
             </View>
 
@@ -935,7 +1293,7 @@ function ClientDashboard() {
                     <View style={styles.classHeader}>
                       <View style={styles.classInfo}>
                         <H3 style={{ ...styles.className, color: textColor }}>{waitlistEntry.class_name || 'Class'}</H3>
-                        <Body style={{ ...styles.classInstructor, color: textSecondaryColor }}>with {waitlistEntry.instructor_name || 'Instructor'}</Body>
+                        <Body style={{ ...styles.classInstructor, color: textSecondaryColor }}>{t('classes.with')} {waitlistEntry.instructor_name || t('classes.teacherName')}</Body>
                       </View>
                       <View style={styles.classIcons}>
                         <View style={[styles.iconBadge, { backgroundColor: warningColor }]}>
@@ -964,42 +1322,32 @@ function ClientDashboard() {
                       )}
                       <View style={styles.classDetailItem}>
                         <MaterialIcons name="queue" size={16} color={warningColor} />
-                        <Caption style={{ ...styles.classDetailText, color: warningColor }}>Position #{waitlistEntry.position}</Caption>
+                        <Caption style={{ ...styles.classDetailText, color: warningColor }}>{t('classes.position')} #{waitlistEntry.position}</Caption>
                       </View>
                     </View>
 
                     <Button 
                       mode="outlined" 
                       onPress={async () => {
-                        Alert.alert(
-                          'Leave Waitlist',
-                          'Are you sure you want to leave the waitlist?',
-                          [
-                            { text: 'Cancel', style: 'cancel' },
-                            { 
-                              text: 'Yes', 
-                              onPress: async () => {
-                                try {
-                                  const result = await bookingService.leaveWaitlist(waitlistEntry.id);
-                                  if (result.success) {
-                                    Alert.alert('Success', 'You have been removed from the waitlist.');
-                                    onRefresh();
-                                  } else {
-                                    Alert.alert('Error', result.error || 'Failed to leave waitlist');
-                                  }
-                                } catch (error) {
-                                  Alert.alert('Error', 'Failed to leave waitlist');
-                                }
-                              }
-                            }
-                          ]
-                        );
+                        try {
+                          const success = await unifiedBookingUtils.leaveWaitlist(
+                            waitlistEntry.id,
+                            waitlistEntry.class_name,
+                            () => {
+                              onRefresh();
+                            },
+                            t
+                          );
+                        } catch (error: any) {
+                          console.error('❌ [Dashboard] Error leaving waitlist:', error);
+                          Alert.alert(t('alerts.error'), t('alerts.errorLeaveWaitlist'));
+                        }
                       }}
                       textColor={errorColor}
                       style={[styles.bookButton, { borderColor: errorColor }]}
                       icon="cancel"
                     >
-                      Leave Waitlist
+                      {t('classes.leaveWaitlist')}
                     </Button>
                   </Card.Content>
                 </Card>
@@ -1013,7 +1361,7 @@ function ClientDashboard() {
       <Card style={[styles.sectionCard, { backgroundColor: surfaceColor }]}>
         <Card.Content>
           <View style={styles.sectionHeader}>
-            <H2 style={{ ...styles.sectionTitle, color: textColor }}>Upcoming Classes</H2>
+            <H2 style={{ ...styles.sectionTitle, color: textColor }}>{t('dashboard.upcomingClasses')}</H2>
           </View>
 
           {dashboardData.upcomingClasses.length > 0 ? (
@@ -1028,7 +1376,7 @@ function ClientDashboard() {
                     <View style={styles.classHeader}>
                       <View style={styles.classInfo}>
                         <H3 style={{ ...styles.className, color: textColor }}>{cls.name}</H3>
-                        <Body style={{ ...styles.classInstructor, color: textSecondaryColor }}>with {cls.instructor_name}</Body>
+                        <Body style={{ ...styles.classInstructor, color: textSecondaryColor }}>{t('classes.with')} {cls.instructor_name}</Body>
                       </View>
                                              <View style={styles.classIcons}>
                          <View style={[styles.iconBadge, { backgroundColor: getEquipmentColor(cls.equipment_type) }]}>
@@ -1092,8 +1440,9 @@ function ClientDashboard() {
                       const isFull = cls.enrolled >= cls.capacity;
                       
 
-                      const hoursUntilClass = getHoursUntilClass(cls.date, cls.time);
-                      const canJoinWaitlist = hoursUntilClass >= 2; // 2-hour rule applies to waitlist too
+                      // Use unified booking utils for Albanian timezone consistency
+                      const canJoinWaitlist = unifiedBookingUtils.canJoinWaitlist(cls.date, cls.time);
+                      const isBookable = unifiedBookingUtils.isBookable(cls.date, cls.time);
                       
                       if (isUserBooked) {
                         return (
@@ -1104,7 +1453,7 @@ function ClientDashboard() {
                             icon="check-circle"
                             disabled
                           >
-                            Booked
+                            {t('classes.booked')}
                           </Button>
                         );
                       }
@@ -1118,35 +1467,22 @@ function ClientDashboard() {
                             textColor={warningColor}
                             icon="queue"
                             onPress={async () => {
-                              Alert.alert(
-                                'Leave Waitlist',
-                                'Are you sure you want to leave the waitlist?',
-                                [
-                                  { text: 'Cancel', style: 'cancel' },
-                                  { 
-                                    text: 'Yes', 
-                                    onPress: async () => {
-                                      try {
-                                        const result = await bookingService.leaveWaitlist(waitlistEntry.id);
-                                        if (result.success) {
-                                          Alert.alert('Success', 'You have been removed from the waitlist.');
-                                          // Add delay to ensure database update before refresh
-                                          setTimeout(() => {
-                                            onRefresh();
-                                          }, 1000);
-                                        } else {
-                                          Alert.alert('Error', result.error || 'Failed to leave waitlist');
-                                        }
-                                      } catch (error) {
-                                        Alert.alert('Error', 'Failed to leave waitlist');
-                                      }
-                                    }
-                                  }
-                                ]
-                              );
+                              try {
+                                const success = await unifiedBookingUtils.leaveWaitlist(
+                                  waitlistEntry.id,
+                                  waitlistEntry.class_name,
+                                  () => {
+                                    onRefresh();
+                                  },
+                                  t
+                                );
+                              } catch (error: any) {
+                                console.error('❌ [Dashboard] Error leaving waitlist:', error);
+                                Alert.alert(t('alerts.error'), t('alerts.errorLeaveWaitlist'));
+                              }
                             }}
                           >
-                            Leave Waitlist #{waitlistEntry.position}
+                            {t('classes.leaveWaitlist')} #{waitlistEntry.position}
                           </Button>
                         );
                       }
@@ -1164,9 +1500,24 @@ function ClientDashboard() {
                             labelStyle={canJoinWaitlist ? {} : { color: backgroundColor }}
                             icon="queue"
                             onPress={() => handleJoinWaitlist(cls.id)}
-                            disabled={!canJoinWaitlist}
+                            disabled={!canJoinWaitlist || !currentSubscription || currentSubscription.status !== 'active'}
                           >
-                            {canJoinWaitlist ? 'Join Waitlist' : 'Waitlist Closed'}
+                            {(!currentSubscription || currentSubscription.status !== 'active') ? t('classes.subscriptionRequired') : (canJoinWaitlist ? t('classes.joinWaitlist') : t('classes.waitlistClosed'))}
+                          </Button>
+                        );
+                      }
+                      
+                      // Show booking button only if class is bookable
+                      if (!isBookable) {
+                        return (
+                          <Button 
+                            mode="contained" 
+                            style={[styles.bookButton, { backgroundColor: textSecondaryColor }]}
+                            textColor={backgroundColor}
+                            icon="event-busy"
+                            disabled
+                          >
+                            {t('classes.bookingClosed')}
                           </Button>
                         );
                       }
@@ -1178,14 +1529,15 @@ function ClientDashboard() {
                           textColor={accentColor}
                           icon="event"
                           onPress={() => handleBookClass(cls.id)}
+                          disabled={!currentSubscription || currentSubscription.status !== 'active'}
                         >
-                          Book
+                          {(!currentSubscription || currentSubscription.status !== 'active') ? t('classes.subscriptionRequired') : t('classes.bookClass')}
                         </Button>
                       );
                     })()}
                    </Card.Content>
                  </Card>
-                 );
+                );
                })}
                
                {/* See more button */}
@@ -1196,7 +1548,7 @@ function ClientDashboard() {
                  textColor={accentColor}
                  style={[styles.seeMoreButton, { borderColor: accentColor }]}
                >
-                 See more on calendar
+                 {t('dashboard.seeMoreOnCalendar')}
                </Button>
              </View>
            ) : (
@@ -1204,13 +1556,13 @@ function ClientDashboard() {
                <MaterialIcons name="event-busy" size={48} color={textMutedColor} />
                <Body style={{ ...styles.emptyStateText, color: textColor }}>
                  {dashboardData.subscription 
-                   ? 'No upcoming classes available' 
-                   : 'Ready to book your first class?'}
+                   ? t('dashboard.noUpcomingClasses') 
+                   : t('dashboard.readyToBook')}
                </Body>
                <Caption style={{ ...styles.emptyStateSubtext, color: textSecondaryColor }}>
                  {dashboardData.subscription 
-                   ? 'Check back later or contact reception for more information'
-                   : 'Visit our reception to get a subscription and start booking classes!'}
+                   ? t('dashboard.checkBackLater')
+                   : t('dashboard.visitReception')}
                </Caption>
              </View>
            )}
@@ -1218,8 +1570,136 @@ function ClientDashboard() {
        </Card>
 
 
-     </ScrollView>
-   );
+        {/* DEBUG: Notification Test Button (Development Only) */}
+        {__DEV__ && (
+          <Card style={[{ backgroundColor: surfaceColor, borderColor: textMutedColor, marginBottom: 20, marginHorizontal: 20 }]}>
+            <Card.Content>
+              <H3 style={{ color: textColor, marginBottom: 16 }}>🔧 Debug Notifications</H3>
+              <Button 
+                mode="contained" 
+                onPress={async () => {
+                  try {
+                    console.log('🧪 [DEBUG] Testing all notification types...');
+                    
+                    // Test 1: Direct push notification
+                    await notificationService.sendPushNotificationToUser(
+                      user?.id || '', 
+                      '🧪 Test Direct Push', 
+                      'This is a direct push notification test using sendPushNotificationToUser()'
+                    );
+                    console.log('✅ [DEBUG] Direct push notification sent');
+                    
+                    // Test 2: Class full notification (instructor notification)
+                    if (user?.id) {
+                      console.log('🧪 [DEBUG] Testing class full notification...');
+                      await notificationService.sendClassFullNotification('test-class-123', user.id);
+                      console.log('✅ [DEBUG] Class full notification sent');
+                    }
+                    
+                    // Test 3: Test notification function
+                    console.log('🧪 [DEBUG] Testing test notification function...');
+                    await notificationService.sendTestNotification(parseInt(user?.id || '0'), 'This is a test notification using sendTestNotification()');
+                    console.log('✅ [DEBUG] Test notification sent');
+                    
+                    // Test 4: Multiple users notification
+                    console.log('🧪 [DEBUG] Testing multiple users notification...');
+                    await notificationService.sendNotificationToMultipleUsers(
+                      [user?.id || ''], 
+                      '🧪 Test Multi-User Notification', 
+                      'This tests sendNotificationToMultipleUsers()'
+                    );
+                    console.log('✅ [DEBUG] Multiple users notification sent');
+                    
+                    // Test 5: Bulk push notifications
+                    console.log('🧪 [DEBUG] Testing bulk push notifications...');
+                    await notificationService.sendBulkPushNotifications(
+                      [], // Empty tokens array for safety
+                      '🧪 Test Bulk Push', 
+                      'This tests sendBulkPushNotifications()',
+                      { testData: true }
+                    );
+                    console.log('✅ [DEBUG] Bulk push notifications tested');
+                    
+                    setDebugModalTitle('🧪 Debug Test Complete');
+                    setDebugModalMessage('All notification types have been tested. Check your console logs and device notifications!');
+                    setDebugModalVisible(true);
+                    
+                  } catch (error) {
+                    console.error('❌ [DEBUG] Notification test failed:', error);
+                    setDebugModalTitle('❌ Debug Test Failed');
+                    setDebugModalMessage(`Error: ${error}`);
+                    setDebugModalVisible(true);
+                  }
+                }}
+                icon="bug-report"
+                style={{ backgroundColor: '#FF6B35' }}
+                textColor="white"
+              >
+                Test All Notifications
+              </Button>
+              <Caption style={{ color: textSecondaryColor, marginTop: 8, textAlign: 'center' }}>
+                Development only - Tests all notification types and logs which system they use
+              </Caption>
+            </Card.Content>
+          </Card>
+        )}
+
+      </ScrollView>
+
+      {/* Notification Modal */}
+      <Portal>
+        <Modal
+          visible={notificationModalVisible}
+          onDismiss={() => setNotificationModalVisible(false)}
+          contentContainerStyle={[styles.notificationModal, { backgroundColor: surfaceColor }]}
+        >
+          <View style={styles.notificationModalHeader}>
+            <H2 style={{ color: textColor }}>🔔 {t('dashboard.notifications')}</H2>
+            <TouchableOpacity 
+              onPress={() => setNotificationModalVisible(false)}
+              style={styles.closeButton}
+            >
+              <MaterialIcons name="close" size={24} color={textColor} />
+            </TouchableOpacity>
+          </View>
+          <ScrollableNotificationsModal 
+            visible={notificationModalVisible}
+            onDismiss={() => setNotificationModalVisible(false)}
+            onNotificationRead={() => loadNotificationCount()}
+          />
+        </Modal>
+
+        {/* Debug Modal */}
+        <Modal
+          visible={debugModalVisible}
+          onDismiss={() => setDebugModalVisible(false)}
+          contentContainerStyle={[styles.notificationModal, { backgroundColor: surfaceColor }]}
+        >
+          <View style={styles.notificationModalHeader}>
+            <H2 style={{ color: textColor }}>{debugModalTitle}</H2>
+            <TouchableOpacity 
+              onPress={() => setDebugModalVisible(false)}
+              style={styles.closeButton}
+            >
+              <MaterialIcons name="close" size={24} color={textColor} />
+            </TouchableOpacity>
+          </View>
+          <View style={{ padding: 20 }}>
+            <Body style={{ color: textColor, lineHeight: 24 }}>{debugModalMessage}</Body>
+          </View>
+          <View style={{ padding: 20, paddingTop: 0 }}>
+            <Button 
+              mode="contained" 
+              onPress={() => setDebugModalVisible(false)}
+              style={{ backgroundColor: accentColor }}
+            >
+              OK
+            </Button>
+          </View>
+        </Modal>
+      </Portal>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -1243,13 +1723,79 @@ const styles = StyleSheet.create({
   welcomeSubtitle: {
     // This will be overridden by inline style
   },
+  flipWelcomeContainer: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   welcomeActions: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
+  },
+  notificationIconContainer: {
+    position: 'relative',
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'white',
+  },
+  notificationBadgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  notificationModal: {
+    margin: 20,
+    padding: 0,
+    borderRadius: 12,
+    height: '45%',
+    width: '90%',
+    alignSelf: 'center',
+  },
+  notificationModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    paddingTop: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+  },
+  closeButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.05)',
   },
   welcomeEmoji: {
     fontSize: 32,
     color: '#FFD700',
+  },
+  welcomeTextSection: {
+    flex: 1,
+  },
+  womensDayWelcomeCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  womensDayNameSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
   },
   subscriptionContainer: {
     marginBottom: 20,
@@ -1427,7 +1973,54 @@ const styles = StyleSheet.create({
     marginTop: 16,
     borderRadius: 12,
   },
+
+  // Announcement styles
+  announcementBanner: {
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    overflow: 'hidden',
+  },
+  announcementScrollContent: {
+    paddingHorizontal: 12,
+  },
+  announcementCard: {
+    borderRadius: 12,
+    padding: 16,
+    marginRight: 12,
+    minWidth: 280,
+    maxWidth: 320,
+    borderLeftWidth: 4,
+    ...shadows.card,
+    elevation: 3,
+  },
+  womensDayCard: {
+    borderTopRightRadius: 20,
+    borderBottomLeftRadius: 20,
+  },
+  announcementHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  announcementTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
+    flex: 1,
+  },
+  announcementMessage: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  
+  scrollView: {
+    flex: 1,
+  },
   
 });
 
-export default ClientDashboard;
+export default withChristmasDesign(ClientDashboard, { 
+  variant: 'gold', 
+  showSnow: true, 
+  showLights: true 
+});

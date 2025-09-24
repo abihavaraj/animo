@@ -7,13 +7,13 @@ import StatusChip from '../../components/ui/StatusChip';
 import { Body, Caption, H1, H2, H3 } from '../../components/ui/Typography';
 import { layout, spacing } from '../../constants/Spacing';
 import { useThemeColor } from '../../hooks/useThemeColor';
-import { RootState, useAppDispatch } from '../store';
-import { logoutUser } from '../store/authSlice';
+import { useLogoutWithCredentialSave } from '../hooks/useLogoutWithCredentialSave';
+import { RootState } from '../store';
 import { shadows } from '../utils/shadows';
 
 function ProfileScreen() {
-  const dispatch = useAppDispatch();
   const { user } = useSelector((state: RootState) => state.auth);
+  const { logoutWithCredentialSave } = useLogoutWithCredentialSave();
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
 
   // Theme colors
@@ -42,7 +42,7 @@ function ProfileScreen() {
           text: 'Logout',
           style: 'destructive',
           onPress: async () => {
-            await dispatch(logoutUser());
+            await logoutWithCredentialSave();
           },
         },
       ]

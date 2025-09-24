@@ -3,7 +3,7 @@ import { Dimensions, StyleSheet, Text, View } from 'react-native';
 import { Caption } from '../../../components/ui/Typography';
 
 const { width: screenWidth } = Dimensions.get('window');
-const chartWidth = Math.min(screenWidth - 80, 300);
+const fallbackWidth = Math.min(screenWidth - 80, 300);
 
 interface SimpleBarChartProps {
   data: number[];
@@ -20,14 +20,19 @@ export function SimpleBarChart({
   height = 200,
   maxValue 
 }: SimpleBarChartProps) {
+  const [containerWidth, setContainerWidth] = React.useState<number>(fallbackWidth);
+  const effectiveWidth = Math.max(200, containerWidth);
   const max = maxValue || Math.max(...data);
-  const barWidth = (chartWidth - 40) / data.length - 8;
+  const barWidth = data.length > 0 ? (effectiveWidth - 40) / data.length - 8 : 0;
 
   return (
-    <View style={[styles.chartContainer, { height: height + 40 }]}>
+    <View
+      style={[styles.chartContainer, { height: height + 40 }]}
+      onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
+    >
       <View style={styles.barsContainer}>
         {data.map((value, index) => {
-          const barHeight = (value / max) * (height - 40);
+          const barHeight = max > 0 ? (value / max) * (height - 40) : 0;
           return (
             <View key={index} style={styles.barWrapper}>
               <View style={styles.barContainer}>
@@ -69,13 +74,18 @@ export function SimpleLineChart({
   height = 200,
   fillColor 
 }: SimpleLineChartProps) {
+  const [containerWidth, setContainerWidth] = React.useState<number>(fallbackWidth);
+  const effectiveWidth = Math.max(200, containerWidth);
   const max = Math.max(...data);
   const min = Math.min(...data);
   const range = max - min || 1;
-  const pointWidth = (chartWidth - 40) / (data.length - 1);
+  const pointWidth = data.length > 1 ? (effectiveWidth - 40) / (data.length - 1) : (effectiveWidth - 40);
 
   return (
-    <View style={[styles.chartContainer, { height: height + 40 }]}>
+    <View
+      style={[styles.chartContainer, { height: height + 40 }]}
+      onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
+    >
       <View style={styles.lineContainer}>
         {/* Grid lines */}
         {[0, 0.25, 0.5, 0.75, 1].map((percent, index) => (
@@ -85,7 +95,7 @@ export function SimpleLineChart({
               styles.gridLine,
               {
                 bottom: (height - 40) * percent + 20,
-                width: chartWidth - 40,
+                width: effectiveWidth - 40,
               },
             ]}
           />
@@ -246,7 +256,10 @@ export function SimplePieChart({ data, size = 120 }: SimplePieChartProps) {
 const styles = StyleSheet.create({
   chartContainer: {
     marginVertical: 10,
-    paddingHorizontal: 20,
+    paddingHorizontal: 10,
+    width: '100%',
+    maxWidth: '100%',
+    overflow: 'hidden',
   },
   barsContainer: {
     flexDirection: 'row',
@@ -283,7 +296,7 @@ const styles = StyleSheet.create({
     height: '100%',
     paddingTop: 20,
     paddingBottom: 20,
-    marginHorizontal: 20,
+    marginHorizontal: 10,
   },
   gridLine: {
     position: 'absolute',
@@ -324,7 +337,7 @@ const styles = StyleSheet.create({
     position: 'relative',
     height: 20,
     marginTop: 10,
-    marginHorizontal: 20,
+    marginHorizontal: 10,
   },
   xAxisLabel: {
     position: 'absolute',

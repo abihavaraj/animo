@@ -9,7 +9,7 @@ export interface UserProfile {
   name: string;
   email: string;
   phone?: string;
-  role: 'client' | 'instructor' | 'admin' | 'reception';
+  role: 'client' | 'instructor' | 'admin' | 'reception' | 'prospect';
   status: string;
   emergency_contact?: string;
   medical_conditions?: string;
@@ -228,15 +228,16 @@ class AuthService {
       // Clean up push notification tokens for this user
       if (currentUser?.id) {
         try {
+          // Clear user's push token (original GitHub approach)
           const { error: tokenCleanupError } = await supabase
-            .from('push_tokens')
-            .delete()
-            .eq('user_id', currentUser.id);
+            .from('users')
+            .update({ push_token: null })
+            .eq('id', currentUser.id);
           
           if (tokenCleanupError) {
             devError('⚠️ [authService] Push token cleanup failed:', tokenCleanupError);
           } else {
-            devLog('🔔 [authService] Push tokens cleaned up for user:', currentUser.id);
+            devLog('🔔 [authService] Push token cleared for user:', currentUser.id);
           }
         } catch (tokenError) {
           devError('⚠️ [authService] Push token cleanup error:', tokenError);

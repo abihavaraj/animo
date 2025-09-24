@@ -1,31 +1,32 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import React, { useEffect, useState } from 'react';
-import { Alert, Dimensions, Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Dimensions, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
-  ActivityIndicator,
-  Avatar,
-  Button,
-  Card,
-  Checkbox,
-  Chip,
-  Dialog,
-  IconButton,
-  Paragraph,
-  Portal,
-  Searchbar,
-  TextInput
+    ActivityIndicator,
+    Avatar,
+    Button,
+    Card,
+    Checkbox,
+    Chip,
+    Dialog,
+    IconButton,
+    Paragraph,
+    Portal,
+    Searchbar,
+    TextInput
 } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 import { Body, Caption, H1, H2, H3 } from '../../../components/ui/Typography';
 import { useThemeColor } from '../../../hooks/useThemeColor';
 import WebCompatibleIcon from '../../components/WebCompatibleIcon';
 import { supabase } from '../../config/supabase.config';
+import { activityService, StaffActivity } from '../../services/activityService';
 import {
-  ClientMedicalUpdate,
-  ClientProgressPhoto,
-  InstructorClientAssignment,
-  instructorClientService
+    ClientMedicalUpdate,
+    ClientProgressPhoto,
+    InstructorClientAssignment,
+    instructorClientService
 } from '../../services/instructorClientService';
 import { subscriptionService } from '../../services/subscriptionService';
 import { BackendUser, userService } from '../../services/userService';
@@ -100,6 +101,8 @@ type RouteParams = {
   ClientProfile: {
     userId: number | string;
     userName?: string;
+    userRole?: string;
+    isStaffProfile?: boolean;
   };
 };
 
@@ -125,38 +128,34 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
   // Try to get route params, but handle case where useRoute fails (reception dashboard)
   let routeUserId: number | string | undefined;
   let routeUserName: string | undefined;
+  let routeUserRole: string | undefined;
+  let routeIsStaffProfile: boolean | undefined;
   
   try {
     const route = useRoute<RouteProp<RouteParams, 'ClientProfile'>>();
     routeUserId = route.params?.userId;
     routeUserName = route.params?.userName;
-    console.log('🔍 ReceptionClientProfile got route params:', { routeUserId, routeUserName });
+    routeUserRole = route.params?.userRole;
+    routeIsStaffProfile = route.params?.isStaffProfile;
   } catch (error) {
-    console.log('🔍 ReceptionClientProfile: useRoute failed (probably reception dashboard), using props instead');
     routeUserId = undefined;
     routeUserName = undefined;
+    routeUserRole = undefined;
+    routeIsStaffProfile = undefined;
   }
   
   // Use props if route params are not available (reception dashboard scenario)
   const userId = propUserId || routeUserId;
   const userName = propUserName || routeUserName;
+  const userRole = routeUserRole;
+  const isStaffProfile = routeIsStaffProfile;
+
+  // Debug logging removed to reduce console spam
   
-  console.log('🔍 ReceptionClientProfile final params:', { 
-    userId, 
-    userName,
-    propUserId,
-    propUserName,
-    routeUserId,
-    routeUserName,
-    tokenExists: !!token, 
-    isLoggedIn, 
-    userExists: !!user,
-    userRole: user?.role 
-  });
 
   // Validate that we have a userId
   if (!userId) {
-    console.error('❌ ReceptionClientProfile: No userId provided');
+
     return (
       <View style={[styles.container, styles.centered]}>
         <MaterialIcons name="error" size={64} color={errorColor} />
@@ -169,7 +168,9 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
   }
 
   // State management
-  const [activeTab, setActiveTab] = useState<'overview' | 'plans' | 'bookings' | 'payments' | 'notes' | 'documents' | 'activity' | 'timeline' | 'instructor_progress'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'plans' | 'bookings' | 'payments' | 'notes' | 'documents' | 'activity' | 'timeline' | 'instructor_progress' | 'classes' | 'performance'>(
+    isStaffProfile ? 'activity' : 'overview'
+  );
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   
@@ -179,7 +180,14 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
   const [notes, setNotes] = useState<ClientNote[]>([]);
   const [documents, setDocuments] = useState<ClientDocument[]>([]);
   const [activities, setActivities] = useState<ClientActivity[]>([]);
+  const [staffActivities, setStaffActivities] = useState<StaffActivity[]>([]);
   const [lifecycle, setLifecycle] = useState<ClientLifecycle | null>(null);
+  
+  // Instructor-specific data
+  const [instructorClasses, setInstructorClasses] = useState<any[]>([]);
+  const [instructorStudents, setInstructorStudents] = useState<any[]>([]);
+  const [instructorStats, setInstructorStats] = useState<any>(null);
+  const [loadingInstructorData, setLoadingInstructorData] = useState(false);
   
   // Instructor progress states
   const [instructorAssignments, setInstructorAssignments] = useState<InstructorClientAssignment[]>([]);
@@ -223,7 +231,9 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
   
   // State for actual data
   const [recentBookings, setRecentBookings] = useState<any[]>([]);
+  const [upcomingBookings, setUpcomingBookings] = useState<any[]>([]);
   const [recentPayments, setRecentPayments] = useState<any[]>([]);
+  const [subscriptionBookingStats, setSubscriptionBookingStats] = useState<{[key: string]: {confirmed: number, upcoming: number, cancelled: number}}>({});
   
   // Dialog states for subscription management
   const [pauseDialogVisible, setPauseDialogVisible] = useState(false);
@@ -236,27 +246,30 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
   const [classesToRemove, setClassesToRemove] = useState('1');
 
   useEffect(() => {
-    console.log('🔍 ReceptionClientProfile useEffect triggered');
     loadAllData();
   }, [userId]);
 
   // Debug activeSubscription changes
   useEffect(() => {
-    console.log('🎯 activeSubscription changed:', activeSubscription);
-    console.log('🎯 activeSubscription ID:', activeSubscription?.id);
-    console.log('🎯 activeSubscription type:', typeof activeSubscription?.id);
+
+
+
   }, [activeSubscription]);
 
   // Separate function to log profile access with full context
   const logProfileAccess = async () => {
     try {
-      console.log('📝 [logProfileAccess] Checking if profile access should be logged');
-      console.log('📝 [logProfileAccess] Client:', client?.name);
-      console.log('📝 [logProfileAccess] Active subscription object:', activeSubscription);
-      console.log('📝 [logProfileAccess] Active subscription plan name:', activeSubscription?.subscription_plans?.name || activeSubscription?.plan_name);
-      console.log('📝 [logProfileAccess] Active subscription status:', activeSubscription?.status);
-      console.log('📝 [logProfileAccess] Active subscription end date:', activeSubscription?.end_date);
-      console.log('📝 [logProfileAccess] Activities count:', activities.length);
+      // Skip profile access logging if there are API permission issues
+      if (!client) {
+        return;
+      }
+
+
+
+
+
+
+
       
       // Check for recent profile access to avoid spam
       const now = new Date();
@@ -270,28 +283,38 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         // Build detailed access description with current state data
         const planName = activeSubscription?.subscription_plans?.name || activeSubscription?.plan_name;
         
-        // If no activeSubscription, check directly in database as backup
+        // If no activeSubscription, check directly in database as backup (but skip for staff profiles)
         let subscriptionStatus = 'No active subscription';
         if (activeSubscription) {
           subscriptionStatus = `Active plan: ${planName || 'Unknown Plan'}`;
-        } else {
-          // Quick database check as fallback
+        } else if (!isStaffProfile) {
+          // Quick database check as fallback (only for non-staff profiles)
           try {
-            const { data: directSub } = await supabase
+            const { data: directSub, error: directError } = await supabase
               .from('user_subscriptions')
               .select('*, subscription_plans(name)')
               .eq('user_id', userId)
               .eq('status', 'active')
               .single();
             
-            if (directSub) {
+            if (!directError && directSub) {
               const directPlanName = directSub.subscription_plans?.name || 'Unknown Plan';
               subscriptionStatus = `Active plan: ${directPlanName}`;
-              console.log('🔄 [logProfileAccess] Found subscription via direct query:', directSub);
+            } else if (directError?.code === 'PGRST116') {
+              // No rows returned - client has no active subscription
+              subscriptionStatus = 'No active subscription';
+            } else {
+              // Other error (like 406) - don't fail, just use default
+              console.log('⚠️ Subscription lookup error (non-critical):', directError?.message);
+              subscriptionStatus = 'Subscription status unknown';
             }
           } catch (directError) {
-            console.log('🔍 [logProfileAccess] No subscription found via direct query:', directError);
+            console.log('⚠️ Subscription lookup exception (non-critical):', directError);
+            subscriptionStatus = 'Subscription status unknown';
           }
+        } else {
+          // For staff profiles, show role instead of subscription
+          subscriptionStatus = `Staff role: ${userRole || client?.role || 'Unknown'}`;
         }
         
         const accessDetails = [
@@ -301,7 +324,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
           activities.length > 0 ? `${activities.length} previous activities` : 'No prior activities'
         ].filter(Boolean).join(' • ');
         
-        console.log('📝 [logProfileAccess] Logging detailed access:', accessDetails);
+
         
         await logClientActivity('profile_updated', accessDetails, {
           timestamp: new Date().toISOString(),
@@ -314,39 +337,54 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
           activity_subtype: 'profile_accessed'
         });
       } else {
-        console.log('⏰ [logProfileAccess] Skipping profile access log (recent access within 5 minutes)');
+        console.log('⚠️ Recent profile access found, skipping duplicate log');
       }
     } catch (error) {
-      console.error('❌ [logProfileAccess] Error logging profile access:', error);
+      console.error('❌ Error in logProfileAccess (non-critical):', error);
+      // Don't fail the entire profile load if profile access logging fails
     }
   };
 
   const loadAllData = async () => {
     setLoading(true);
     try {
-      // Clear any cached data to ensure fresh results
-      console.log('🔄 Loading fresh client data...');
-      await Promise.all([
+      // Different data loading for staff vs clients
+      const basePromises = [
         loadClientData(),
-        loadClientStats(),
         loadNotes(),
         loadDocuments(),
         loadActivities(),
-        loadLifecycle(),
-        loadSubscriptionHistory(),
-        loadInstructorAssignments(),
-        loadProgressPhotos(),
-        loadMedicalUpdates()
-      ]);
-      console.log('✅ All client data loaded successfully');
+      ];
+
+      // Only load client-specific data for non-staff profiles
+      if (!isStaffProfile) {
+        basePromises.push(
+          loadClientStats(),
+          loadLifecycle(),
+          loadSubscriptionHistory(),
+          loadInstructorAssignments(),
+          loadProgressPhotos(),
+          loadMedicalUpdates()
+        );
+      } else if (userRole === 'instructor') {
+        // Load instructor-specific data
+        basePromises.push(loadInstructorData());
+      }
+
+      // Clear any cached data to ensure fresh results
+      await Promise.all(basePromises);
       
       // Log profile access after all data is loaded and state is updated
       setTimeout(async () => {
-        await logProfileAccess();
+        try {
+          await logProfileAccess();
+        } catch (logError) {
+          console.error('❌ Profile access logging failed (non-critical):', logError);
+        }
       }, 100); // Small delay to ensure state variables are updated
       
     } catch (error) {
-      console.error('Error loading client data:', error);
+
     } finally {
       setLoading(false);
     }
@@ -359,13 +397,80 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         setClient(response.data);
       }
     } catch (error) {
-      console.error('Failed to load client data:', error);
+
+    }
+  };
+
+  const calculateSubscriptionBookingStats = async (allBookings: any[]) => {
+    try {
+
+      
+      // Get all user subscriptions to map bookings to subscription periods
+      const { data: userSubscriptions, error: subError } = await supabase
+        .from('user_subscriptions')
+        .select('id, start_date, end_date, subscription_plans(name)')
+        .eq('user_id', userId)
+        .order('start_date', { ascending: false });
+
+      if (subError || !userSubscriptions) {
+
+        return;
+      }
+
+
+
+      const stats: {[key: string]: {confirmed: number, upcoming: number, cancelled: number}} = {};
+      const now = new Date();
+
+      // Initialize stats for each subscription
+      userSubscriptions.forEach(sub => {
+        const key = `${sub.id}`;
+        stats[key] = { confirmed: 0, upcoming: 0, cancelled: 0 };
+      });
+
+      // Process each booking and assign to appropriate subscription
+      allBookings.forEach(booking => {
+        if (!booking.created_at || !booking.classes?.date) return;
+        
+        const bookingDate = new Date(booking.created_at);
+        const classDate = new Date(booking.classes.date);
+        
+        // Find which subscription this booking belongs to
+        const matchingSubscription = userSubscriptions.find(sub => {
+          const startDate = new Date(sub.start_date);
+          const endDate = new Date(sub.end_date);
+          return bookingDate >= startDate && bookingDate <= endDate;
+        });
+
+        if (matchingSubscription) {
+          const key = `${matchingSubscription.id}`;
+          
+          // Categorize the booking
+          if (booking.status === 'cancelled') {
+            stats[key].cancelled++;
+          } else if (classDate > now && (booking.status === 'confirmed' || booking.status === 'pending')) {
+            stats[key].upcoming++;
+          } else if (booking.status === 'confirmed' || booking.status === 'completed' || booking.status === 'attended') {
+            stats[key].confirmed++;
+          }
+        }
+      });
+
+
+      setSubscriptionBookingStats(stats);
+    } catch (error) {
+
     }
   };
 
   const loadClientStats = async () => {
+    if (isStaffProfile) {
+      console.log('📊 Skipping client stats for staff profile');
+      setClientStats(null);
+      return;
+    }
+
     try {
-      console.log('🔍 [loadClientStats] Starting for userId:', userId);
       
       // Get subscription data with plan details (using correct table name and join)
       const { data: subscriptions, error: subError } = await supabase
@@ -385,32 +490,32 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         .gte('end_date', new Date().toISOString().split('T')[0]) // Include subscriptions that end today or later
         .order('created_at', { ascending: false });
 
-      console.log('📊 Subscriptions data:', subscriptions, 'Error:', subError);
-      console.log('📊 Subscription query filter - status:', ['active', 'paused']);
-      console.log('📊 Subscription query filter - end_date >=:', new Date().toISOString().split('T')[0]);
+
+
+
 
       // Set the active subscription for management buttons
       if (subscriptions && subscriptions.length > 0) {
         setActiveSubscription(subscriptions[0]);
-        console.log('✅ Set active subscription:', subscriptions[0]);
-        console.log('✅ Active subscription ID:', subscriptions[0]?.id);
-        console.log('✅ Active subscription plan:', subscriptions[0]?.subscription_plans);
-        console.log('✅ Active subscription status:', subscriptions[0]?.status);
-        console.log('✅ Active subscription end_date:', subscriptions[0]?.end_date);
+
+
+
+
+
       } else {
         setActiveSubscription(null);
-        console.log('❌ No active subscription found with query filters');
+
         
         // Let's also check ALL subscriptions for this user to debug
         const { data: allSubs, error: allSubsError } = await supabase
           .from('user_subscriptions')
           .select('*')
           .eq('user_id', userId);
-        console.log('🔍 ALL subscriptions for user (no filters):', allSubs, 'Error:', allSubsError);
+
       }
 
-      // Get booking data with class and instructor information
-      const { data: bookings, error: bookError } = await supabase
+      // Get all booking data with class and instructor information
+      const { data: allBookings, error: bookError } = await supabase
         .from('bookings')
         .select(`
           *,
@@ -422,36 +527,153 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         `)
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
-        .limit(10);
+        .limit(50);
 
-      console.log('📅 Bookings data:', bookings, 'Error:', bookError);
+
       if (bookError) {
-        console.error('📅 Booking error details:', JSON.stringify(bookError, null, 2));
+
       }
 
-      // Store recent bookings in state
-      if (bookings && !bookError) {
-        setRecentBookings(bookings);
+      // Separate bookings into upcoming and recent (past)
+      if (allBookings && !bookError) {
+        const now = new Date();
+        const upcoming: any[] = [];
+        const recent: any[] = [];
+
+        allBookings.forEach(booking => {
+          if (booking.classes?.date && booking.classes?.time) {
+            const classDateTime = new Date(`${booking.classes.date} ${booking.classes.time}`);
+            if (classDateTime > now && (booking.status === 'confirmed' || booking.status === 'pending')) {
+              upcoming.push(booking);
+            } else if (classDateTime <= now) {
+              recent.push(booking);
+            }
+          } else {
+            // If no date/time, consider it recent
+            recent.push(booking);
+          }
+        });
+
+        // Sort upcoming by date (earliest first), recent by date (latest first)
+        upcoming.sort((a, b) => {
+          const dateA = new Date(`${a.classes.date} ${a.classes.time}`);
+          const dateB = new Date(`${b.classes.date} ${b.classes.time}`);
+          return dateA.getTime() - dateB.getTime();
+        });
+
+        recent.sort((a, b) => {
+          if (a.classes?.date && b.classes?.date) {
+            const dateA = new Date(`${a.classes.date} ${a.classes.time}`);
+            const dateB = new Date(`${b.classes.date} ${b.classes.time}`);
+            return dateB.getTime() - dateA.getTime();
+          }
+          return 0;
+        });
+
+        setUpcomingBookings(upcoming.slice(0, 10)); // Limit to 10 upcoming
+        setRecentBookings(recent.slice(0, 10)); // Limit to 10 recent
+
+
+        // Calculate booking statistics per subscription
+        await calculateSubscriptionBookingStats(allBookings);
       } else {
-        console.log('📅 Bookings table not available, using empty array');
+
+        setUpcomingBookings([]);
         setRecentBookings([]);
       }
 
       // Calculate stats with actual subscription data
       const activeSubscriptionData = subscriptions?.[0];
       
-      // Get actual payment history from database
-      const { data: payments, error: paymentError } = await supabase
+      // Get actual payment history from database (both payments and manual_credits)
+      
+      // Query regular payments
+      let { data: payments, error: paymentError } = await supabase
         .from('payments')
         .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(10);
-
-      console.log('💰 Payment data:', payments, 'Error:', paymentError);
-      if (paymentError) {
-        console.error('💰 Payment error details:', JSON.stringify(paymentError, null, 2));
+        .eq('user_id', String(userId))
+        .order('created_at', { ascending: false });
+      
+      // Also try to get payments using the client's auth_id if available
+      if ((client as any)?.auth_id && (!payments || payments.length === 0)) {
+        const { data: authPayments, error: authError } = await supabase
+          .from('payments')
+          .select('*')
+          .eq('user_id', (client as any).auth_id)
+          .order('created_at', { ascending: false });
+        
+        if (authPayments && authPayments.length > 0) {
+          payments = authPayments;
+        }
       }
+
+      // Query manual credits - use string format for UUID compatibility
+      let { data: manualCredits, error: creditsError } = await supabase
+        .from('manual_credits')
+        .select(`
+          *,
+          users!manual_credits_user_id_fkey (name),
+          admins:users!manual_credits_admin_id_fkey (name)
+        `)
+        .eq('user_id', String(userId))
+        .order('created_at', { ascending: false });
+
+      // Also try manual credits with auth_id if available
+      let finalManualCredits = manualCredits;
+      if ((client as any)?.auth_id && (!manualCredits || manualCredits.length === 0)) {
+        const { data: authCredits, error: authCreditsError } = await supabase
+          .from('manual_credits')
+          .select(`
+            *,
+            users!manual_credits_user_id_fkey (name),
+            admins:users!manual_credits_admin_id_fkey (name)
+          `)
+          .eq('user_id', (client as any).auth_id)
+          .order('created_at', { ascending: false });
+        
+        if (authCredits && authCredits.length > 0) {
+          finalManualCredits = authCredits;
+        }
+      }
+
+      // Combine payments and manual credits into a unified payment history
+      const allPayments = [];
+      
+      // Add regular payments
+      if (payments) {
+        payments.forEach(payment => {
+          allPayments.push({
+            id: payment.id,
+            amount: payment.amount,
+            payment_method: payment.payment_method || 'card',
+            created_at: payment.created_at,
+            payment_date: payment.payment_date,
+            status: payment.status || 'completed',
+            notes: `Payment for subscription`,
+            type: 'payment'
+          });
+        });
+      }
+
+      // Add manual credits
+      if (finalManualCredits) {
+        finalManualCredits.forEach(credit => {
+          allPayments.push({
+            id: credit.id,
+            amount: credit.amount,
+            payment_method: 'manual',
+            created_at: credit.created_at,
+            payment_date: credit.created_at.split('T')[0], // Use created_at as payment_date
+            status: 'completed',
+            notes: `${credit.reason}: ${credit.description || 'Manual credit'}`,
+            type: 'manual_credit',
+            admin_name: credit.admins?.name || 'Admin'
+          });
+        });
+      }
+
+      // Sort all payments by created_at (newest first)
+      allPayments.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
       // Create fallback payment data - check if we have specific data for this user
       let fallbackPayments: any[] = [];
@@ -518,22 +740,20 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         }
       }
 
-      // Store recent payments in state
-      if (payments && !paymentError) {
-        console.log('💰 Using real payment data:', payments.length, 'payments');
+      // Store combined payment history in state
+      if (allPayments.length > 0) {
+        setRecentPayments(allPayments);
+      } else if (payments && !paymentError) {
         setRecentPayments(payments);
       } else {
-        console.log('💰 Payments table not available, using fallback data:', fallbackPayments.length, 'payments');
         setRecentPayments(fallbackPayments);
       }
-      
-      console.log('💰 Final recentPayments will be set to:', payments || fallbackPayments);
 
       // Calculate total spent from subscription data (ALWAYS excludes cancelled subscriptions)
       // Business Logic: cancelled = refund/mistake (excluded), active/terminated = completed service (included)
       let totalSpent = 0;
       
-      console.log('💰 Calculating total from subscription data (respects cancellation status)');
+
       const { data: allSubscriptions, error: allSubError } = await supabase
         .from('user_subscriptions')
         .select(`
@@ -549,86 +769,136 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         .eq('user_id', userId);
 
       if (allSubError) {
-        console.error('Error fetching all subscriptions for total spent calculation:', allSubError);
+
         totalSpent = 0;
       } else {
         // Exclude 'cancelled' subscriptions (refunded/mistakes), include 'active', 'expired', 'terminated' (completed services)
-        console.log('💰 Processing', allSubscriptions?.length || 0, 'subscriptions for total calculation');
+
         totalSpent = allSubscriptions?.reduce((sum: number, sub: any) => {
-          console.log(`💰 Subscription ${sub.id}: status=${sub.status}, price=${sub.subscription_plans?.monthly_price}`);
+
           if (sub.status === 'cancelled') {
-            console.log('💰 Excluding cancelled subscription (refunded/mistake)');
+
             return sum;
           }
           const price = sub.subscription_plans?.monthly_price || 0;
-          console.log('💰 Including subscription price:', price);
+
           return sum + price;
         }, 0) || 0;
-        console.log('💰 Total from subscriptions (respects business logic):', totalSpent);
+
       }
 
       // Use payment records for display/verification but not for total calculation
       if (payments && !paymentError && payments.length > 0) {
-        console.log('💰 Payment records available for display:', payments.length, 'payments');
+
         const completedPayments = payments.filter((p: any) => p.status === 'completed' || !p.status);
         const paymentTotal = completedPayments.reduce((sum: number, payment: any) => sum + (payment.amount || 0), 0);
-        console.log('💰 Payment total (for reference):', paymentTotal, 'vs Subscription total:', totalSpent);
+
       } else if (fallbackPayments.length > 0) {
-        console.log('💰 Fallback payment records available for display:', fallbackPayments.length, 'payments');
+
         const completedPayments = fallbackPayments.filter((p: any) => p.status === 'completed' || !p.status);
         const paymentTotal = completedPayments.reduce((sum: number, payment: any) => sum + (payment.amount || 0), 0);
-        console.log('💰 Fallback payment total (for reference):', paymentTotal, 'vs Subscription total:', totalSpent);
+
       }
 
-      const totalBookings = bookings?.length || 0;
-      const attendedBookings = bookings?.filter((b: any) => b.status === 'attended').length || 0;
+      const totalBookings = allBookings?.length || 0;
+      const attendedBookings = allBookings?.filter((b: any) => b.status === 'attended').length || 0;
       const attendanceRate = totalBookings > 0 ? Math.round((attendedBookings / totalBookings) * 100) : 0;
 
-      console.log('📈 Calculated stats:', { totalSpent, totalBookings, attendedBookings, attendanceRate });
+
+
+      // Calculate favorite instructor
+      let favoriteInstructor = undefined;
+      if (allBookings && allBookings.length > 0) {
+        const instructorCounts: {[key: string]: number} = {};
+        allBookings.forEach(booking => {
+          const instructorName = booking.classes?.users?.name;
+          if (instructorName) {
+            instructorCounts[instructorName] = (instructorCounts[instructorName] || 0) + 1;
+          }
+        });
+        
+        if (Object.keys(instructorCounts).length > 0) {
+          favoriteInstructor = Object.entries(instructorCounts)
+            .sort(([,a], [,b]) => b - a)[0][0];
+        }
+      }
+
+      // Calculate last activity
+      let lastActivity = undefined;
+      if (allBookings && allBookings.length > 0) {
+        const sortedBookings = allBookings
+          .filter(b => b.classes?.date && b.classes?.time)
+          .sort((a, b) => {
+            const dateA = new Date(`${a.classes.date} ${a.classes.time}`);
+            const dateB = new Date(`${b.classes.date} ${b.classes.time}`);
+            return dateB.getTime() - dateA.getTime();
+          });
+        
+        if (sortedBookings.length > 0) {
+          const lastBooking = sortedBookings[0];
+          const lastDate = new Date(`${lastBooking.classes.date} ${lastBooking.classes.time}`);
+          const now = new Date();
+          const diffDays = Math.floor((now.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+          
+          if (diffDays === 0) {
+            lastActivity = 'Today';
+          } else if (diffDays === 1) {
+            lastActivity = 'Yesterday';
+          } else if (diffDays < 7) {
+            lastActivity = `${diffDays} days ago`;
+          } else if (diffDays < 30) {
+            const weeks = Math.floor(diffDays / 7);
+            lastActivity = `${weeks} week${weeks > 1 ? 's' : ''} ago`;
+          } else {
+            const months = Math.floor(diffDays / 30);
+            lastActivity = `${months} month${months > 1 ? 's' : ''} ago`;
+          }
+        }
+      }
 
       const stats: ClientStats = {
         totalSpent,
         totalClasses: attendedBookings,
         attendanceRate,
         totalBookings,
-        favoriteInstructor: 'Data loaded',
+        favoriteInstructor,
         currentPlan: activeSubscriptionData?.subscription_plans?.name || 'No Plan',
-        lastActivity: bookings?.[0] ? 'Recent activity' : 'No activity'
+        lastActivity
       };
 
       setClientStats(stats);
     } catch (error) {
-      console.error('Failed to load client stats:', error);
+
     }
   };
 
   const loadNotes = async () => {
     try {
-      console.log('📝 Loading notes for userId:', userId);
+
       const { data, error } = await supabase
         .from('client_notes')
         .select('*')
         .eq('client_id', userId)
         .order('created_at', { ascending: false });
       
-      console.log('📝 Notes data:', data, 'Error:', error);
+
       
       if (!error && data) {
         setNotes(data as ClientNote[]);
       } else if (error) {
-        console.error('Notes loading error:', error);
+
         // Set empty array to avoid loading state
         setNotes([]);
       }
     } catch (error) {
-      console.error('Failed to load notes:', error);
+
       setNotes([]);
     }
   };
 
   const loadDocuments = async () => {
     try {
-      console.log('📁 Loading documents for userId:', userId);
+
       const { data, error } = await supabase
         .from('client_documents')
         .select(`
@@ -638,7 +908,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         .eq('client_id', userId)
         .order('created_at', { ascending: false });
       
-      console.log('📁 Documents data:', data, 'Error:', error);
+
       
       if (!error && data) {
         // Transform data to include uploaded_by_name
@@ -648,76 +918,80 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         }));
         setDocuments(transformedDocuments as ClientDocument[]);
       } else {
-        console.log('📁 Documents table might not exist yet, setting empty array');
+
         setDocuments([]);
       }
     } catch (error) {
-      console.error('Failed to load documents:', error);
+
       setDocuments([]);
     }
   };
 
   const loadActivities = async () => {
     try {
-      console.log('📊 [DEBUG] Loading activities for userId:', userId);
-      console.log('📊 [DEBUG] User ID type:', typeof userId);
       
-      // First, let's check if the table exists and has any data at all
-      const { data: allActivities, error: allError } = await supabase
-        .from('client_activity_log')
-        .select('*')
-        .limit(5);
-      
-      console.log('📊 [DEBUG] Sample activities from table:', allActivities, 'Error:', allError);
-      
-      // Now check specifically for this user
-      const { data, error } = await supabase
-        .from('client_activity_log')
-        .select('*')
-        .eq('client_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(50);
-      
-      console.log('📊 [DEBUG] Activities for user', userId, ':', data, 'Error:', error);
-      console.log('📊 [DEBUG] Query result length:', data?.length || 0);
-      
-      if (error) {
-        console.error('❌ [DEBUG] Supabase error details:', {
-          message: error.message,
-          code: error.code,
-          details: error.details,
-          hint: error.hint
-        });
-      }
-      
-      if (!error && data) {
-        setActivities(data as ClientActivity[]);
-        console.log('✅ [DEBUG] Loaded', data.length, 'activities from client_activity_log table');
-      } else {
-        console.error('❌ [DEBUG] Failed to load activities:', error);
+      // Load staff activities first if this is a staff profile
+      if (isStaffProfile) {
+        try {
+          const staffActivitiesData = await activityService.getStaffActivities(String(userId), 50);
+          setStaffActivities(staffActivitiesData);
+        } catch (staffError) {
+          console.error('❌ Error loading staff activities:', staffError);
+          setStaffActivities([]);
+        }
+        
+        // For staff profiles, don't load the spammy client activities (profile access logs)
         setActivities([]);
+      } else {
+        // For regular clients, load client activities normally
+        const { data, error } = await supabase
+          .from('client_activity_log')
+          .select('*')
+          .eq('client_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(50);
+
+        if (error) {
+          console.error('❌ [DEBUG] Supabase error details:', {
+            message: error.message,
+            code: error.code,
+            details: error.details,
+            hint: error.hint
+          });
+        }
+        
+        if (!error && data) {
+          setActivities(data as ClientActivity[]);
+        } else {
+          console.log('⚠️ No client activities found or error occurred');
+          setActivities([]);
+        }
+        
+        // Regular clients don't have staff activities
+        setStaffActivities([]);
       }
     } catch (error) {
-      console.error('❌ [DEBUG] Exception in loadActivities:', error);
+      console.error('❌ Error in loadActivities:', error);
       setActivities([]);
+      setStaffActivities([]);
     }
   };
 
   const loadLifecycle = async () => {
     try {
-      console.log('🔄 Loading lifecycle for userId:', userId);
+
       const { data, error } = await supabase
         .from('client_lifecycle')
         .select('*')
         .eq('client_id', userId)
         .limit(1);
       
-      console.log('🔄 Lifecycle data:', data, 'Error:', error);
+
       
       if (!error && data && Array.isArray(data) && data.length > 0) {
         setLifecycle(data[0] as ClientLifecycle);
       } else {
-        console.log('🔄 Lifecycle table not available or no data found - creating sample data');
+
         // Create sample lifecycle data
         const sampleLifecycle: ClientLifecycle = {
           id: 1,
@@ -732,7 +1006,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         setLifecycle(sampleLifecycle);
       }
     } catch (error) {
-      console.error('Failed to load lifecycle (non-critical):', error);
+
       // Provide fallback lifecycle data even on error
       const fallbackLifecycle: ClientLifecycle = {
         id: 0,
@@ -749,8 +1023,13 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
   };
 
   const loadSubscriptionHistory = async () => {
+    if (isStaffProfile) {
+      console.log('📊 Skipping subscription history for staff profile');
+      setSubscriptionHistory([]);
+      return;
+    }
+
     try {
-      console.log('📋 Loading subscription history for userId:', userId);
       const { data, error } = await supabase
         .from('user_subscriptions')
         .select(`
@@ -766,16 +1045,16 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
       
-      console.log('📋 Subscription history data:', data, 'Error:', error);
+
       
       if (!error && data) {
         setSubscriptionHistory(data);
       } else {
-        console.log('📋 Setting empty subscription history');
+
         setSubscriptionHistory([]);
       }
     } catch (error) {
-      console.error('Failed to load subscription history:', error);
+
       setSubscriptionHistory([]);
     }
   };
@@ -783,7 +1062,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
   // Instructor progress loading functions
   const loadInstructorAssignments = async () => {
     try {
-      console.log('👥 Loading instructor assignments for userId:', userId);
+
       
       // Get assignments for this client
       const { data: assignments, error: assignmentsError } = await supabase
@@ -793,13 +1072,13 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         .order('created_at', { ascending: false });
 
       if (assignmentsError) {
-        console.log('👥 Instructor assignments table not available:', assignmentsError);
+
         setInstructorAssignments([]);
         return;
       }
 
       if (!assignments || assignments.length === 0) {
-        console.log('👥 No instructor assignments found');
+
         setInstructorAssignments([]);
         return;
       }
@@ -842,16 +1121,16 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
       });
 
       setInstructorAssignments(formattedAssignments);
-      console.log('✅ Instructor assignments loaded:', formattedAssignments.length);
+
     } catch (error) {
-      console.error('Failed to load instructor assignments:', error);
+
       setInstructorAssignments([]);
     }
   };
 
   const loadProgressPhotos = async () => {
     try {
-      console.log('📸 Loading progress photos for userId:', userId);
+
       
       const { data: photos, error } = await supabase
         .from('client_progress_photos')
@@ -860,22 +1139,22 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         .order('taken_date', { ascending: false });
 
       if (error) {
-        console.log('📸 Progress photos table not available:', error);
+
         setProgressPhotos([]);
         return;
       }
 
       setProgressPhotos(photos || []);
-      console.log('✅ Progress photos loaded:', photos?.length || 0);
+
     } catch (error) {
-      console.error('Failed to load progress photos:', error);
+
       setProgressPhotos([]);
     }
   };
 
   const handleDeletePhoto = async (photoId: number) => {
     try {
-      console.log('🗑️ Deleting progress photo:', photoId);
+
       
       const response = await instructorClientService.deleteProgressPhoto(photoId);
       
@@ -883,13 +1162,13 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         // Remove photo from local state
         setProgressPhotos(prev => prev.filter(photo => photo.id !== photoId));
         Alert.alert('Success', 'Photo deleted successfully');
-        console.log('✅ Photo deleted successfully');
+
       } else {
         Alert.alert('Error', response.error || 'Failed to delete photo');
-        console.error('❌ Failed to delete photo:', response.error);
+
       }
     } catch (error) {
-      console.error('❌ Exception while deleting photo:', error);
+
       Alert.alert('Error', 'Failed to delete photo');
     }
   };
@@ -914,7 +1193,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
 
   const loadMedicalUpdates = async () => {
     try {
-      console.log('🏥 Loading medical updates for userId:', userId);
+
       
       const { data: updates, error } = await supabase
         .from('client_medical_updates')
@@ -923,13 +1202,13 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         .order('effective_date', { ascending: false });
 
       if (error) {
-        console.log('🏥 Medical updates table not available:', error);
+
         setMedicalUpdates([]);
         return;
       }
 
       if (!updates || updates.length === 0) {
-        console.log('🏥 No medical updates found');
+
         setMedicalUpdates([]);
         return;
       }
@@ -960,9 +1239,9 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
       });
 
       setMedicalUpdates(formattedUpdates);
-      console.log('✅ Medical updates loaded:', formattedUpdates.length);
+
     } catch (error) {
-      console.error('Failed to load medical updates:', error);
+
       setMedicalUpdates([]);
     }
   };
@@ -1000,7 +1279,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         Alert.alert('Error', response.error || 'Failed to approve medical update');
       }
     } catch (error) {
-      console.error('Failed to approve medical update:', error);
+
       Alert.alert('Error', 'Failed to approve medical update');
     }
   };
@@ -1026,7 +1305,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
       const fileName = `${userId}_${Date.now()}.${fileExt}`;
       const filePath = fileName; // Fix: Just use fileName, bucket is specified in .from()
 
-      console.log('📤 Uploading file:', fileName);
+
 
       // Upload file to Supabase storage
       const { data: uploadData, error: uploadError } = await supabase.storage
@@ -1037,12 +1316,12 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         });
 
       if (uploadError) {
-        console.error('❌ Upload error:', uploadError);
+
         Alert.alert('Error', `Upload failed: ${uploadError.message}`);
         return;
       }
 
-      console.log('✅ File uploaded successfully:', uploadData);
+
 
       // Save document metadata to database
       const documentData = {
@@ -1065,14 +1344,14 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         .select();
 
       if (docError) {
-        console.error('❌ Database error:', docError);
+
         // Try to clean up uploaded file if database insert fails
         await supabase.storage.from('client-documents').remove([filePath]);
         Alert.alert('Error', `Failed to save document info: ${docError.message}`);
         return;
       }
 
-      console.log('✅ Document metadata saved:', docData);
+
       Alert.alert('Success', `Document "${uploadFile.name}" uploaded successfully!`);
 
       // Close dialog and reset form
@@ -1105,7 +1384,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
       });
 
     } catch (error) {
-      console.error('❌ Document upload error:', error);
+
       Alert.alert('Error', 'Failed to upload document');
     } finally {
       setUploading(false);
@@ -1115,7 +1394,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
   // Helper function to log client activities
   const logClientActivity = async (activityType: string, description: string, metadata: any = {}) => {
     try {
-      console.log('📝 [DEBUG] Logging activity:', { activityType, description, userId, metadata });
+
       
       const result = await supabase
         .from('client_activity_log')
@@ -1131,15 +1410,15 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
           // Remove created_at since it's auto-generated
         }]);
       
-      console.log('📝 [DEBUG] Activity log result:', result);
+
       
       if (result.error) {
-        console.error('❌ [DEBUG] Activity log error:', result.error);
+
       } else {
-        console.log('✅ [DEBUG] Activity logged successfully');
+
       }
     } catch (error) {
-      console.error('❌ [DEBUG] Exception in logClientActivity:', error);
+
       // Don't throw error for activity logging failures
     }
   };
@@ -1147,7 +1426,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
   // Test function to create a sample activity
   const createTestActivity = async () => {
     try {
-      console.log('🧪 [DEBUG] Creating test activity for user:', userId);
+
       const testActivities = [
         'Test activity: Profile data verification completed',
         'Test activity: Client information updated via admin panel',
@@ -1166,14 +1445,14 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
       // Reload activities after creating test
       await loadActivities();
     } catch (error) {
-      console.error('❌ [DEBUG] Failed to create test activity:', error);
+
     }
   };
 
   // Function to populate historical activities based on existing data
   const populateHistoricalActivities = async () => {
     try {
-      console.log('📚 [DEBUG] Populating historical activities for user:', userId);
+
       
       // Create activities based on bookings
       if (recentBookings.length > 0) {
@@ -1225,11 +1504,11 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         );
       }
       
-      console.log('✅ [DEBUG] Historical activities populated');
+
       await loadActivities(); // Reload to show new activities
       
     } catch (error) {
-      console.error('❌ [DEBUG] Failed to populate historical activities:', error);
+
     }
   };
 
@@ -1253,7 +1532,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         // Remove created_at/updated_at since they're auto-generated in Supabase
       };
 
-      console.log('📝 Adding note with data:', noteData);
+
 
       const { data, error } = await supabase
         .from('client_notes')
@@ -1261,12 +1540,12 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         .select();
 
       if (error) {
-        console.error('❌ Error adding note:', error);
+
         Alert.alert('Error', error.message || 'Failed to add note');
         return;
       }
 
-      console.log('✅ Note added successfully:', data);
+
       Alert.alert('Success', 'Note added successfully');
       
       // Close dialog and reset form
@@ -1288,7 +1567,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
       }
 
     } catch (error) {
-      console.error('❌ Add note error:', error);
+
       Alert.alert('Error', 'Failed to add note');
     }
   };
@@ -1316,26 +1595,26 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
           // Remove created_at since it's auto-generated in Supabase
         };
 
-        console.log('📅 Scheduling reminder notification:', notificationData);
+
 
         const { error: notifError } = await supabase
           .from('notifications')
           .insert([notificationData]);
 
         if (notifError) {
-          console.error('❌ Error scheduling reminder:', notifError);
+
         } else {
-          console.log('✅ Reminder notification scheduled');
+
         }
       }
     } catch (error) {
-      console.error('❌ Error scheduling reminder:', error);
+
     }
   };
 
   // Delete note function
   const deleteNote = async (noteId: number) => {
-    console.log('🗑️ deleteNote called with noteId:', noteId);
+
     setSelectedNoteForDeletion(noteId);
     setDeleteNoteDialogVisible(true);
   };
@@ -1345,7 +1624,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
     if (!selectedNoteForDeletion) return;
 
     try {
-      console.log('🗑️ Deleting note with ID:', selectedNoteForDeletion);
+
       
       const { error } = await supabase
         .from('client_notes')
@@ -1353,12 +1632,12 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         .eq('id', selectedNoteForDeletion);
 
       if (error) {
-        console.error('❌ Error deleting note:', error);
+
         Alert.alert('Error', error.message || 'Failed to delete note');
         return;
       }
 
-      console.log('✅ Note deleted successfully');
+
 
       // Refresh notes list
       await loadNotes();
@@ -1385,14 +1664,14 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
       setSelectedNoteForDeletion(null);
 
     } catch (error) {
-      console.error('❌ Delete note error:', error);
+
       Alert.alert('Error', 'Failed to delete note');
     }
   };
 
   // Delete document function
   const deleteDocument = async (documentId: number, fileName: string, originalName: string) => {
-    console.log('🗑️ deleteDocument called with:', { documentId, fileName, originalName });
+
     setSelectedDocumentForDeletion({ id: documentId, fileName, originalName });
     setDeleteDocumentDialogVisible(true);
   };
@@ -1404,7 +1683,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
     const { id: documentId, fileName, originalName } = selectedDocumentForDeletion;
 
     try {
-      console.log('🗑️ Deleting document with ID:', documentId);
+
       
       // Delete from database first
       const { error: dbError } = await supabase
@@ -1413,7 +1692,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         .eq('id', documentId);
 
       if (dbError) {
-        console.error('❌ Error deleting document from database:', dbError);
+
         Alert.alert('Error', dbError.message || 'Failed to delete document');
         return;
       }
@@ -1425,15 +1704,15 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
           .remove([fileName]);
         
         if (storageError) {
-          console.warn('⚠️ Failed to delete file from storage:', storageError);
+
         } else {
-          console.log('✅ File deleted from storage');
+
         }
       } catch (storageError) {
-        console.warn('⚠️ Storage deletion failed (non-critical):', storageError);
+
       }
 
-      console.log('✅ Document deleted successfully');
+
 
       // Refresh documents list
       await loadDocuments();
@@ -1463,7 +1742,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
       setSelectedDocumentForDeletion(null);
 
     } catch (error) {
-      console.error('❌ Delete document error:', error);
+
       Alert.alert('Error', 'Failed to delete document');
     }
   };
@@ -1503,14 +1782,133 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
   const formatCurrency = (amount: number) => `${amount.toFixed(0)} ALL`;
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    return new Date(dateString).toLocaleDateString('sq-AL', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
+      timeZone: 'Europe/Tirane'
     });
   };
 
-  const tabs = [
+  const loadInstructorData = async () => {
+    if (!isStaffProfile || userRole !== 'instructor' || !userId) return;
+    
+    try {
+      setLoadingInstructorData(true);
+      
+      // Get instructor's classes
+      const { data: classesData, error: classesError } = await supabase
+        .from('classes')
+        .select(`
+          *,
+          bookings(
+            id,
+            user_id,
+            status,
+            users(id, name, email)
+          )
+        `)
+        .eq('instructor_id', userId)
+        .order('date', { ascending: false });
+
+      if (classesError) {
+        console.error('❌ Error loading instructor classes:', classesError);
+      } else {
+        setInstructorClasses(classesData || []);
+      }
+
+      // Get instructor's students (clients assigned to instructor)
+      let studentsData: any[] = [];
+      
+      // Try to get instructor assignments first
+      const { data: assignmentsData, error: assignmentsError } = await supabase
+        .from('instructor_client_assignments')
+        .select('*')
+        .eq('instructor_id', userId)
+        .eq('status', 'active');
+
+      if (assignmentsError) {
+        console.error('❌ Error loading instructor assignments:', assignmentsError);
+        // If assignments table doesn't work, get students from class bookings
+        if (classesData && classesData.length > 0) {
+          const studentIds = new Set();
+          const studentsList: any[] = [];
+          
+          classesData.forEach(cls => {
+            cls.bookings?.forEach((booking: any) => {
+              if (booking.status === 'confirmed' && !studentIds.has(booking.user_id)) {
+                studentIds.add(booking.user_id);
+                studentsList.push({
+                  id: `booking-${booking.id}`,
+                  client_id: booking.user_id,
+                  users: booking.users,
+                  assigned_date: cls.date,
+                  status: 'active'
+                });
+              }
+            });
+          });
+          
+          studentsData = studentsList;
+        }
+      } else {
+        // Get user details for assignments
+        if (assignmentsData && assignmentsData.length > 0) {
+          const userIds = assignmentsData.map(a => a.client_id);
+          const { data: usersData } = await supabase
+            .from('users')
+            .select('id, name, email, phone, created_at')
+            .in('id', userIds);
+
+          studentsData = assignmentsData.map(assignment => ({
+            ...assignment,
+            users: usersData?.find(u => u.id === assignment.client_id)
+          }));
+        }
+      }
+      
+      setInstructorStudents(studentsData || []);
+
+      // Calculate instructor performance stats
+      const totalClasses = classesData?.length || 0;
+      const totalStudents = studentsData.length || 0;
+      const activeBookings = classesData?.reduce((total, cls) => {
+        return total + (cls.bookings?.filter((b: any) => b.status === 'confirmed').length || 0);
+      }, 0) || 0;
+
+      const completedClasses = classesData?.filter(cls => new Date(cls.date) < new Date()).length || 0;
+      const upcomingClasses = totalClasses - completedClasses;
+
+      setInstructorStats({
+        totalClasses,
+        totalStudents,
+        activeBookings,
+        completedClasses,
+        upcomingClasses,
+        averageClassSize: totalClasses > 0 ? Math.round(activeBookings / totalClasses) : 0
+      });
+
+    } catch (error) {
+      console.error('❌ Error loading instructor data:', error);
+    } finally {
+      setLoadingInstructorData(false);
+    }
+  };
+
+  // Different tabs for staff vs clients
+  const tabs = isStaffProfile ? [
+    { key: 'overview', label: userRole === 'instructor' ? 'Instructor Info' : 'Staff Info', icon: 'person' },
+    {
+      key: 'activity',
+      label: userRole === 'instructor' ? `Teaching Activity (${staffActivities.length})` : `Staff Activity (${staffActivities.length})`,
+      icon: userRole === 'instructor' ? 'school' : 'work'
+    },
+    { key: 'notes', label: 'Admin Notes', icon: 'note' },
+    ...(userRole === 'instructor' ? [
+      { key: 'classes', label: 'Classes & Students', icon: 'group' },
+      { key: 'performance', label: 'Performance', icon: 'trending-up' }
+    ] : [])
+  ] : [
     { key: 'overview', label: 'Overview', icon: 'home' },
     { key: 'plans', label: 'Plans', icon: 'card-membership' },
     { key: 'bookings', label: 'Bookings', icon: 'event' },
@@ -1542,6 +1940,10 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         return renderTimelineTab();
       case 'instructor_progress':
         return renderInstructorProgressTab();
+      case 'classes':
+        return renderInstructorClassesTab();
+      case 'performance':
+        return renderInstructorPerformanceTab();
       default:
         return renderOverviewTab();
     }
@@ -1549,7 +1951,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
 
   const renderOverviewTab = () => (
     <View style={styles.tabContent}>
-      {/* Client Header */}
+      {/* Client/Staff Header */}
       <Card style={[styles.modernCard, { backgroundColor: surfaceColor }]}>
         <Card.Content style={styles.cardContentModern}>
           <View style={styles.clientHeaderModern}>
@@ -1559,20 +1961,51 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
               style={[styles.avatarModern, { backgroundColor: accentColor }]}
             />
             <View style={styles.clientInfoModern}>
-              <H1 style={{ ...styles.clientNameModern, color: textColor }}>
-                {client?.name || 'Unknown User'}
-              </H1>
+                     <H1 style={{ ...styles.clientNameModern, color: textColor }}>
+                       {client?.name || 'Unknown User'}
+                       {isStaffProfile && (
+                         <Text style={{ fontSize: 16, color: accentColor, fontWeight: '500' }}>
+                           {userRole === 'instructor' ? ' 🏃‍♂️ Instructor' : ' 🏢 Staff'}
+                         </Text>
+                       )}
+                     </H1>
               <Body style={{ ...styles.clientEmailModern, color: textSecondaryColor }}>
                 {client?.email || 'No email available'}
               </Body>
               <View style={styles.statusRowModern}>
-                <Chip 
-                  mode="outlined" 
-                  style={[styles.statusChipModern, { borderColor: getStageColor(lifecycle?.current_stage || 'prospect') }]}
-                  textStyle={{ color: getStageColor(lifecycle?.current_stage || 'prospect') }}
-                >
-                  {lifecycle?.current_stage?.replace('_', ' ').toUpperCase() || 'PROSPECT'}
-                </Chip>
+                {isStaffProfile ? (
+                  <>
+                           <Chip
+                             mode="outlined"
+                             style={[styles.statusChipModern, {
+                               borderColor: userRole === 'instructor' ? '#FF6B35' : userRole === 'reception' ? accentColor : successColor,
+                               backgroundColor: (userRole === 'instructor' ? '#FF6B35' : userRole === 'reception' ? accentColor : successColor) + '10'
+                             }]}
+                             textStyle={{ color: userRole === 'instructor' ? '#FF6B35' : userRole === 'reception' ? accentColor : successColor }}
+                           >
+                             {userRole === 'instructor' ? 'INSTRUCTOR' : userRole?.toUpperCase() || 'STAFF'}
+                           </Chip>
+                           <Chip
+                             mode="outlined"
+                             style={[styles.statusChipModern, {
+                               borderColor: userRole === 'instructor' ? '#8B5CF6' : '#6B73FF',
+                               backgroundColor: (userRole === 'instructor' ? '#8B5CF6' : '#6B73FF') + '10',
+                               marginLeft: 8
+                             }]}
+                             textStyle={{ color: userRole === 'instructor' ? '#8B5CF6' : '#6B73FF' }}
+                           >
+                             {userRole === 'instructor' ? 'TEACHER' : 'EMPLOYEE'}
+                           </Chip>
+                         </>
+                ) : (
+                  <Chip 
+                    mode="outlined" 
+                    style={[styles.statusChipModern, { borderColor: getStageColor(lifecycle?.current_stage || 'prospect') }]}
+                    textStyle={{ color: getStageColor(lifecycle?.current_stage || 'prospect') }}
+                  >
+                    {lifecycle?.current_stage?.replace('_', ' ').toUpperCase() || 'PROSPECT'}
+                  </Chip>
+                )}
                 {lifecycle && lifecycle.risk_score > 0 && (
                   <Chip 
                     mode="outlined" 
@@ -1589,71 +2022,237 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         </Card.Content>
       </Card>
 
-      {/* Quick Stats */}
-      {clientStats && (
-        <Card style={[styles.modernCard, { backgroundColor: surfaceColor }]}>
-          <Card.Content style={styles.cardContentModern}>
-            <H2 style={{ ...styles.sectionTitleModern, color: textColor }}>Key Metrics</H2>
-            <View style={styles.statsGridModern}>
-              <View style={[styles.statItemModern, { backgroundColor: primaryColor + '10' }]}>
-                <H3 style={{ ...styles.statValueModern, color: primaryColor }}>
-                  {formatCurrency(clientStats.totalSpent)}
-                </H3>
-                <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Total Spent</Caption>
+            {/* Quick Stats - Different for Staff vs Clients */}
+            {isStaffProfile ? (
+              <Card style={[styles.modernCard, { backgroundColor: surfaceColor }]}>
+                <Card.Content style={styles.cardContentModern}>
+                  <H2 style={{ ...styles.sectionTitleModern, color: textColor }}>
+                    {userRole === 'instructor' ? 'Teaching Activity Summary' : 'Staff Activity Summary'}
+                  </H2>
+                  <View style={styles.statsGridModern}>
+                    {userRole === 'instructor' ? (
+                      <>
+                        <View style={[styles.statItemModern, { backgroundColor: '#FF6B35' + '10' }]}>
+                          <H3 style={{ ...styles.statValueModern, color: '#FF6B35' }}>
+                            {staffActivities.filter(a => a.activity_type.includes('class')).length}
+                          </H3>
+                          <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Class Actions</Caption>
+                        </View>
+                        <View style={[styles.statItemModern, { backgroundColor: '#8B5CF6' + '10' }]}>
+                          <H3 style={{ ...styles.statValueModern, color: '#8B5CF6' }}>
+                            {staffActivities.filter(a => a.activity_type.includes('client_assigned')).length}
+                          </H3>
+                          <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Student Assignments</Caption>
+                        </View>
+                        <View style={[styles.statItemModern, { backgroundColor: successColor + '10' }]}>
+                          <H3 style={{ ...styles.statValueModern, color: successColor }}>
+                            {staffActivities.filter(a => a.activity_type.includes('client_unassigned')).length}
+                          </H3>
+                          <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Class Cancellations</Caption>
+                        </View>
+                        <View style={[styles.statItemModern, { backgroundColor: primaryColor + '10' }]}>
+                          <H3 style={{ ...styles.statValueModern, color: primaryColor }}>
+                            {staffActivities.length}
+                          </H3>
+                          <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Total Teaching Actions</Caption>
+                        </View>
+                      </>
+                    ) : (
+                      <>
+                        <View style={[styles.statItemModern, { backgroundColor: primaryColor + '10' }]}>
+                          <H3 style={{ ...styles.statValueModern, color: primaryColor }}>
+                            {staffActivities.length}
+                          </H3>
+                          <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Total Actions</Caption>
+                        </View>
+                        <View style={[styles.statItemModern, { backgroundColor: successColor + '10' }]}>
+                          <H3 style={{ ...styles.statValueModern, color: successColor }}>
+                            {staffActivities.filter(a => a.activity_type.includes('subscription')).length}
+                          </H3>
+                          <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Subscription Actions</Caption>
+                        </View>
+                        <View style={[styles.statItemModern, { backgroundColor: warningColor + '10' }]}>
+                          <H3 style={{ ...styles.statValueModern, color: warningColor }}>
+                            {staffActivities.filter(a => a.activity_type.includes('client_created')).length}
+                          </H3>
+                          <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Clients Created</Caption>
+                        </View>
+                        <View style={[styles.statItemModern, { backgroundColor: accentColor + '10' }]}>
+                          <H3 style={{ ...styles.statValueModern, color: accentColor }}>
+                            {staffActivities.filter(a => a.activity_type.includes('instructor')).length}
+                          </H3>
+                          <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Instructor Actions</Caption>
+                        </View>
+                      </>
+                    )}
+                  </View>
+                </Card.Content>
+              </Card>
+      ) : (
+        clientStats && (
+          <Card style={[styles.modernCard, { backgroundColor: surfaceColor }]}>
+            <Card.Content style={styles.cardContentModern}>
+              <H2 style={{ ...styles.sectionTitleModern, color: textColor }}>Key Metrics</H2>
+              <View style={styles.statsGridModern}>
+                <View style={[styles.statItemModern, { backgroundColor: primaryColor + '10' }]}>
+                  <H3 style={{ ...styles.statValueModern, color: primaryColor }}>
+                    {formatCurrency(clientStats.totalSpent)}
+                  </H3>
+                  <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Total Spent</Caption>
+                </View>
+                <View style={[styles.statItemModern, { backgroundColor: successColor + '10' }]}>
+                  <H3 style={{ ...styles.statValueModern, color: successColor }}>
+                    {clientStats.totalClasses}
+                  </H3>
+                  <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Classes Completed</Caption>
+                </View>
+                <View style={[styles.statItemModern, { backgroundColor: warningColor + '10' }]}>
+                  <H3 style={{ ...styles.statValueModern, color: warningColor }}>
+                    {clientStats.attendanceRate}%
+                  </H3>
+                  <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Attendance Rate</Caption>
+                </View>
+                <View style={[styles.statItemModern, { backgroundColor: accentColor + '10' }]}>
+                  <H3 style={{ ...styles.statValueModern, color: accentColor }}>
+                    {clientStats.totalBookings}
+                  </H3>
+                  <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Total Bookings</Caption>
+                </View>
               </View>
-              <View style={[styles.statItemModern, { backgroundColor: successColor + '10' }]}>
-                <H3 style={{ ...styles.statValueModern, color: successColor }}>
-                  {clientStats.totalClasses}
-                </H3>
-                <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Classes Completed</Caption>
-              </View>
-              <View style={[styles.statItemModern, { backgroundColor: warningColor + '10' }]}>
-                <H3 style={{ ...styles.statValueModern, color: warningColor }}>
-                  {clientStats.attendanceRate}%
-                </H3>
-                <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Attendance Rate</Caption>
-              </View>
-              <View style={[styles.statItemModern, { backgroundColor: accentColor + '10' }]}>
-                <H3 style={{ ...styles.statValueModern, color: accentColor }}>
-                  {clientStats.totalBookings}
-                </H3>
-                <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Total Bookings</Caption>
-              </View>
-            </View>
-          </Card.Content>
-        </Card>
+            </Card.Content>
+          </Card>
+        )
       )}
 
-      {/* Client Insights */}
+      {/* Insights - Different for Staff vs Clients */}
       <Card style={[styles.modernCard, { backgroundColor: surfaceColor }]}>
         <Card.Content style={styles.cardContentModern}>
-          <H2 style={{ ...styles.sectionTitleModern, color: textColor }}>Client Insights</H2>
+          <H2 style={{ ...styles.sectionTitleModern, color: textColor }}>
+            {isStaffProfile ? (userRole === 'instructor' ? 'Teaching Performance' : 'Staff Performance') : 'Client Insights'}
+          </H2>
           
-          {clientStats?.favoriteInstructor && (
-            <View style={styles.insightItemModern}>
-              <MaterialIcons name="person" size={20} color={primaryColor} />
-              <Body style={{ ...styles.insightTextModern, color: textColor }}>
-                Favorite instructor: {clientStats.favoriteInstructor}
-              </Body>
-            </View>
-          )}
-          
-          {clientStats?.currentPlan && (
-            <View style={styles.insightItemModern}>
-              <MaterialIcons name="star" size={20} color={accentColor} />
-              <Body style={{ ...styles.insightTextModern, color: textColor }}>
-                Current plan: {clientStats.currentPlan}
-              </Body>
-            </View>
-          )}
-          
-          {clientStats?.lastActivity && (
-            <View style={styles.insightItemModern}>
-              <MaterialIcons name="access-time" size={20} color={successColor} />
-              <Body style={{ ...styles.insightTextModern, color: textColor }}>
-                Last activity: {clientStats.lastActivity}
-              </Body>
-            </View>
+          {isStaffProfile ? (
+            // Staff Performance Insights
+            <>
+              {/* Recent Activity */}
+              <View style={styles.insightItemModern}>
+                <MaterialIcons name="work" size={20} color={primaryColor} />
+                <Body style={{ ...styles.insightTextModern, color: textColor }}>
+                  Total actions performed: {staffActivities.length}
+                </Body>
+              </View>
+
+              {/* Most Recent Action */}
+              {staffActivities.length > 0 && (
+                <View style={styles.insightItemModern}>
+                  <MaterialIcons name="access-time" size={20} color={successColor} />
+                  <Body style={{ ...styles.insightTextModern, color: textColor }}>
+                    Last action: {staffActivities[0]?.activity_description || 'Unknown'}
+                  </Body>
+                </View>
+              )}
+              
+              {/* Role-specific insights */}
+              <View style={styles.insightItemModern}>
+                <MaterialIcons name="badge" size={20} color={accentColor} />
+                <Body style={{ ...styles.insightTextModern, color: textColor }}>
+                  Role: {userRole?.charAt(0).toUpperCase() + userRole?.slice(1) || 'Staff'} Team Member
+                </Body>
+              </View>
+              
+              {/* Join Date */}
+              {client?.join_date && (
+                <View style={styles.insightItemModern}>
+                  <MaterialIcons name="calendar-today" size={20} color={warningColor} />
+                  <Body style={{ ...styles.insightTextModern, color: textColor }}>
+                    Team member since: {formatDate(client.join_date)}
+                  </Body>
+                </View>
+              )}
+
+              {/* Contact Info */}
+              {client?.phone && (
+                <View style={styles.insightItemModern}>
+                  <MaterialIcons name="phone" size={20} color={successColor} />
+                  <Body style={{ ...styles.insightTextModern, color: textColor }}>
+                    Phone: {client.phone}
+                  </Body>
+                </View>
+              )}
+            </>
+          ) : (
+            // Client Insights (existing logic)
+            clientStats ? (
+              <>
+                {/* Attendance Rate */}
+                <View style={styles.insightItemModern}>
+                  <MaterialIcons name="trending-up" size={20} color={clientStats.attendanceRate >= 80 ? successColor : clientStats.attendanceRate >= 60 ? warningColor : errorColor} />
+                  <Body style={{ ...styles.insightTextModern, color: textColor }}>
+                    Attendance rate: {clientStats.attendanceRate}% ({clientStats.totalClasses} of {clientStats.totalBookings} classes)
+                  </Body>
+                </View>
+
+                {/* Favorite Instructor */}
+                {clientStats.favoriteInstructor ? (
+                  <View style={styles.insightItemModern}>
+                    <MaterialIcons name="person" size={20} color={primaryColor} />
+                    <Body style={{ ...styles.insightTextModern, color: textColor }}>
+                      Favorite instructor: {clientStats.favoriteInstructor}
+                    </Body>
+                  </View>
+                ) : (
+                  <View style={styles.insightItemModern}>
+                    <MaterialIcons name="person-outline" size={20} color={textMutedColor} />
+                    <Body style={{ ...styles.insightTextModern, color: textSecondaryColor }}>
+                      No instructor preference yet
+                    </Body>
+                  </View>
+                )}
+                
+                {/* Current Plan */}
+                <View style={styles.insightItemModern}>
+                  <MaterialIcons name="star" size={20} color={accentColor} />
+                  <Body style={{ ...styles.insightTextModern, color: textColor }}>
+                    Current plan: {clientStats.currentPlan}
+                  </Body>
+                </View>
+                
+                {/* Last Activity */}
+                {clientStats.lastActivity ? (
+                  <View style={styles.insightItemModern}>
+                    <MaterialIcons name="access-time" size={20} color={successColor} />
+                    <Body style={{ ...styles.insightTextModern, color: textColor }}>
+                      Last activity: {clientStats.lastActivity}
+                    </Body>
+                  </View>
+                ) : (
+                  <View style={styles.insightItemModern}>
+                    <MaterialIcons name="access-time" size={20} color={textMutedColor} />
+                    <Body style={{ ...styles.insightTextModern, color: textSecondaryColor }}>
+                      No recent activity
+                    </Body>
+                  </View>
+                )}
+
+                {/* Total Spending */}
+                {clientStats.totalSpent > 0 && (
+                  <View style={styles.insightItemModern}>
+                    <MaterialIcons name="attach-money" size={20} color={successColor} />
+                    <Body style={{ ...styles.insightTextModern, color: textColor }}>
+                      Total spent: {formatCurrency(clientStats.totalSpent)}
+                    </Body>
+                  </View>
+                )}
+              </>
+            ) : (
+              <View style={styles.emptyStateModern}>
+                <MaterialIcons name="insights" size={64} color={textMutedColor} />
+                <H2 style={{ ...styles.emptyTitleModern, color: textColor }}>Loading Insights...</H2>
+                <Body style={{ ...styles.emptyTextModern, color: textSecondaryColor }}>
+                  Calculating client activity patterns.
+                </Body>
+              </View>
+            )
           )}
         </Card.Content>
       </Card>
@@ -1705,7 +2304,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
                   </Chip>
                   <Pressable
                     onPress={() => {
-                      console.log('🔥 Note delete button pressed!', note.id);
+
                       deleteNote(note.id);
                     }}
                     style={[styles.deleteButtonModern, { 
@@ -1788,7 +2387,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
                   />
                   <Pressable
                     onPress={() => {
-                      console.log('🔥 Document delete button pressed!', document.id);
+
                       deleteDocument(document.id, document.file_name, document.original_name);
                     }}
                     style={[styles.deleteButtonModern, { 
@@ -1967,6 +2566,35 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
                     {subscription.remaining_classes} classes remaining
                   </Body>
                 )}
+                
+                {/* Subscription Booking Statistics */}
+                {subscriptionBookingStats[subscription.id] && (
+                  <View style={styles.bookingStatsContainer}>
+                    <Body style={{ ...styles.sectionTitleModern, color: textColor, fontSize: 14, marginBottom: 8 }}>
+                      Booking Activity:
+                    </Body>
+                    <View style={styles.bookingStatsRow}>
+                      <View style={styles.bookingStatItem}>
+                        <MaterialIcons name="check-circle" size={16} color={successColor} />
+                        <Body style={{ ...styles.bookingStatText, color: successColor, marginLeft: 4 }}>
+                          {subscriptionBookingStats[subscription.id].confirmed} Confirmed
+                        </Body>
+                      </View>
+                      <View style={styles.bookingStatItem}>
+                        <MaterialIcons name="schedule" size={16} color={primaryColor} />
+                        <Body style={{ ...styles.bookingStatText, color: primaryColor, marginLeft: 4 }}>
+                          {subscriptionBookingStats[subscription.id].upcoming} Upcoming
+                        </Body>
+                      </View>
+                      <View style={styles.bookingStatItem}>
+                        <MaterialIcons name="cancel" size={16} color={errorColor} />
+                        <Body style={{ ...styles.bookingStatText, color: errorColor, marginLeft: 4 }}>
+                          {subscriptionBookingStats[subscription.id].cancelled} Cancelled
+                        </Body>
+                      </View>
+                    </View>
+                  </View>
+                )}
               </Card.Content>
             </Card>
           ))}
@@ -2020,6 +2648,27 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
       );
       
       if (result.success) {
+        // Log activity for resuming subscription
+        const currentUser = user;
+        if (currentUser) {
+          await activityService.logActivity({
+            staff_id: currentUser.id,
+            staff_name: currentUser.name,
+            staff_role: currentUser.role as 'reception' | 'instructor' | 'admin',
+            activity_type: 'subscription_resumed',
+            activity_description: `Resumed subscription for ${client?.name}`,
+            client_id: String(userId),
+            client_name: client?.name || 'Unknown Client',
+            metadata: {
+              subscriptionId: activeSubscription.id,
+              planName: activeSubscription.subscription_plans?.name,
+              monthlyPrice: activeSubscription.subscription_plans?.monthly_price,
+              resumedBy: currentUser.name,
+              reason: 'Resumed by reception'
+            }
+          });
+        }
+
         Alert.alert('Success', 'Subscription resumed successfully!');
         await loadAllData(); // Refresh data immediately
         // Also refresh the Redux store for client components
@@ -2071,6 +2720,28 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
       );
       
       if (result.success) {
+        // Log activity for adding classes
+        const currentUser = user;
+        if (currentUser) {
+          await activityService.logActivity({
+            staff_id: currentUser.id,
+            staff_name: currentUser.name,
+            staff_role: currentUser.role as 'reception' | 'instructor' | 'admin',
+            activity_type: 'classes_added_to_subscription',
+            activity_description: `Added ${classes} class${classes > 1 ? 'es' : ''} to subscription for ${client?.name}`,
+            client_id: String(userId),
+            client_name: client?.name || 'Unknown Client',
+            metadata: {
+              subscriptionId: activeSubscription.id,
+              planName: activeSubscription.subscription_plans?.name,
+              classesAdded: classes,
+              newClassBalance: (activeSubscription.remaining_classes || 0) + classes,
+              addedBy: currentUser.name,
+              reason: 'Classes added by reception'
+            }
+          });
+        }
+
         Alert.alert('Success', `${classes} class${classes > 1 ? 'es' : ''} added successfully!`);
         await loadAllData();
         // Also refresh the Redux store for client components
@@ -2109,6 +2780,29 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
       );
       
       if (result.success) {
+        // Log activity for removing classes
+        const currentUser = user;
+        if (currentUser) {
+          await activityService.logActivity({
+            staff_id: currentUser.id,
+            staff_name: currentUser.name,
+            staff_role: currentUser.role as 'reception' | 'instructor' | 'admin',
+            activity_type: 'classes_removed_from_subscription',
+            activity_description: `Removed ${classes} class${classes > 1 ? 'es' : ''} from subscription for ${client?.name}`,
+            client_id: String(userId),
+            client_name: client?.name || 'Unknown Client',
+            metadata: {
+              subscriptionId: activeSubscription.id,
+              planName: activeSubscription.subscription_plans?.name,
+              classesRemoved: classes,
+              previousClassBalance: activeSubscription.remaining_classes || 0,
+              newClassBalance: (activeSubscription.remaining_classes || 0) - classes,
+              removedBy: currentUser.name,
+              reason: `${classes} classes removed by reception`
+            }
+          });
+        }
+
         Alert.alert('Success', `${classes} class${classes > 1 ? 'es' : ''} removed successfully!`);
         await loadAllData();
         // Also refresh the Redux store for client components
@@ -2166,6 +2860,30 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
       );
       
       if (result.success) {
+        // Log activity for subscription cancellation
+        const currentUser = user;
+        if (currentUser) {
+          await activityService.logActivity({
+            staff_id: currentUser.id,
+            staff_name: currentUser.name,
+            staff_role: currentUser.role as 'reception' | 'instructor' | 'admin',
+            activity_type: 'subscription_cancelled',
+            activity_description: `Cancelled subscription for ${client?.name}`,
+            client_id: String(userId),
+            client_name: client?.name || 'Unknown Client',
+            metadata: {
+              subscriptionId: activeSubscription.id,
+              planName: activeSubscription.subscription_plans?.name,
+              monthlyPrice: activeSubscription.subscription_plans?.monthly_price,
+              endDate: activeSubscription.end_date,
+              remainingClasses: activeSubscription.remaining_classes,
+              status: activeSubscription.status,
+              reason: 'Cancelled by reception',
+              refundAmount: result.data?.refundAmount || 0
+            }
+          });
+        }
+
         Alert.alert('Success', 'Subscription cancelled successfully');
         await loadAllData();
         // Also refresh the Redux store for client components
@@ -2191,6 +2909,31 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
       );
       
       if (result.success) {
+        // Log activity for subscription termination
+        const currentUser = user;
+        if (currentUser) {
+          await activityService.logActivity({
+            staff_id: currentUser.id,
+            staff_name: currentUser.name,
+            staff_role: currentUser.role as 'reception' | 'instructor' | 'admin',
+            activity_type: 'subscription_terminated',
+            activity_description: `Terminated subscription for ${client?.name}`,
+            client_id: String(userId),
+            client_name: client?.name || 'Unknown Client',
+            metadata: {
+              subscriptionId: activeSubscription.id,
+              planName: activeSubscription.subscription_plans?.name,
+              monthlyPrice: activeSubscription.subscription_plans?.monthly_price,
+              endDate: activeSubscription.end_date,
+              remainingClasses: activeSubscription.remaining_classes,
+              status: activeSubscription.status,
+              reason: 'Terminated by reception',
+              terminationType: 'immediate',
+              refundAmount: result.data?.refundAmount || 0
+            }
+          });
+        }
+
         Alert.alert('Success', 'Subscription terminated successfully');
         await loadAllData();
         // Also refresh the Redux store for client components
@@ -2216,14 +2959,74 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         />
       </View>
 
+      {/* Upcoming Bookings Section */}
+      {upcomingBookings.length > 0 && (
+        <Card style={[styles.modernCard, { backgroundColor: surfaceColor, marginBottom: 16 }]}>
+          <Card.Content style={styles.cardContentModern}>
+            <View style={styles.sectionHeaderWithIcon}>
+              <MaterialIcons name="schedule" size={24} color={primaryColor} />
+              <H2 style={{ ...styles.sectionTitleModern, color: textColor, marginLeft: 8 }}>
+                Upcoming Bookings ({upcomingBookings.length})
+              </H2>
+            </View>
+            
+            {/* Upcoming booking entries */}
+            {upcomingBookings.map((booking, index) => (
+              <View key={`upcoming-${booking.id}`} style={styles.bookingItemModern}>
+                <View style={styles.bookingHeaderModern}>
+                  <MaterialIcons name="fitness-center" size={24} color={successColor} />
+                  <View style={styles.bookingInfoModern}>
+                    <H3 style={{ ...styles.bookingTitleModern, color: textColor }}>
+                      {booking.classes?.name || 'Unknown Class'}
+                    </H3>
+                    <Body style={{ ...styles.bookingMetaModern, color: textSecondaryColor }}>
+                      {booking.classes?.date ? formatDate(booking.classes.date) : 'No date'} • {booking.classes?.time || 'No time'}
+                    </Body>
+                  </View>
+                  <Chip 
+                    mode="outlined" 
+                    style={[styles.statusChipModern, { borderColor: booking.status === 'confirmed' ? successColor : warningColor }]}
+                    textStyle={{ color: booking.status === 'confirmed' ? successColor : warningColor }}
+                  >
+                    {booking.status?.toUpperCase() || 'PENDING'}
+                  </Chip>
+                </View>
+                <View style={styles.bookingDetailsModern}>
+                  <Body style={{ ...styles.bookingDetailTextModern, color: textSecondaryColor }}>
+                    Instructor: {booking.classes?.users?.name || 'TBA'} • 
+                    Equipment: {booking.classes?.equipment_type || 'N/A'} • 
+                    Booking #{booking.id?.toString().slice(-6) || 'N/A'}
+                    {booking.status === 'cancelled' && booking.cancelled_by && (
+                      <Text style={{ color: errorColor, fontWeight: 'bold' }}>
+                        {' • Cancelled by: '}
+                        {booking.cancelled_by === 'user' ? 'Client' : 
+                         booking.cancelled_by === 'reception' ? 'Reception' : 
+                         booking.cancelled_by === 'studio' ? 'Studio' : 
+                         booking.cancelled_by}
+                      </Text>
+                    )}
+                  </Body>
+                </View>
+              </View>
+            ))}
+          </Card.Content>
+        </Card>
+      )}
+
+      {/* Recent/Past Bookings Section */}
       {recentBookings.length > 0 ? (
         <Card style={[styles.modernCard, { backgroundColor: surfaceColor }]}>
           <Card.Content style={styles.cardContentModern}>
-            <H2 style={{ ...styles.sectionTitleModern, color: textColor }}>Recent Bookings</H2>
+            <View style={styles.sectionHeaderWithIcon}>
+              <MaterialIcons name="history" size={24} color={textSecondaryColor} />
+              <H2 style={{ ...styles.sectionTitleModern, color: textColor, marginLeft: 8 }}>
+                Recent Bookings ({recentBookings.length})
+              </H2>
+            </View>
             
             {/* Recent booking entries */}
             {recentBookings.map((booking, index) => (
-              <View key={index} style={styles.bookingItemModern}>
+              <View key={`recent-${booking.id}`} style={styles.bookingItemModern}>
                 <View style={styles.bookingHeaderModern}>
                   <MaterialIcons name="fitness-center" size={24} color={primaryColor} />
                   <View style={styles.bookingInfoModern}>
@@ -2236,8 +3039,8 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
                   </View>
                   <Chip 
                     mode="outlined" 
-                    style={[styles.statusChipModern, { borderColor: booking.status === 'attended' ? successColor : warningColor }]}
-                    textStyle={{ color: booking.status === 'attended' ? successColor : warningColor }}
+                    style={[styles.statusChipModern, { borderColor: booking.status === 'cancelled' ? errorColor : booking.status === 'attended' || booking.status === 'confirmed' ? successColor : warningColor }]}
+                    textStyle={{ color: booking.status === 'cancelled' ? errorColor : booking.status === 'attended' || booking.status === 'confirmed' ? successColor : warningColor }}
                   >
                     {booking.status?.toUpperCase() || 'PENDING'}
                   </Chip>
@@ -2247,13 +3050,22 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
                     Instructor: {booking.classes?.users?.name || 'TBA'} • 
                     Equipment: {booking.classes?.equipment_type || 'N/A'} • 
                     Booking #{booking.id?.toString().slice(-6) || 'N/A'}
+                    {booking.status === 'cancelled' && booking.cancelled_by && (
+                      <Text style={{ color: errorColor, fontWeight: 'bold' }}>
+                        {' • Cancelled by: '}
+                        {booking.cancelled_by === 'user' ? 'Client' : 
+                         booking.cancelled_by === 'reception' ? 'Reception' : 
+                         booking.cancelled_by === 'studio' ? 'Studio' : 
+                         booking.cancelled_by}
+                      </Text>
+                    )}
                   </Body>
                 </View>
               </View>
             ))}
           </Card.Content>
         </Card>
-      ) : (
+      ) : upcomingBookings.length === 0 ? (
         <Card style={[styles.modernCard, { backgroundColor: surfaceColor }]}>
           <Card.Content style={styles.emptyStateModern}>
             <MaterialIcons name="today" size={64} color={textMutedColor} />
@@ -2263,14 +3075,11 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
             </Body>
           </Card.Content>
         </Card>
-      )}
+      ) : null}
     </View>
   );
 
   const renderPaymentsTab = () => {
-    console.log('💰 Rendering payments tab, recentPayments.length:', recentPayments.length);
-    console.log('💰 recentPayments data:', recentPayments);
-    console.log('💰 clientStats?.totalSpent:', clientStats?.totalSpent);
     
     return (
       <View style={styles.tabContent}>
@@ -2283,31 +3092,45 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         {recentPayments.length > 0 ? (
         <Card style={[styles.modernCard, { backgroundColor: surfaceColor }]}>
           <Card.Content style={styles.cardContentModern}>
-            <H2 style={{ ...styles.sectionTitleModern, color: textColor }}>Recent Payments</H2>
+            <H2 style={{ ...styles.sectionTitleModern, color: textColor }}>All Payments</H2>
             
-            {/* Recent payment entries */}
+            {/* All payment entries */}
             {recentPayments.map((payment, index) => (
               <View key={index} style={styles.paymentItemModern}>
                 <View style={styles.paymentHeaderModern}>
-                  <MaterialIcons name="attach-money" size={24} color={successColor} />
+                  <MaterialIcons 
+                    name={payment.type === 'manual_credit' ? 'account-balance-wallet' : 'attach-money'} 
+                    size={24} 
+                    color={payment.type === 'manual_credit' ? primaryColor : successColor} 
+                  />
                   <View style={styles.paymentInfoModern}>
                     <H3 style={{ ...styles.paymentTitleModern, color: textColor }}>
                       {formatCurrency(payment.amount)}
                     </H3>
                     <Body style={{ ...styles.paymentMetaModern, color: textSecondaryColor }}>
                       {formatDate(payment.created_at)} • {payment.payment_method || 'Manual'}
+                      {payment.type === 'manual_credit' && ' • Manual Credit'}
                     </Body>
                   </View>
                   <Chip 
                     mode="outlined" 
-                    style={[styles.statusChipModern, { borderColor: successColor }]}
-                    textStyle={{ color: successColor }}
+                    style={[
+                      styles.statusChipModern, 
+                      { 
+                        borderColor: payment.type === 'manual_credit' ? primaryColor : successColor,
+                        backgroundColor: payment.type === 'manual_credit' ? `${primaryColor}20` : 'transparent'
+                      }
+                    ]}
+                    textStyle={{ 
+                      color: payment.type === 'manual_credit' ? primaryColor : successColor 
+                    }}
                   >
-                    {payment.status?.toUpperCase() || 'COMPLETED'}
+                    {payment.type === 'manual_credit' ? 'CREDIT' : (payment.status?.toUpperCase() || 'COMPLETED')}
                   </Chip>
                 </View>
                 <Body style={{ ...styles.paymentDescriptionModern, color: textSecondaryColor }}>
                   {payment.notes || 'Payment transaction'}
+                  {payment.admin_name && ` • Added by: ${payment.admin_name}`}
                 </Body>
               </View>
             ))}
@@ -2361,70 +3184,247 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
 
   
 
-  const renderActivityTab = () => (
-    <View style={styles.tabContent}>
-      <View style={styles.tabHeaderModern}>
-        <Body style={{ ...styles.tabHeaderTitleModern, color: textColor }}>
-          Activity Log ({activities.length} activities)
-        </Body>
-        <Button
-          mode="outlined"
-          icon="plus"
-          onPress={createTestActivity}
-          style={{ marginLeft: 16 }}
-          compact
-        >
-          Test Activity
-        </Button>
-        <Button
-          mode="outlined"
-          icon="history"
-          onPress={populateHistoricalActivities}
-          style={{ marginLeft: 8 }}
-          compact
-        >
-          Populate History
-        </Button>
-      </View>
+  const renderActivityTab = () => {
+    const totalActivities = activities.length + staffActivities.length;
 
-      {activities.length > 0 ? (
-        <Card style={[styles.modernCard, { backgroundColor: surfaceColor }]}>
-          <Card.Content style={styles.cardContentModern}>
-            <H2 style={{ ...styles.sectionTitleModern, color: textColor }}>Recent Activity</H2>
-            
-            {activities.slice(0, 10).map((activity, index) => (
-              <View key={activity.id || index} style={styles.activityItemModern}>
-                <View style={styles.activityHeaderModern}>
-                  <MaterialIcons name="timeline" size={20} color={accentColor} />
-                  <View style={styles.activityInfoModern}>
-                    <Body style={{ ...styles.activityTitleModern, color: textColor }}>
-                      {activity.activity_type?.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()) || 'Activity'}
-                    </Body>
-                    <Caption style={{ ...styles.activityMetaModern, color: textMutedColor }}>
-                      {formatDate(activity.created_at)} • {activity.metadata?.performed_by_name || activity.performed_by_name || 'System'}
+    return (
+      <View style={styles.tabContent}>
+        <View style={styles.tabHeaderModern}>
+                 <Body style={{ ...styles.tabHeaderTitleModern, color: textColor }}>
+                   {isStaffProfile
+                     ? `${userRole === 'instructor' ? 'Teaching' : 'Staff'} Activity Log (${staffActivities.length} ${userRole === 'instructor' ? 'teaching' : 'staff'} actions${activities.length > 0 ? ` • ${activities.length} client activities` : ''})`
+                     : `Activity Log (${totalActivities} activities)`
+                   }
+          </Body>
+          {!isStaffProfile && (
+            <>
+              <Button
+                mode="outlined"
+                icon="plus"
+                onPress={createTestActivity}
+                style={{ marginLeft: 16 }}
+                compact
+              >
+                Test Activity
+              </Button>
+              <Button
+                mode="outlined"
+                icon="history"
+                onPress={populateHistoricalActivities}
+                style={{ marginLeft: 8 }}
+                compact
+              >
+                Populate History
+              </Button>
+            </>
+          )}
+        </View>
+
+        {/* Staff Activities Section (only for reception/instructor) */}
+        {isStaffProfile && staffActivities.length > 0 && (
+          <Card style={[styles.modernCard, { backgroundColor: surfaceColor, marginBottom: 16 }]}>
+            <Card.Content style={styles.cardContentModern}>
+                     <H2 style={{ ...styles.sectionTitleModern, color: textColor }}>
+                       {userRole === 'instructor' ? '🏃‍♂️ Teaching Activities' : '🏢 Staff Activities'} ({staffActivities.length})
+                     </H2>
+                     <Caption style={{ ...styles.activityMetaModern, color: textMutedColor, marginBottom: 12 }}>
+                       {userRole === 'instructor' 
+                         ? 'Class management and student-related actions by this instructor'
+                         : `Actions performed by this ${userRole || client?.role || 'staff'} member`
+                       }
+                     </Caption>
+              
+              {staffActivities.slice(0, 15).map((activity, index) => (
+                <View key={`staff-${activity.id || index}`} style={styles.activityItemModern}>
+                  <View style={styles.activityHeaderModern}>
+                    <MaterialIcons 
+                      name={getStaffActivityIcon(activity.activity_type)} 
+                      size={20} 
+                      color={getStaffActivityColor(activity.activity_type)} 
+                    />
+                    <View style={styles.activityInfoModern}>
+                      <Body style={{ ...styles.activityTitleModern, color: textColor }}>
+                        {activity.activity_description}
+                      </Body>
+                      <Caption style={{ ...styles.activityMetaModern, color: textMutedColor }}>
+                        {formatDate(activity.created_at || '')} 
+                        {activity.client_name && ` • Client: ${activity.client_name}`}
+                      </Caption>
+                    </View>
+                  </View>
+                  <View style={styles.staffActivityMeta}>
+                    <Chip 
+                      mode="outlined" 
+                      compact 
+                      style={{ 
+                        backgroundColor: (userRole || client?.role) === 'reception' ? '#E3F2FD' : '#E8F5E8',
+                        marginRight: 8 
+                      }}
+                    >
+                      {userRole || client?.role || 'staff'}
+                    </Chip>
+                    <Caption style={{ color: textSecondaryColor }}>
+                      {activity.activity_type.replace(/_/g, ' ')}
                     </Caption>
                   </View>
                 </View>
-                <Body style={{ ...styles.activityDescriptionModern, color: textSecondaryColor }}>
-                  {activity.description || 'No description available'}
+              ))}
+            </Card.Content>
+          </Card>
+        )}
+
+        {/* Client Activities Section - Only show for regular clients or if staff has client activities */}
+        {isStaffProfile ? (
+          // For staff members, only show client activities if they exist
+          activities.length > 0 && (
+            <Card style={[styles.modernCard, { backgroundColor: surfaceColor }]}>
+              <Card.Content style={styles.cardContentModern}>
+                <H2 style={{ ...styles.sectionTitleModern, color: textColor }}>
+                  👤 Personal Client Activities ({activities.length})
+                </H2>
+                <Caption style={{ ...styles.activityMetaModern, color: textMutedColor, marginBottom: 12 }}>
+                  Activities when this staff member acts as a client
+                </Caption>
+                
+                {activities.slice(0, 10).map((activity, index) => (
+                  <View key={activity.id || index} style={styles.activityItemModern}>
+                    <View style={styles.activityHeaderModern}>
+                      <MaterialIcons name="timeline" size={20} color={accentColor} />
+                      <View style={styles.activityInfoModern}>
+                        <Body style={{ ...styles.activityTitleModern, color: textColor }}>
+                          {activity.activity_type?.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()) || 'Activity'}
+                        </Body>
+                        <Caption style={{ ...styles.activityMetaModern, color: textMutedColor }}>
+                          {formatDate(activity.created_at)} • {activity.metadata?.performed_by_name || activity.performed_by_name || 'System'}
+                        </Caption>
+                      </View>
+                    </View>
+                    <Body style={{ ...styles.activityDescriptionModern, color: textSecondaryColor }}>
+                      {activity.description || 'No description available'}
+                    </Body>
+                  </View>
+                ))}
+              </Card.Content>
+            </Card>
+          )
+        ) : (
+          // For regular clients, show activities normally
+          activities.length > 0 ? (
+            <Card style={[styles.modernCard, { backgroundColor: surfaceColor }]}>
+              <Card.Content style={styles.cardContentModern}>
+                <H2 style={{ ...styles.sectionTitleModern, color: textColor }}>
+                  👤 Recent Activity ({activities.length})
+                </H2>
+                
+                {activities.slice(0, 10).map((activity, index) => (
+                  <View key={activity.id || index} style={styles.activityItemModern}>
+                    <View style={styles.activityHeaderModern}>
+                      <MaterialIcons name="timeline" size={20} color={accentColor} />
+                      <View style={styles.activityInfoModern}>
+                        <Body style={{ ...styles.activityTitleModern, color: textColor }}>
+                          {activity.activity_type?.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()) || 'Activity'}
+                        </Body>
+                        <Caption style={{ ...styles.activityMetaModern, color: textMutedColor }}>
+                          {formatDate(activity.created_at)} • {activity.metadata?.performed_by_name || activity.performed_by_name || 'System'}
+                        </Caption>
+                      </View>
+                    </View>
+                    <Body style={{ ...styles.activityDescriptionModern, color: textSecondaryColor }}>
+                      {activity.description || 'No description available'}
+                    </Body>
+                  </View>
+                ))}
+              </Card.Content>
+            </Card>
+          ) : (
+            <Card style={[styles.modernCard, { backgroundColor: surfaceColor }]}>
+              <Card.Content style={styles.emptyStateModern}>
+                <MaterialIcons name="timeline" size={64} color={textMutedColor} />
+                <H2 style={{ ...styles.emptyTitleModern, color: textColor }}>No Activity Found</H2>
+                <Body style={{ ...styles.emptyTextModern, color: textSecondaryColor }}>
+                  No activity has been recorded for this client yet.
                 </Body>
-              </View>
-            ))}
-          </Card.Content>
-        </Card>
-      ) : (
-        <Card style={[styles.modernCard, { backgroundColor: surfaceColor }]}>
-          <Card.Content style={styles.emptyStateModern}>
-            <MaterialIcons name="timeline" size={64} color={textMutedColor} />
-            <H2 style={{ ...styles.emptyTitleModern, color: textColor }}>No Activity Found</H2>
-            <Body style={{ ...styles.emptyTextModern, color: textSecondaryColor }}>
-              No activity has been recorded for this client yet.
-            </Body>
-          </Card.Content>
-        </Card>
-      )}
-    </View>
-  );
+              </Card.Content>
+            </Card>
+          )
+        )}
+
+        {/* Empty state for staff members with no activities at all */}
+        {isStaffProfile && staffActivities.length === 0 && activities.length === 0 && (
+          <Card style={[styles.modernCard, { backgroundColor: surfaceColor }]}>
+            <Card.Content style={styles.emptyStateModern}>
+              <MaterialIcons name="work-outline" size={64} color={textMutedColor} />
+              <H2 style={{ ...styles.emptyTitleModern, color: textColor }}>No Activity Found</H2>
+              <Body style={{ ...styles.emptyTextModern, color: textSecondaryColor }}>
+                No activity has been recorded for this {userRole || 'staff'} member yet.
+              </Body>
+            </Card.Content>
+          </Card>
+        )}
+      </View>
+    );
+  };
+
+  // Helper functions for staff activities
+  const getStaffActivityIcon = (activityType: string) => {
+    switch (activityType) {
+      case 'subscription_added':
+      case 'package_added':
+        return 'add-circle';
+      case 'subscription_cancelled':
+      case 'subscription_terminated':
+      case 'package_removed':
+        return 'cancel';
+      case 'classes_added':
+        return 'add';
+      case 'classes_removed':
+        return 'remove';
+      case 'note_added':
+        return 'note-add';
+      case 'profile_updated':
+        return 'edit';
+      case 'client_created':
+        return 'person-add';
+      case 'instructor_assigned':
+      case 'instructor_unassigned':
+        return 'assignment';
+      case 'booking_created':
+        return 'event';
+      case 'booking_cancelled':
+        return 'event-busy';
+      case 'payment_processed':
+      case 'credit_added':
+        return 'payment';
+      default:
+        return 'work';
+    }
+  };
+
+  const getStaffActivityColor = (activityType: string) => {
+    switch (activityType) {
+      case 'subscription_added':
+      case 'package_added':
+      case 'classes_added':
+      case 'client_created':
+      case 'booking_created':
+      case 'payment_processed':
+      case 'credit_added':
+        return '#4CAF50'; // Green for positive actions
+      case 'subscription_cancelled':
+      case 'subscription_terminated':
+      case 'package_removed':
+      case 'classes_removed':
+      case 'booking_cancelled':
+        return '#F44336'; // Red for negative actions
+      case 'note_added':
+      case 'profile_updated':
+      case 'instructor_assigned':
+      case 'instructor_unassigned':
+        return '#FF9800'; // Orange for neutral actions
+      default:
+        return '#2196F3'; // Blue for default
+    }
+  };
 
   // Helper functions for timeline
   const getTimelineIcon = (activityType: string) => {
@@ -2455,14 +3455,14 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
     // Create timeline from real data
     const timelineEvents = [];
     
-    console.log('🕒 [Timeline] Building timeline events');
-    console.log('🕒 [Timeline] Client data:', client);
-    console.log('🕒 [Timeline] Subscription history:', subscriptionHistory);
-    console.log('🕒 [Timeline] Activities count:', activities.length);
+
+
+
+
     
     // Add client join event
     if (client?.join_date) {
-      console.log('🕒 [Timeline] Adding join event for date:', client.join_date);
+
       timelineEvents.push({
         date: client.join_date,
         title: 'Client Joined',
@@ -2471,15 +3471,15 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         icon: 'person-add'
       });
     } else {
-      console.log('🕒 [Timeline] No join date found');
+
     }
     
     // Add subscription events from subscription history
-    console.log('🕒 [Timeline] Processing', subscriptionHistory.length, 'subscriptions');
+
     subscriptionHistory.forEach((subscription, index) => {
       // Handle nested subscription plan data from Supabase join
       const planName = subscription.subscription_plans?.name || subscription.plan_name || 'Unknown Plan';
-      console.log(`🕒 [Timeline] Subscription ${index}:`, planName, 'dates:', subscription.start_date, '-', subscription.end_date);
+
       
       timelineEvents.push({
         date: subscription.start_date,
@@ -2490,7 +3490,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
       });
       
       if (subscription.end_date && new Date(subscription.end_date) < new Date()) {
-        console.log('🕒 [Timeline] Adding subscription end event');
+
         timelineEvents.push({
           date: subscription.end_date,
           title: 'Subscription Ended',
@@ -2502,11 +3502,11 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
     });
     
     // Add major activities from client_activity_log
-    console.log('🕒 [Timeline] Processing activities for timeline (filtering major events only)');
+
     let addedActivities = 0;
     activities.slice(0, 10).forEach(activity => {
       if (['booking_created', 'subscription_renewal', 'payment_processed', 'profile_updated'].includes(activity.activity_type)) {
-        console.log('🕒 [Timeline] Adding activity:', activity.activity_type, activity.description);
+
         timelineEvents.push({
           date: activity.created_at,
           title: activity.activity_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
@@ -2517,11 +3517,11 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         addedActivities++;
       }
     });
-    console.log('🕒 [Timeline] Added', addedActivities, 'activities to timeline');
+
     
     // Sort events by date (newest first)
     timelineEvents.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    console.log('🕒 [Timeline] Final timeline events count:', timelineEvents.length);
+
     
     return (
       <View style={styles.tabContent}>
@@ -2832,7 +3832,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
 
   const handleDownloadDocument = async (document: ClientDocument) => {
     try {
-      console.log('📂 Downloading document:', document.file_name);
+
       
       // Generate signed URL for the document
       const { data: urlData, error: urlError } = await supabase.storage
@@ -2840,12 +3840,12 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         .createSignedUrl(document.file_path, 3600); // 1 hour expiry
 
       if (urlError || !urlData) {
-        console.error('❌ Error generating download URL:', urlError);
+
         Alert.alert('Error', 'Failed to generate download link');
         return;
       }
 
-      console.log('✅ Generated signed URL:', urlData.signedUrl);
+
 
       // For photos, show preview dialog
       if (document.document_type === 'photo' && document.mime_type.startsWith('image/')) {
@@ -2874,10 +3874,286 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         Alert.alert('Success', `Downloaded ${document.original_name}`);
       }
     } catch (error) {
-      console.error('❌ Download error:', error);
+
       Alert.alert('Error', 'Failed to download document');
     }
   };
+
+  const renderInstructorClassesTab = () => (
+    <View style={styles.tabContent}>
+      <Card style={[styles.modernCard, { backgroundColor: surfaceColor }]}>
+        <Card.Content style={styles.cardContentModern}>
+          <H2 style={{ ...styles.sectionTitleModern, color: textColor }}>
+            📚 Classes & Students
+          </H2>
+          
+          {loadingInstructorData ? (
+            <View style={styles.emptyContent}>
+              <ActivityIndicator size="large" color={accentColor} />
+              <Body style={{ ...styles.loadingTextModern, color: textColor }}>
+                Loading instructor data...
+              </Body>
+            </View>
+          ) : (
+            <>
+              {/* Classes Section */}
+              <View style={{ marginBottom: 24 }}>
+                <H3 style={{ ...styles.subsectionTitle, color: textColor }}>
+                  🏋️ Classes Taught ({instructorClasses.length})
+                </H3>
+                
+                {instructorClasses.length > 0 ? (
+                  <View style={styles.classesList}>
+                    {instructorClasses.slice(0, 10).map((cls, index) => (
+                      <View key={`class-${cls.id || index}`} style={styles.classItem}>
+                        <View style={styles.classHeader}>
+                          <H3 style={{ ...styles.className, color: textColor }}>{cls.name}</H3>
+                          <Chip 
+                            mode="outlined"
+                            style={[styles.classTypeChip, {
+                              borderColor: cls.category === 'personal' ? '#FF6B35' : '#8B5CF6'
+                            }]}
+                            textStyle={{ 
+                              color: cls.category === 'personal' ? '#FF6B35' : '#8B5CF6',
+                              fontSize: 12
+                            }}
+                          >
+                            {cls.category?.toUpperCase()}
+                          </Chip>
+                        </View>
+                        
+                        <View style={styles.classDetails}>
+                          <View style={styles.classDetailItem}>
+                            <MaterialIcons name="calendar-today" size={16} color={textSecondaryColor} />
+                            <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>
+                              {formatDate(cls.date)} at {cls.time}
+                            </Caption>
+                          </View>
+                          
+                          <View style={styles.classDetailItem}>
+                            <MaterialIcons name="group" size={16} color={successColor} />
+                            <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>
+                              {cls.bookings?.filter((b: any) => b.status === 'confirmed').length || 0}/{cls.capacity} students
+                            </Caption>
+                          </View>
+                          
+                          <View style={styles.classDetailItem}>
+                            <MaterialIcons name="fitness-center" size={16} color={accentColor} />
+                            <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>
+                              {cls.equipment_type?.charAt(0).toUpperCase() + cls.equipment_type?.slice(1)} Equipment
+                            </Caption>
+                          </View>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <View style={styles.emptyContent}>
+                    <MaterialIcons name="class" size={48} color={textMutedColor} />
+                    <H3 style={{ ...styles.emptyTitle, color: textMutedColor }}>No Classes Found</H3>
+                    <Body style={{ ...styles.emptyText, color: textSecondaryColor }}>
+                      No classes have been assigned to this instructor yet.
+                    </Body>
+                  </View>
+                )}
+              </View>
+
+              {/* Students Section */}
+              <View>
+                <H3 style={{ ...styles.subsectionTitle, color: textColor }}>
+                  👥 Assigned Students ({instructorStudents.length})
+                </H3>
+                
+                {instructorStudents.length > 0 ? (
+                  <View style={styles.studentsList}>
+                    {instructorStudents.slice(0, 10).map((assignment, index) => (
+                      <View key={`student-${assignment.id || index}`} style={styles.studentItem}>
+                        <Avatar.Text
+                          size={40}
+                          label={assignment.users?.name?.charAt(0) || 'U'}
+                          style={[styles.studentAvatar, { backgroundColor: accentColor }]}
+                        />
+                        
+                        <View style={styles.studentInfo}>
+                          <H3 style={{ ...styles.studentName, color: textColor }}>
+                            {assignment.users?.name || 'Unknown Student'}
+                          </H3>
+                          <Caption style={{ ...styles.studentEmail, color: textSecondaryColor }}>
+                            {assignment.users?.email || 'No email'}
+                          </Caption>
+                          <Caption style={{ ...styles.assignmentDate, color: textMutedColor }}>
+                            Assigned: {formatDate(assignment.assigned_date)}
+                          </Caption>
+                        </View>
+                        
+                        <View style={styles.studentActions}>
+                          <Chip
+                            mode="outlined"
+                            style={[styles.statusChip, {
+                              borderColor: assignment.status === 'active' ? successColor : warningColor
+                            }]}
+                            textStyle={{
+                              color: assignment.status === 'active' ? successColor : warningColor,
+                              fontSize: 12
+                            }}
+                          >
+                            {assignment.status?.toUpperCase()}
+                          </Chip>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <View style={styles.emptyContent}>
+                    <MaterialIcons name="group" size={48} color={textMutedColor} />
+                    <H3 style={{ ...styles.emptyTitle, color: textMutedColor }}>No Students Assigned</H3>
+                    <Body style={{ ...styles.emptyText, color: textSecondaryColor }}>
+                      No students have been assigned to this instructor yet.
+                    </Body>
+                  </View>
+                )}
+              </View>
+            </>
+          )}
+        </Card.Content>
+      </Card>
+    </View>
+  );
+
+  const renderInstructorPerformanceTab = () => (
+    <View style={styles.tabContent}>
+      <Card style={[styles.modernCard, { backgroundColor: surfaceColor }]}>
+        <Card.Content style={styles.cardContentModern}>
+          <H2 style={{ ...styles.sectionTitleModern, color: textColor }}>
+            📊 Teaching Performance
+          </H2>
+          
+          {loadingInstructorData ? (
+            <View style={styles.emptyContent}>
+              <ActivityIndicator size="large" color={accentColor} />
+              <Body style={{ ...styles.loadingTextModern, color: textColor }}>
+                Loading performance data...
+              </Body>
+            </View>
+          ) : instructorStats ? (
+            <>
+              {/* Performance Stats Grid */}
+              <View style={styles.statsGridModern}>
+                <View style={[styles.statItemModern, { backgroundColor: '#FF6B35' + '10' }]}>
+                  <H3 style={{ ...styles.statValueModern, color: '#FF6B35' }}>
+                    {instructorStats.totalClasses}
+                  </H3>
+                  <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Total Classes</Caption>
+                </View>
+                
+                <View style={[styles.statItemModern, { backgroundColor: '#8B5CF6' + '10' }]}>
+                  <H3 style={{ ...styles.statValueModern, color: '#8B5CF6' }}>
+                    {instructorStats.totalStudents}
+                  </H3>
+                  <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Active Students</Caption>
+                </View>
+                
+                <View style={[styles.statItemModern, { backgroundColor: successColor + '10' }]}>
+                  <H3 style={{ ...styles.statValueModern, color: successColor }}>
+                    {instructorStats.completedClasses}
+                  </H3>
+                  <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Completed Classes</Caption>
+                </View>
+                
+                <View style={[styles.statItemModern, { backgroundColor: primaryColor + '10' }]}>
+                  <H3 style={{ ...styles.statValueModern, color: primaryColor }}>
+                    {instructorStats.upcomingClasses}
+                  </H3>
+                  <Caption style={{ ...styles.statLabelModern, color: textSecondaryColor }}>Upcoming Classes</Caption>
+                </View>
+              </View>
+
+              {/* Performance Insights */}
+              <View style={{ marginTop: 24 }}>
+                <H3 style={{ ...styles.subsectionTitle, color: textColor }}>
+                  🎯 Performance Insights
+                </H3>
+                
+                <View style={styles.insightsList}>
+                  <View style={styles.insightItemModern}>
+                    <MaterialIcons name="trending-up" size={20} color={successColor} />
+                    <Body style={{ ...styles.insightTextModern, color: textColor }}>
+                      Average class size: {instructorStats.averageClassSize} students per class
+                    </Body>
+                  </View>
+                  
+                  <View style={styles.insightItemModern}>
+                    <MaterialIcons name="event" size={20} color={primaryColor} />
+                    <Body style={{ ...styles.insightTextModern, color: textColor }}>
+                      Total bookings: {instructorStats.activeBookings} confirmed enrollments
+                    </Body>
+                  </View>
+                  
+                  <View style={styles.insightItemModern}>
+                    <MaterialIcons name="schedule" size={20} color={warningColor} />
+                    <Body style={{ ...styles.insightTextModern, color: textColor }}>
+                      Class completion rate: {instructorStats.totalClasses > 0 ? Math.round((instructorStats.completedClasses / instructorStats.totalClasses) * 100) : 0}%
+                    </Body>
+                  </View>
+                  
+                  <View style={styles.insightItemModern}>
+                    <MaterialIcons name="group" size={20} color={accentColor} />
+                    <Body style={{ ...styles.insightTextModern, color: textColor }}>
+                      Student management: {instructorStats.totalStudents} active client assignments
+                    </Body>
+                  </View>
+                </View>
+              </View>
+
+              {/* Recent Activity Summary */}
+              <View style={{ marginTop: 24 }}>
+                <H3 style={{ ...styles.subsectionTitle, color: textColor }}>
+                  📝 Recent Teaching Activities
+                </H3>
+                
+                <View style={styles.activitySummary}>
+                  <View style={styles.summaryItem}>
+                    <Body style={{ ...styles.summaryLabel, color: textSecondaryColor }}>
+                      Class Management Actions:
+                    </Body>
+                    <H3 style={{ ...styles.summaryValue, color: '#FF6B35' }}>
+                      {staffActivities.filter(a => a.activity_type.includes('class')).length}
+                    </H3>
+                  </View>
+                  
+                  <View style={styles.summaryItem}>
+                    <Body style={{ ...styles.summaryLabel, color: textSecondaryColor }}>
+                      Student Assignments:
+                    </Body>
+                    <H3 style={{ ...styles.summaryValue, color: '#8B5CF6' }}>
+                      {staffActivities.filter(a => a.activity_type.includes('client_assigned')).length}
+                    </H3>
+                  </View>
+                  
+                  <View style={styles.summaryItem}>
+                    <Body style={{ ...styles.summaryLabel, color: textSecondaryColor }}>
+                      Total Teaching Actions:
+                    </Body>
+                    <H3 style={{ ...styles.summaryValue, color: primaryColor }}>
+                      {staffActivities.length}
+                    </H3>
+                  </View>
+                </View>
+              </View>
+            </>
+          ) : (
+            <View style={styles.emptyContent}>
+              <MaterialIcons name="bar-chart" size={48} color={textMutedColor} />
+              <H3 style={{ ...styles.emptyTitle, color: textMutedColor }}>No Performance Data</H3>
+              <Body style={{ ...styles.emptyText, color: textSecondaryColor }}>
+                Performance statistics will appear once the instructor has classes and students.
+              </Body>
+            </View>
+          )}
+        </Card.Content>
+      </Card>
+    </View>
+  );
 
   if (loading) {
     return (
@@ -3814,6 +5090,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 16,
   },
+  staffActivityMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    marginLeft: 28,
+  },
 
   // Timeline Styles
   timelineContainerModern: {
@@ -4223,6 +5505,131 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     marginTop: 2,
     fontSize: 14,
+  },
+  sectionHeaderWithIcon: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  bookingStatsContainer: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  bookingStatsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+  },
+  bookingStatItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  bookingStatText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+
+  // Instructor-specific styles
+  subsectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  classesList: {
+    gap: 12,
+  },
+  classItem: {
+    padding: 16,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  classHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  className: {
+    fontSize: 16,
+    fontWeight: '600',
+    flex: 1,
+  },
+  classTypeChip: {
+    height: 28,
+  },
+  classDetails: {
+    gap: 8,
+  },
+  classDetailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  classDetailText: {
+    fontSize: 13,
+  },
+  studentsList: {
+    gap: 12,
+  },
+  studentItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  studentAvatar: {
+    marginRight: 12,
+  },
+  studentInfo: {
+    flex: 1,
+  },
+  studentName: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  studentEmail: {
+    fontSize: 13,
+    marginBottom: 2,
+  },
+  assignmentDate: {
+    fontSize: 12,
+  },
+  studentActions: {
+    alignItems: 'flex-end',
+  },
+  statusChip: {
+    height: 24,
+  },
+  insightsList: {
+    gap: 12,
+  },
+  activitySummary: {
+    gap: 16,
+  },
+  summaryItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+  },
+  summaryLabel: {
+    fontSize: 14,
+    flex: 1,
+  },
+  summaryValue: {
+    fontSize: 18,
+    fontWeight: '700',
   },
 });
 

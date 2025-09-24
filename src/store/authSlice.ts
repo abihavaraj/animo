@@ -5,7 +5,7 @@ import { devLog } from '../utils/devUtils';
 export interface User extends UserProfile {}
 
 // Export UserRole type
-export type UserRole = 'client' | 'instructor' | 'admin' | 'reception';
+export type UserRole = 'client' | 'instructor' | 'admin' | 'reception' | 'prospect';
 
 interface AuthState {
   isLoading: boolean;
@@ -97,6 +97,41 @@ export const logoutUser = createAsyncThunk(
   }
 );
 
+// Logout user with credential saving
+export const logoutUserWithCredentialSave = createAsyncThunk(
+  'auth/logoutWithCredentialSave',
+  async (_, { rejectWithValue }) => {
+    try {
+      const { credentialsService } = await import('../services/credentialsService');
+      
+      // Get current session credentials
+      const sessionCredentials = await credentialsService.getCurrentSessionCredentials();
+      
+      // Save credentials before logging out if user has opted to save passwords
+      if (sessionCredentials) {
+        const shouldSave = await credentialsService.getSavePasswordPreference();
+        if (shouldSave) {
+          await credentialsService.saveCredentials(sessionCredentials);
+        }
+      }
+      
+      // Clear current session credentials
+      await credentialsService.clearCurrentSessionCredentials();
+      
+      // Proceed with normal logout
+      const response = await authService.logout();
+      
+      if (!response.success) {
+        return rejectWithValue(response.error || 'Logout failed');
+      }
+      
+      return null;
+    } catch (error: any) {
+      return rejectWithValue(error.message || 'Logout failed');
+    }
+  }
+);
+
 // Update user profile
 export const updateUserProfile = createAsyncThunk(
   'auth/updateProfile',
@@ -136,6 +171,15 @@ const authSlice = createSlice({
       
       // Ensure authService has the token
       authService.setToken(token);
+      
+      // Send welcome notification if user is a client and this is first login after subscription
+      if (user.role === 'client') {
+        import('../services/notificationService').then(({ notificationService }) => {
+          notificationService.sendWelcomeNotificationIfNeeded(user.id, user.name);
+        }).catch(error => {
+          console.error('Error checking welcome notification:', error);
+        });
+      }
     },
     // Clear error message
     clearError: (state) => {
@@ -197,6 +241,15 @@ const authSlice = createSlice({
         state.token = action.payload.token;
         state.error = null;
         devLog('✅ [authSlice] Login successful');
+        
+        // Send welcome notification if user is a client and this is first login after subscription
+        if (action.payload.user.role === 'client') {
+          import('../services/notificationService').then(({ notificationService }) => {
+            notificationService.sendWelcomeNotificationIfNeeded(action.payload.user.id, action.payload.user.name);
+          }).catch(error => {
+            console.error('Error checking welcome notification:', error);
+          });
+        }
       })
       .addCase(loginUser.rejected, (state, action) => {
         state.isLoading = false;
@@ -241,6 +294,31 @@ const authSlice = createSlice({
         state.error = null;
         state.isProfileLoading = false;
         devLog('⚠️ [authSlice] Logout request failed but cleared local state');
+      });
+
+    // Logout with credential save
+    builder
+      .addCase(logoutUserWithCredentialSave.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(logoutUserWithCredentialSave.fulfilled, (state) => {
+        state.isLoading = false;
+        state.isLoggedIn = false;
+        state.user = null;
+        state.token = null;
+        state.error = null;
+        state.isProfileLoading = false;
+        devLog('✅ [authSlice] Logout with credential save successful');
+      })
+      .addCase(logoutUserWithCredentialSave.rejected, (state, action) => {
+        state.isLoading = false;
+        // Even if logout request fails, clear local auth state
+        state.isLoggedIn = false;
+        state.user = null;
+        state.token = null;
+        state.error = null;
+        state.isProfileLoading = false;
+        devLog('⚠️ [authSlice] Logout with credential save failed but cleared local state');
       });
 
     // Update profile

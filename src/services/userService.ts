@@ -15,7 +15,7 @@ export interface BackendUser extends UserProfile {
 }
 
 export interface UserFilters {
-  role?: 'client' | 'instructor' | 'admin' | 'reception';
+  role?: 'client' | 'instructor' | 'admin' | 'reception' | 'prospect';
   status?: string;
   searchTerm?: string;
 }
@@ -25,7 +25,7 @@ export interface CreateUserRequest {
   password: string;
   name: string;
   phone?: string;
-  role: 'client' | 'instructor' | 'admin' | 'reception';
+  role: 'client' | 'instructor' | 'admin' | 'reception' | 'prospect';
   emergency_contact?: string;
   medical_conditions?: string;
   referral_source?: string;
@@ -34,7 +34,7 @@ export interface CreateUserRequest {
 export interface UpdateUserRequest {
   name?: string;
   phone?: string;
-  role?: 'client' | 'instructor' | 'admin' | 'reception';
+  role?: 'client' | 'instructor' | 'admin' | 'reception' | 'prospect';
   status?: string;
   emergency_contact?: string;
   medical_conditions?: string;

@@ -1,28 +1,30 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Alert, Dimensions, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import {
-    ActivityIndicator,
-    Badge,
-    Button,
-    Card,
-    Chip,
-    FAB,
-    Modal,
-    Portal,
-    Searchbar,
-    SegmentedButtons,
-    Surface,
+  ActivityIndicator,
+  Badge,
+  Button,
+  Card,
+  Chip,
+  FAB,
+  Modal,
+  Portal,
+  Searchbar,
+  SegmentedButtons,
+  Surface,
 } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 import { Body, Caption, H1, H2, H3 } from '../../../components/ui/Typography';
 import { layout, spacing } from '../../../constants/Spacing';
 import { useThemeColor } from '../../../hooks/useThemeColor';
 import { AppDispatch, RootState } from '../../store';
-import { createBooking, fetchBookings } from '../../store/bookingSlice';
+import { fetchBookings } from '../../store/bookingSlice';
 import { fetchClasses } from '../../store/classSlice';
 import { fetchCurrentSubscription } from '../../store/subscriptionSlice';
+import { unifiedBookingUtils } from '../../utils/bookingUtils';
 import { getResponsiveModalDimensions, getResponsiveSpacing } from '../../utils/responsiveUtils';
 
 // Helper function to check equipment access validation
@@ -65,6 +67,8 @@ interface ClassItem {
 }
 
 function PCCalendarView() {
+  const { t } = useTranslation();
+  
   // Get responsive dimensions for modal
   const modalDimensions = getResponsiveModalDimensions('medium');
   const responsiveSpacing = getResponsiveSpacing(spacing.lg);
@@ -149,7 +153,8 @@ function PCCalendarView() {
       
       let color = availableColor; // Blue for available classes (good visibility in both modes)
       if (userBooking) {
-        color = userBooking.status === 'confirmed' ? successColor : warningColor;
+        // Use distinctive colors for user's bookings that stand out clearly
+        color = userBooking.status === 'confirmed' ? '#00C851' : '#FF8800'; // Bright green for confirmed, bright orange for waitlist
       } else if (classItem.enrolled >= classItem.capacity) {
         color = errorColor;
       }
@@ -277,12 +282,14 @@ function PCCalendarView() {
     }
     
     try {
-      // Call the actual booking service here instead of just showing success
-      const result = await dispatch(createBooking({ classId: selectedClass.id })).unwrap();
-      Alert.alert('Success', `Booking confirmed for ${selectedClass.name}`);
-      await loadCalendarData();
-      setShowBookingModal(false);
-      setSelectedClass(null);
+      // Use unified booking utils for consistent behavior
+      const success = await unifiedBookingUtils.bookClass(selectedClass.id, currentSubscription);
+      if (success) {
+        Alert.alert('Success', `Booking confirmed for ${selectedClass.name}`);
+        await loadCalendarData();
+        setShowBookingModal(false);
+        setSelectedClass(null);
+      }
     } catch (error: any) {
       Alert.alert('Booking Failed', error || 'Failed to book class');
     }
@@ -411,7 +418,7 @@ function PCCalendarView() {
               })}
             </H2>
             <Caption style={{ ...styles.classesCount, color: textSecondaryColor }}>
-              {`${dayClasses.length} ${dayClasses.length === 1 ? 'class' : 'classes'}`}
+              {`${dayClasses.length} ${dayClasses.length === 1 ? t('classes.class') : t('classes.classes')}`}
             </Caption>
           </View>
           
@@ -485,7 +492,7 @@ function PCCalendarView() {
                             disabled={classItem.enrolled >= classItem.capacity}
                             compact
                           >
-                            {classItem.enrolled >= classItem.capacity ? 'Full' : 'Book'}
+                            {classItem.enrolled >= classItem.capacity ? t('classes.classFull') : t('classes.bookClass')}
                           </Button>
                         )}
                       </View>

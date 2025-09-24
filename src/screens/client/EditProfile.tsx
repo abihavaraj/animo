@@ -103,11 +103,11 @@ function EditProfile({ navigation }: any) {
         );
       } else {
         console.log('❌ Profile update failed:', response.message);
-        Alert.alert('Error', response.message || 'Failed to update profile');
+        Alert.alert(t('alerts.error'), response.message || t('alerts.errorUpdateProfile'));
       }
     } catch (error) {
       console.error('❌ Error updating profile:', error);
-      Alert.alert('Error', 'Failed to update profile. Please try again.');
+      Alert.alert(t('alerts.error'), t('alerts.errorUpdateProfile'));
     } finally {
       setLoading(false);
     }

@@ -7,10 +7,18 @@ import { DefaultTheme, Provider as PaperProvider, configureFonts } from 'react-n
 import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Provider, useSelector } from 'react-redux';
+import './src/i18n'; // Initialize i18n
 
+import AdvancedNewYearWrapper from './src/components/AdvancedNewYearWrapper';
+import AdvancedPinkOctoberWrapper from './src/components/AdvancedPinkOctoberWrapper';
+import AnnouncementPopup from './src/components/AnnouncementPopup';
+import EidMubarakThemeProvider from './src/components/EidMubarakThemeProvider';
 import ErrorBoundary from './src/components/ErrorBoundary';
+import NewYearThemeProvider from './src/components/NewYearThemeProvider';
+import PinkOctoberThemeProvider from './src/components/PinkOctoberThemeProvider';
 import WebCompatibleIcon from './src/components/WebCompatibleIcon';
 import { supabase } from './src/config/supabase.config';
+import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 import MainNavigator from './src/navigation/MainNavigator';
 import LoginScreen from './src/screens/LoginScreen';
 import { notificationService } from './src/services/notificationService';
@@ -56,8 +64,8 @@ Notifications.addNotificationReceivedListener(notification => {
   }
 });
 
-// Configure React Native Paper theme
-const paperTheme = {
+// Configure React Native Paper theme - this will be made dynamic inside ThemeProvider
+const basePaperTheme = {
   ...DefaultTheme,
   fonts: configureFonts({ config: {} }),
 };
@@ -67,8 +75,22 @@ const webCompatibleIconProvider = (props: any) => {
   return <WebCompatibleIcon {...props} />;
 };
 
+// Dynamic Paper Provider that uses theme context
+const DynamicPaperProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { paperTheme } = useTheme();
+  
+  
+  return (
+    <PaperProvider theme={paperTheme} settings={{ icon: webCompatibleIconProvider }}>
+      {children}
+    </PaperProvider>
+  );
+};
+
 function AppContent() {
   const { isLoggedIn, isLoading, user } = useSelector((state: RootState) => state.auth);
+  const isReception = user?.role === 'reception';
+  
 
   useEffect(() => {
     if (isLoggedIn && user?.id) {
@@ -98,25 +120,13 @@ function AppContent() {
         // Store token in Supabase when received
         if (user?.id && token.data) {
           try {
-            // First, clean up any existing tokens for this device to prevent cross-user notifications
-            await supabase
-              .from('push_tokens')
-              .delete()
-              .eq('token', token.data);
-            
-            // Then store the new token for the current user
+            // Store the token in the users table (original GitHub approach)r
             const { error } = await supabase
-              .from('push_tokens')
-              .insert({
-                user_id: user.id,
-                token: token.data,
-                device_type: Platform.OS,
-                created_at: new Date().toISOString()
-              });
+              .from('users')
+              .update({ push_token: token.data })
+              .eq('id', user.id);
             
-            if (error) {
-              // Silent error handling for production
-            }
+            // Silent push token registration
           } catch (error) {
             // Silent error handling for production
           }
@@ -129,24 +139,101 @@ function AppContent() {
     }
   }, [isLoggedIn, user?.id]);
 
+  // Add Supabase auth state listener for automatic session management
+  useEffect(() => {
+    console.log('🔐 [App] Setting up Supabase auth state listener...');
+    
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('🔐 [App] Auth state change:', event, 'Session exists:', !!session, 'User logged in:', isLoggedIn);
+      
+      // CRITICAL: Only handle auth changes if user is currently logged in
+      // This prevents false logouts during app initialization
+      if (!isLoggedIn) {
+        console.log('🔐 [App] User not logged in - ignoring auth state change');
+        return;
+      }
+      
+      // Handle explicit sign out events
+      if (event === 'SIGNED_OUT') {
+        console.log('🚪 [App] Explicit sign out detected - logging user out');
+        store.dispatch({ type: 'auth/clearAuth' });
+      } 
+      // Handle token refresh failures ONLY if it's a critical session invalidation
+      // NOT for temporary network issues or normal token expiration
+      else if (event === 'TOKEN_REFRESHED' && !session) {
+        console.log('⚠️ [App] Token refresh failed - could be network issue, not forcing logout');
+        console.log('🔄 [App] User can continue using app, will retry refresh on next API call');
+        // DON'T auto-logout here - let user continue using the app
+        // Only logout if API calls start failing consistently
+      } 
+      // Handle successful token refresh
+      else if (event === 'TOKEN_REFRESHED' && session) {
+        console.log('🔄 [App] Token refreshed successfully');
+        // Token is automatically updated by Supabase client
+      }
+      // Handle sign in from another device (optional - could force logout)
+      else if (event === 'SIGNED_IN' && session) {
+        console.log('🔐 [App] User signed in from another session - keeping current session');
+        // NOTE: Not forcing logout here to avoid interrupting legitimate usage
+        // Only logout if we detect session conflicts
+      }
+    });
+
+    return () => {
+      console.log('🔐 [App] Cleaning up auth state listener');
+      subscription?.unsubscribe();
+    };
+  }, [isLoggedIn]); // Include isLoggedIn in dependencies to get current state
+
   // Show splash screen while checking session
   if (isLoading) {
     return null;
   }
   
-  return (
-    <PaperProvider theme={paperTheme} settings={{ icon: webCompatibleIconProvider }}>
-      <ErrorBoundary>
-        {isLoggedIn ? (
-          <NavigationContainer>
-            <MainNavigator />
-          </NavigationContainer>
-        ) : (
-          <LoginScreen />
-        )}
-      </ErrorBoundary>
-    </PaperProvider>
-  );
+  // Reception users don't get theme provider to avoid theme database issues
+  if (isReception) {
+    return (
+      <PaperProvider theme={basePaperTheme} settings={{ icon: webCompatibleIconProvider }}>
+        <ErrorBoundary>
+          {isLoggedIn ? (
+            <NavigationContainer>
+              <MainNavigator />
+            </NavigationContainer>
+          ) : (
+            <LoginScreen />
+          )}
+        </ErrorBoundary>
+      </PaperProvider>
+    );
+  }
+
+  // Client users get full theme experience
+        return (
+          <ThemeProvider>
+            <EidMubarakThemeProvider>
+              <NewYearThemeProvider>
+                <PinkOctoberThemeProvider>
+                  <AdvancedNewYearWrapper>
+                    <AdvancedPinkOctoberWrapper>
+                      <DynamicPaperProvider>
+                        <ErrorBoundary>
+                          {isLoggedIn ? (
+                            <NavigationContainer>
+                              <MainNavigator />
+                            </NavigationContainer>
+                          ) : (
+                            <LoginScreen />
+                          )}
+                          <AnnouncementPopup />
+                        </ErrorBoundary>
+                      </DynamicPaperProvider>
+                    </AdvancedPinkOctoberWrapper>
+                  </AdvancedNewYearWrapper>
+                </PinkOctoberThemeProvider>
+              </NewYearThemeProvider>
+            </EidMubarakThemeProvider>
+          </ThemeProvider>
+        );
 }
 
 export default function App() {

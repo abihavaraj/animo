@@ -7,6 +7,7 @@ import { Payment, PaymentStats, paymentService } from '../../services/paymentSer
 import { shadows } from '../../utils/shadows';
 
 function PaymentHistory() {
+  const { t } = useTranslation();
   // Theme colors
   const backgroundColor = useThemeColor({}, 'background');
   const surfaceColor = useThemeColor({}, 'surface');
@@ -44,7 +45,7 @@ function PaymentHistory() {
       }
     } catch (error) {
       console.error('Error loading payment data:', error);
-      Alert.alert('Error', 'Failed to load payment history');
+      Alert.alert(t('alerts.error'), t('alerts.errorLoadPayments'));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -129,9 +130,9 @@ function PaymentHistory() {
               )}
               
               <View style={[styles.monthlyStats, { borderTopColor: textMutedColor }]}>
-                <Body style={{ ...styles.monthlyLabel, color: textColor }}>This Month</Body>
+                <Body style={{ ...styles.monthlyLabel, color: textColor }}>{t('labels.thisMonth')}</Body>
                 <View style={styles.monthlyRow}>
-                  <Body style={{ color: textColor }}>{stats.thisMonthPayments} payments</Body>
+                  <Body style={{ color: textColor }}>{stats.thisMonthPayments} {t('labels.payments')}</Body>
                   <Body style={{ color: textColor }}>${stats.thisMonthAmount.toFixed(2)}</Body>
                 </View>
               </View>

@@ -502,6 +502,32 @@ class SupabaseApiService {
   subscribeToNotifications(callback: (payload: any) => void) {
     return this.subscribeToTable(API_CONFIG.ENDPOINTS.NOTIFICATIONS, callback);
   }
+
+  // ===== WAITLIST =====
+  async getAllWaitlistEntries() {
+    const { data, error } = await this.supabase
+      .from('waitlist')
+      .select(`
+        id,
+        user_id,
+        class_id,
+        position,
+        created_at,
+        users!waitlist_user_id_fkey (name, email),
+        classes!waitlist_class_id_fkey (
+          id,
+          name,
+          date,
+          time,
+          equipment_type,
+          room,
+          status
+        )
+      `)
+      .order('created_at', { ascending: false });
+
+    return this.handleResponse(data, error);
+  }
 }
 
 export const supabaseApiService = new SupabaseApiService();

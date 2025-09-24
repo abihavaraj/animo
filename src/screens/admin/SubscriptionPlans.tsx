@@ -1,17 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import {
-    Button,
-    Card,
-    Chip,
-    FAB,
-    IconButton,
-    Modal,
-    Paragraph,
-    Portal,
-    SegmentedButtons,
-    TextInput,
-    Title
+  Button,
+  Card,
+  Chip,
+  FAB,
+  IconButton,
+  Modal,
+  Paragraph,
+  Portal,
+  SegmentedButtons,
+  TextInput,
+  Title
 } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 import WebCompatibleIcon from '../../components/WebCompatibleIcon';

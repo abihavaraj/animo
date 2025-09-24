@@ -33,18 +33,25 @@ class PushNotificationService {
   async initialize(): Promise<void> {
     // Prevent multiple initialization attempts
     if (this.isInitialized || this.initializationAttempted) {
-
+      // Already initialized
       return;
     }
 
     this.initializationAttempted = true;
 
     try {
-
+      // Starting initialization
       
       // Enhanced platform checks for production
       if (Platform.OS !== 'ios' && Platform.OS !== 'android') {
+        // Not on supported platform
+        return;
+      }
 
+      // Check if we're running in Expo Go
+      const isExpoGo = __DEV__ && Constants.executionEnvironment === 'standalone' === false;
+      if (isExpoGo && Platform.OS === 'android') {
+        // Android push notifications not supported in Expo Go
         return;
       }
 
@@ -52,11 +59,11 @@ class PushNotificationService {
       if (!Device.isDevice) {
         // In production, this should never happen, but let's be safe
         if (__DEV__) {
-          //console.log('⚠️ Push notifications only work on physical devices (running in simulator/emulator)');
+          // Running in simulator/emulator
           return;
         } else {
           // In production, Device.isDevice might sometimes give false negatives
-          //console.log('⚠️ Device.isDevice returned false, but continuing for production build');
+          // Continuing despite device check
         }
       }
 
@@ -89,7 +96,7 @@ class PushNotificationService {
 
       if (finalStatus !== 'granted') {
         console.error('❌ [initialize] Permission not granted for push notifications. Status:', finalStatus);
-        //console.log('🔍 [initialize] User denied notification permissions or system restriction');
+        console.log('🔍 [initialize] TestFlight Debug - User denied notification permissions or system restriction');
         return;
       }
 
@@ -135,12 +142,12 @@ class PushNotificationService {
                        ((Constants as any).manifest2?.extra ? (Constants as any).manifest2.extra.eas?.projectId : undefined) ||
                        'd4bdbfc4-ecbc-40d7-aabb-ad545c836ab3'; // Fallback to your project ID
       
-      //console.log('🔍 [getPushTokenSafely] Project ID from config:', projectId);
+      console.log('🔍 [getPushTokenSafely] TestFlight Debug - Project ID from config:', projectId);
 
       if (!projectId) {
         console.error('❌ [getPushTokenSafely] Could not find Expo project ID. Push notifications disabled.');
-        //console.log('🔍 [getPushTokenSafely] Constants.expoConfig:', JSON.stringify((Constants as any).expoConfig, null, 2));
-        //console.log('🔍 [getPushTokenSafely] Constants.manifest:', JSON.stringify((Constants as any).manifest, null, 2));
+        console.log('🔍 [getPushTokenSafely] TestFlight Debug - Constants.expoConfig:', JSON.stringify((Constants as any).expoConfig, null, 2));
+        console.log('🔍 [getPushTokenSafely] TestFlight Debug - Constants.manifest:', JSON.stringify((Constants as any).manifest, null, 2));
         return null;
       }
 
@@ -152,9 +159,9 @@ class PushNotificationService {
       
       // In production, only log partial token for security
       if (__DEV__) {
-        //console.log('📱 [getPushTokenSafely] Push Token (DEV):', token.data);
+        console.log('📱 [getPushTokenSafely] Push Token (DEV):', token.data);
       } else {
-        //console.log('📱 [getPushTokenSafely] Push Token (PROD):', token.data.substring(0, 20) + '...');
+        console.log('📱 [getPushTokenSafely] TestFlight Debug - Push Token (PROD):', token.data.substring(0, 20) + '...');
       }
       
       return token.data;
@@ -184,9 +191,9 @@ class PushNotificationService {
         return;
       }
 
-      //console.log('🔍 [registerTokenWithServerSafely] Updating push token for user:', user.id);
+      //console.log('🔍 [registerTokenWithServerSafely] Registering push token for user:', user.id);
 
-      // Update user's push token in Supabase
+      // Update user's push token in the users table (original GitHub approach)
       const { error, data: updateResult } = await supabase
         .from('users')
         .update({ push_token: token })
@@ -197,8 +204,8 @@ class PushNotificationService {
         console.error('❌ [registerTokenWithServerSafely] Failed to register push token:', error);
         console.error('❌ [registerTokenWithServerSafely] Error details:', JSON.stringify(error, null, 2));
       } else {
-        //console.log('✅ [registerTokenWithServerSafely] Push token registered successfully');
-        //console.log('🔍 [registerTokenWithServerSafely] Update result:', updateResult);
+        console.log('✅ [registerTokenWithServerSafely] Push token registered successfully');
+        console.log('🔍 [registerTokenWithServerSafely] Update result:', updateResult);
       }
     } catch (error) {
       console.error('❌ [registerTokenWithServerSafely] Exception during token registration:', error);
@@ -327,6 +334,15 @@ class PushNotificationService {
     type: string = 'general'
   ): Promise<void> {
     try {
+      // Check if we're on web platform - notifications not supported
+      const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
+      
+      if (isWeb) {
+        console.log(`📱 [sendNotificationWithChannel] Web platform detected - popup notifications not supported`);
+        console.log(`📱 [sendNotificationWithChannel] Would show: "${title}: ${body}"`);
+        return;
+      }
+
       const channelId = this.getChannelIdForNotificationType(type);
       
       await Notifications.scheduleNotificationAsync({
@@ -344,6 +360,7 @@ class PushNotificationService {
       console.log(`✅ Notification sent with channel: ${channelId || 'default'}`);
     } catch (error) {
       console.error('❌ Failed to send notification with channel:', error);
+      throw error; // Re-throw so calling code can handle gracefully
     }
   }
 
@@ -623,8 +640,21 @@ class PushNotificationService {
       // User will receive class reminder
       }
       
-      const title = '⏰ Class Reminder';
-      const body = `${className} with ${instructorName} starts in ${minutesBeforeClass} minutes!`;
+      // Get translated notification content
+      const { default: NotificationTranslationService } = await import('./notificationTranslationService');
+      const translatedContent = await NotificationTranslationService.createTranslatedNotification(
+        userId || 'default',
+        'class_reminder',
+        {
+          type: 'class_reminder',
+          className: className,
+          instructorName: instructorName,
+          minutes: minutesBeforeClass
+        }
+      );
+      
+      const title = translatedContent.title;
+      const body = translatedContent.body;
       
       if (!this.pushToken) {
         return;
@@ -742,11 +772,24 @@ class PushNotificationService {
                     // Scheduling iOS local notification
             
             try {
+              // Get translated notification content
+              const { default: NotificationTranslationService } = await import('./notificationTranslationService');
+              const translatedContent = await NotificationTranslationService.createTranslatedNotification(
+                userId,
+                'class_reminder',
+                {
+                  type: 'class_reminder',
+                  className: classInfo.name,
+                  instructorName: classInfo.users?.name || 'your instructor',
+                  minutes: reminderMinutes
+                }
+              );
+
               // Schedule iOS local notification (works even when app is closed)
               await Notifications.scheduleNotificationAsync({
                 content: {
-                  title: '🧘‍♀️ Class Reminder',
-                  body: `${classInfo.name} with ${classInfo.users?.name || 'your instructor'} starts in ${reminderMinutes} minutes!`,
+                  title: translatedContent.title,
+                  body: translatedContent.body,
                   sound: true,
                   badge: 1,
                   data: {
@@ -766,8 +809,8 @@ class PushNotificationService {
                 .from('notifications')
                 .insert({
                   user_id: userId,
-                  title: '🧘‍♀️ Class Reminder',
-                  message: `${classInfo.name} with ${classInfo.users?.name || 'your instructor'} starts in ${reminderMinutes} minutes!`,
+                  title: translatedContent.title,
+                  message: translatedContent.body,
                   type: 'class_reminder',
                   scheduled_for: reminderTime.toISOString(),
                   metadata: {
@@ -826,7 +869,15 @@ class PushNotificationService {
   // Cancel existing class reminder notifications to prevent duplicates
   async cancelClassReminder(userId: string, classId: string | number): Promise<void> {
     try {
-              // Canceling existing reminders
+      // Check if we're on web platform - notifications not supported
+      const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
+      
+      if (isWeb) {
+        console.log(`📱 [cancelClassReminder] Web platform detected - scheduled notifications not supported`);
+        return;
+      }
+
+      // Canceling existing reminders
       
       // Get all scheduled notifications for this user and class
       const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
@@ -856,6 +907,14 @@ class PushNotificationService {
   // Schedule reminder for a specific class only (performance optimization)
   async scheduleClassReminder(userId: string, classId: string | number): Promise<void> {
     try {
+      // Check if we're on web platform - notifications not supported
+      const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
+      
+      if (isWeb) {
+        console.log(`📱 [scheduleClassReminder] Web platform detected - scheduled notifications not supported`);
+        return;
+      }
+
       // First, cancel any existing notifications for this user and class to prevent duplicates
       await this.cancelClassReminder(userId, classId);
       
@@ -913,11 +972,24 @@ class PushNotificationService {
         // Scheduling iOS local notification
 
         try {
+          // Get translated notification content
+          const { default: NotificationTranslationService } = await import('./notificationTranslationService');
+          const translatedContent = await NotificationTranslationService.createTranslatedNotification(
+            userId,
+            'class_reminder',
+            {
+              type: 'class_reminder',
+              className: classInfo.name,
+              instructorName: classInfo.users?.name || 'your instructor',
+              minutes: reminderMinutes
+            }
+          );
+
           // Schedule local notification (works even when app is closed)
           await Notifications.scheduleNotificationAsync({
             content: {
-              title: '🧘‍♀️ Class Reminder',
-              body: `${classInfo.name} with ${classInfo.users?.name || 'your instructor'} starts in ${reminderMinutes} minutes!`,
+              title: translatedContent.title,
+              body: translatedContent.body,
               sound: true,
               badge: 1,
               data: {
@@ -935,8 +1007,8 @@ class PushNotificationService {
             .from('notifications')
             .insert({
               user_id: userId,
-              title: '🧘‍♀️ Class Reminder',
-              message: `${classInfo.name} with ${classInfo.users?.name || 'your instructor'} starts in ${reminderMinutes} minutes!`,
+              title: translatedContent.title,
+              message: translatedContent.body,
               type: 'class_reminder',
               scheduled_for: reminderTime.toISOString(),
               metadata: {
@@ -946,7 +1018,8 @@ class PushNotificationService {
                 userId,
                 className: classInfo.name,
                 instructorName: classInfo.users?.name,
-                localNotificationScheduled: true
+                localNotificationScheduled: true,
+                language: translatedContent.userLanguage
               },
               is_read: false
             });

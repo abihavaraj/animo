@@ -1,20 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import {
-    ActivityIndicator,
-    Avatar,
-    Button,
-    Card,
-    Chip,
-    IconButton,
-    List,
-    Modal,
-    Paragraph,
-    Portal,
-    Searchbar,
-    SegmentedButtons,
-    Surface,
-    Title
+  ActivityIndicator,
+  Avatar,
+  Button,
+  Card,
+  Chip,
+  IconButton,
+  List,
+  Modal,
+  Paragraph,
+  Portal,
+  Searchbar,
+  SegmentedButtons,
+  Surface,
+  Title
 } from 'react-native-paper';
 import { useSelector } from 'react-redux';
 import WebCompatibleIcon from '../../components/WebCompatibleIcon';

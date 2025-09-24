@@ -2,7 +2,12 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Modal, Portal, TextInput } from 'react-native-paper';
 import { useSelector } from 'react-redux';
+import StickyNotes from '../components/StickyNotes';
+import ReceptionEidMubarakMessageCard from '../components/ui/ReceptionEidMubarakMessageCard';
 import WebCompatibleIcon from '../components/WebCompatibleIcon';
+import { Announcement, announcementService } from '../services/announcementService';
+import { ClientWithoutSubscription, subscriptionService } from '../services/subscriptionService';
+import { themeService } from '../services/themeService';
 import { unifiedApiService } from '../services/unifiedApi';
 import { RootState, useAppDispatch } from '../store';
 import { logoutUser } from '../store/authSlice';
@@ -116,13 +121,15 @@ const NavigationWrappedClientProfile = () => {
 
 
 // PC-Optimized Reception Dashboard
-function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
+function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation, waitlistModalVisible, setWaitlistModalVisible, waitlistModalData, setWaitlistModalData, waitlistModalTitle, setWaitlistModalTitle, onWaitlistClick, onWaitlistDataUpdate, onOpenThemeSwitch, currentUser }: any) {
   const [stats, setStats] = useState({
     totalClients: 0,
     todayClasses: 0,
     pendingBookings: 0,
     activeSubscriptions: 0,
-    subscriptionsEndingSoon: 0
+    subscriptionsEndingSoon: 0,
+    clientsWithoutSubscriptions: 0,
+    clientsWhoDidntRenew: 0
   });
   const [additionalStats, setAdditionalStats] = useState({
     upcomingClasses: 0,
@@ -137,6 +144,9 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
     waitlistToday: [] as any[],
     fullClassesToday: [] as any[]
   });
+  const [rawBookingsData, setRawBookingsData] = useState<any[]>([]);
+  const [rawClassesData, setRawClassesData] = useState<any[]>([]);
+  const [rawWaitlistData, setRawWaitlistData] = useState<any[]>([]);
   const [activeClassFilter, setActiveClassFilter] = useState<'today' | 'tomorrow' | 'week'>('today');
   const [lastUpdateTime, setLastUpdateTime] = useState<Date>(new Date());
   const [recentActivity, setRecentActivity] = useState<any[]>([]);
@@ -167,6 +177,12 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
   const [subscriptionsEndingSoon, setSubscriptionsEndingSoon] = useState<any[]>([]);
   const [activeSubscriptionsModalVisible, setActiveSubscriptionsModalVisible] = useState(false);
   const [activeSubscriptionsList, setActiveSubscriptionsList] = useState<any[]>([]);
+  
+  // New states for clients without subscriptions
+  const [clientsWithoutSubsModalVisible, setClientsWithoutSubsModalVisible] = useState(false);
+  const [clientsWithoutSubscriptions, setClientsWithoutSubscriptions] = useState<ClientWithoutSubscription[]>([]);
+  const [clientsWhoDidntRenewModalVisible, setClientsWhoDidntRenewModalVisible] = useState(false);
+  const [clientsWhoDidntRenew, setClientsWhoDidntRenew] = useState<ClientWithoutSubscription[]>([]);
 
   useEffect(() => {
     loadDashboardData();
@@ -245,7 +261,7 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
         console.error('❌ Error fetching subscriptions with user data:', error);
         return { success: false, error: error.message };
       } else {
-        console.log('✅ Successfully fetched subscriptions with user data via join:', data?.length || 0, 'records');
+
       }
 
       return { success: true, data: data || [] };
@@ -259,27 +275,27 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
     try {
       setLoading(true);
       
-      console.log('📊 Loading dashboard data from REST API...');
-      console.log('🔧 Current API mode:', unifiedApiService.getCurrentMode());
+
       
       // Load real data from unified API in parallel
-      const [usersResponse, classesResponse, bookingsResponse, subscriptionsResponse] = await Promise.allSettled([
+      const { classService } = require('../services/classService');
+      const [usersResponse, classesResponse, bookingsResponse, subscriptionsResponse, clientsWithoutSubsResponse, waitlistResponse] = await Promise.allSettled([
         unifiedApiService.getUsers(),
-        unifiedApiService.getClasses(),
+        classService.getClasses({ userRole: 'reception' }), // Ensure reception can see all classes including private ones
         unifiedApiService.getBookings(),
         // Load subscriptions with proper joins for user and plan data
-        getSubscriptionsWithUserData()
+        getSubscriptionsWithUserData(),
+        // Load clients without active subscriptions
+        subscriptionService.getClientsWithoutActiveSubscriptions(),
+        // Load waitlist data from separate table
+        unifiedApiService.getAllWaitlistEntries()
       ]);
 
-      console.log('📋 API Responses:', {
-        users: usersResponse,
-        classes: classesResponse,
-        bookings: bookingsResponse,
-        subscriptions: subscriptionsResponse
-      });
+
 
       // Process users stats with better error handling
       let totalClients = 0;
+      let allWaitlistEntries: any[] = [];
       if (usersResponse.status === 'fulfilled' && usersResponse.value.success && usersResponse.value.data && Array.isArray(usersResponse.value.data)) {
         const clients = usersResponse.value.data.filter((user: any) => user.role === 'client');
         totalClients = clients.length;
@@ -300,7 +316,7 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
         totalClasses = classesResponse.value.data.length;
         const today = new Date().toISOString().split('T')[0];
         todayClasses = classesResponse.value.data.filter((class_: any) => class_.date === today).length;
-        console.log('✅ Loaded classes data successfully:', { totalClasses, todayClasses, today });
+
       } else {
         console.log('⚠️ Failed to load classes data:', classesResponse.status === 'rejected' ? classesResponse.reason : classesResponse.value?.error);
         if (classesResponse.status === 'rejected') {
@@ -319,7 +335,7 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
         todayBookings = bookingsResponse.value.data.filter((booking: any) => {
           return booking.class_date === today || booking.date === today;
         }).length;
-        console.log('✅ Loaded bookings data successfully:', { totalBookings, todayBookings, today });
+
       } else {
         console.log('⚠️ Failed to load bookings data:', bookingsResponse.status === 'rejected' ? bookingsResponse.reason : bookingsResponse.value?.error);
         if (bookingsResponse.status === 'rejected') {
@@ -360,11 +376,7 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
         
         subscriptionsEndingSoon = subscriptionsEndingSoonList.length;
         
-        console.log('✅ Loaded subscriptions data successfully:', { 
-          totalSubscriptions: subscriptionsResponse.value.data.length, 
-          activeSubscriptions,
-          subscriptionsEndingSoon 
-        });
+
       } else {
         console.log('⚠️ Failed to load subscriptions data:', subscriptionsResponse.status === 'rejected' ? subscriptionsResponse.reason : subscriptionsResponse.value?.error);
         if (subscriptionsResponse.status === 'rejected') {
@@ -374,12 +386,44 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
         }
       }
 
+      // Process clients without active subscriptions
+      let clientsWithoutSubscriptions = 0;
+      let clientsWhoDidntRenew = 0;
+      let clientsWithoutSubsList: ClientWithoutSubscription[] = [];
+      let clientsWhoDidntRenewList: ClientWithoutSubscription[] = [];
+      
+      if (clientsWithoutSubsResponse.status === 'fulfilled' && clientsWithoutSubsResponse.value.success && clientsWithoutSubsResponse.value.data) {
+        const allClientsWithoutSubs = clientsWithoutSubsResponse.value.data;
+        clientsWithoutSubscriptions = allClientsWithoutSubs.length;
+        
+        // Separate clients who never had a subscription vs those who didn't renew
+        clientsWithoutSubsList = allClientsWithoutSubs.filter(client => !client.has_previous_subscription);
+        clientsWhoDidntRenewList = allClientsWithoutSubs.filter(client => client.has_previous_subscription);
+        
+        clientsWhoDidntRenew = clientsWhoDidntRenewList.length;
+        
+        // Store the data for modals
+        setClientsWithoutSubscriptions(clientsWithoutSubsList);
+        setClientsWhoDidntRenew(clientsWhoDidntRenewList);
+        
+        console.log('✅ Loaded clients without subscriptions data successfully:', { 
+          total: clientsWithoutSubscriptions, 
+          neverHadSub: clientsWithoutSubsList.length,
+          didntRenew: clientsWhoDidntRenew 
+        });
+      } else {
+        console.log('⚠️ Failed to load clients without subscriptions data:', 
+          clientsWithoutSubsResponse.status === 'rejected' ? clientsWithoutSubsResponse.reason : clientsWithoutSubsResponse.value?.error);
+      }
+
       const newStats = {
         totalClients,
         todayClasses,
         pendingBookings: todayBookings,
         activeSubscriptions,
-        subscriptionsEndingSoon
+        subscriptionsEndingSoon,
+        clientsWithoutSubscriptions,
+        clientsWhoDidntRenew
       };
 
       // Add more dynamic metrics for better live updates
@@ -624,16 +668,44 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
           };
         });
 
-        // Waitlist for today
-        const waitlistToday = bookingsResponse.status === 'fulfilled' && bookingsResponse.value.success && Array.isArray(bookingsResponse.value.data)
-          ? bookingsResponse.value.data.filter((booking: any) => 
-              booking.status === 'waitlist' && 
-              (() => {
-                const class_ = Array.isArray(classesResponse.value.data) ? classesResponse.value.data.find((c: any) => c.id === booking.class_id) : null;
-                return class_ && class_.date === today;
-              })()
-            )
-          : [];
+        // Process waitlist data from separate table
+        console.log('🔍 DEBUG: Processing waitlist data from separate table...');
+        
+        if (waitlistResponse.status === 'fulfilled' && waitlistResponse.value.success && Array.isArray(waitlistResponse.value.data)) {
+          allWaitlistEntries = waitlistResponse.value.data;
+          console.log('⏳ Total waitlist entries found:', allWaitlistEntries.length);
+          
+          if (allWaitlistEntries.length > 0) {
+            console.log('⏳ Waitlist entries details:', allWaitlistEntries.map(w => ({
+              id: w.id,
+              user_id: w.user_id,
+              class_id: w.class_id,
+              position: w.position,
+              user_name: w.users?.name || 'Unknown',
+              class_name: w.classes?.name || 'Unknown',
+              class_date: w.classes?.date,
+              created_at: w.created_at
+            })));
+          }
+        } else {
+          console.log('❌ Waitlist response failed:', waitlistResponse.status === 'rejected' ? waitlistResponse.reason : waitlistResponse.value?.error);
+        }
+        
+        // Calculate waitlist for today using the separate waitlist table
+        const waitlistToday = allWaitlistEntries.filter((waitlistEntry: any) => {
+          const classDate = waitlistEntry.classes?.date;
+          return classDate === today;
+        });
+        
+        console.log('✅ Final waitlist today count:', waitlistToday.length);
+        if (waitlistToday.length > 0) {
+          console.log('✅ Waitlist today details:', waitlistToday.map(w => ({
+            id: w.id,
+            user_name: w.users?.name || 'Unknown',
+            class_name: w.classes?.name || 'Unknown',
+            position: w.position
+          })));
+        }
 
         // Full classes today
         const fullClassesToday = todayClassesWithBookings.filter((class_: any) => class_.isFull);
@@ -647,25 +719,34 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
         });
       }
 
-      // Calculate waitlist count
+      // Calculate waitlist count using the separate waitlist table
+      additionalStats.waitlistCount = allWaitlistEntries.length;
+      console.log('📊 Additional stats - Total waitlist entries:', allWaitlistEntries.length);
+
+      // Count recent bookings (last 24 hours) from bookings table
       if (bookingsResponse.status === 'fulfilled' && bookingsResponse.value.success && bookingsResponse.value.data && Array.isArray(bookingsResponse.value.data)) {
         const now = new Date();
-        additionalStats.waitlistCount = bookingsResponse.value.data.filter((booking: any) => 
-          booking.status === 'waitlist'
-        ).length;
-
-        // Count recent bookings (last 24 hours)
         const oneDayAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
         additionalStats.recentBookings = bookingsResponse.value.data.filter((booking: any) => 
           new Date(booking.created_at) > oneDayAgo
         ).length;
       }
 
-      console.log('📊 Final stats calculated:', newStats);
-      console.log('📊 Additional dynamic stats:', additionalStats);
+
       setStats(newStats);
       setAdditionalStats(additionalStats); // Update the new state variable
       setSubscriptionsEndingSoon(subscriptionsEndingSoonList); // Store the list for the modal
+      
+      // Store raw data for dynamic calculations
+      if (bookingsResponse.status === 'fulfilled' && bookingsResponse.value.success && Array.isArray(bookingsResponse.value.data)) {
+        setRawBookingsData(bookingsResponse.value.data);
+      }
+      if (classesResponse.status === 'fulfilled' && classesResponse.value.success && Array.isArray(classesResponse.value.data)) {
+        setRawClassesData(classesResponse.value.data);
+      }
+      
+      // Store waitlist data for dynamic calculations
+      setRawWaitlistData(allWaitlistEntries);
       
       // Store all active subscriptions for the Active Plans modal
       if (subscriptionsResponse.status === 'fulfilled' && subscriptionsResponse.value.success && subscriptionsResponse.value.data) {
@@ -799,7 +880,7 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
       
       setAllActivities(limitedActivities);
       setFilteredActivity(limitedActivities);
-      console.log('✅ Real dashboard data loaded successfully from REST API');
+
 
     } catch (error) {
       console.error('❌ Error loading dashboard data:', error);
@@ -809,7 +890,9 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
         todayClasses: 0,
         pendingBookings: 0,
         activeSubscriptions: 0,
-        subscriptionsEndingSoon: 0
+        subscriptionsEndingSoon: 0,
+        clientsWithoutSubscriptions: 0,
+        clientsWhoDidntRenew: 0
       });
       setAdditionalStats({
         upcomingClasses: 0,
@@ -923,6 +1006,36 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
     }
   };
 
+  const handleWaitlistClick = () => {
+    let filteredWaitlist: any[] = [];
+    let title = '';
+
+    if (activeClassFilter === 'today') {
+      const today = new Date().toISOString().split('T')[0];
+      filteredWaitlist = rawWaitlistData.filter((waitlistEntry: any) => {
+        const classDate = waitlistEntry.classes?.date;
+        return classDate === today;
+      });
+      title = 'Waitlist Today';
+    } else if (activeClassFilter === 'tomorrow') {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowStr = tomorrow.toISOString().split('T')[0];
+      filteredWaitlist = rawWaitlistData.filter((waitlistEntry: any) => {
+        const classDate = waitlistEntry.classes?.date;
+        return classDate === tomorrowStr;
+      });
+      title = 'Waitlist Tomorrow';
+    } else {
+      filteredWaitlist = rawWaitlistData;
+      title = 'All Waitlist Entries';
+    }
+
+    // Update the parent component with the filtered data
+    onWaitlistDataUpdate(filteredWaitlist, title);
+    setWaitlistModalVisible(true);
+  };
+
   const quickActions = [
     {
       title: 'Create New Client',
@@ -967,6 +1080,9 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
    
   return (
     <>
+      {/* Sticky Notes Section - Only on Dashboard */}
+      <StickyNotes userId={currentUser?.id || 'reception'} />
+      
       {/* Quick Client Search */}
       <View style={styles.searchSection}>
         <Text style={styles.sectionTitle}>Quick Client Search</Text>
@@ -1137,6 +1253,52 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
               {stats.subscriptionsEndingSoon > 0 ? '⚠️ Click to view' : 'Click to view'}
             </Text>
           </TouchableOpacity>
+          <TouchableOpacity 
+            style={[
+              styles.statCard,
+              stats.clientsWithoutSubscriptions > 0 && styles.statCardWarning
+            ]}
+            onPress={() => setClientsWithoutSubsModalVisible(true)}
+          >
+                        <WebCompatibleIcon
+              name={stats.clientsWithoutSubscriptions > 0 ? "person-remove" : "person-outline"} 
+              size={32}
+              color={stats.clientsWithoutSubscriptions > 0 ? "#F44336" : "#9CA3AF"}
+            />
+            <Text style={[
+              styles.statNumber,
+              stats.clientsWithoutSubscriptions > 0 && styles.statNumberWarning
+            ]}>
+              {stats.clientsWithoutSubscriptions}
+            </Text>
+            <Text style={styles.statLabel}>No Active Plan</Text>
+            <Text style={styles.statSubtext}>
+              {stats.clientsWithoutSubscriptions > 0 ? '⚠️ Click to view' : 'All have plans'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[
+              styles.statCard,
+              stats.clientsWhoDidntRenew > 0 && styles.statCardWarning
+            ]}
+            onPress={() => setClientsWhoDidntRenewModalVisible(true)}
+          >
+                        <WebCompatibleIcon
+              name={stats.clientsWhoDidntRenew > 0 ? "refresh" : "replay"} 
+              size={32}
+              color={stats.clientsWhoDidntRenew > 0 ? "#FF9800" : "#9CA3AF"}
+            />
+            <Text style={[
+              styles.statNumber,
+              stats.clientsWhoDidntRenew > 0 && styles.statNumberWarning
+            ]}>
+              {stats.clientsWhoDidntRenew}
+            </Text>
+            <Text style={styles.statLabel}>Didn't Renew</Text>
+            <Text style={styles.statSubtext}>
+              {stats.clientsWhoDidntRenew > 0 ? '⚠️ Click to view' : 'All renewed'}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -1246,14 +1408,56 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
                 {activeClassFilter === 'today' ? 'Waitlist Today' : 'Waitlist'}
               </Text>
             </View>
-            <Text style={styles.classMetricNumber}>
-              {activeClassFilter === 'today' ? classMetrics.waitlistToday.length : 
-               activeClassFilter === 'tomorrow' ? 0 : 0}
+            <TouchableOpacity onPress={handleWaitlistClick} style={styles.clickableMetricNumber}>
+              <Text style={[styles.classMetricNumber, { color: '#FF9800' }]}>
+                {(() => {
+                  if (activeClassFilter === 'today') {
+                    return classMetrics.waitlistToday.length;
+                  } else if (activeClassFilter === 'tomorrow') {
+                    // Calculate waitlist for tomorrow using waitlist data
+                    const tomorrow = new Date();
+                    tomorrow.setDate(tomorrow.getDate() + 1);
+                    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+                    
+                    return rawWaitlistData.filter((waitlistEntry: any) => {
+                      const classDate = waitlistEntry.classes?.date;
+                      return classDate === tomorrowStr;
+                    }).length;
+                  } else {
+                    // For 'all' or other filters, show total waitlist count
+                    return additionalStats.waitlistCount || 0;
+                  }
+                })()}
             </Text>
+            </TouchableOpacity>
             <Text style={styles.classMetricSubtext}>
-              {activeClassFilter === 'today' ? 
-                (classMetrics.waitlistToday.length > 0 ? 'People waiting for spots' : 'No waitlist') :
-               'Check individual classes'}
+              {(() => {
+                const waitlistCount = (() => {
+                  if (activeClassFilter === 'today') {
+                    return classMetrics.waitlistToday.length;
+                  } else if (activeClassFilter === 'tomorrow') {
+                    const tomorrow = new Date();
+                    tomorrow.setDate(tomorrow.getDate() + 1);
+                    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+                    return rawWaitlistData.filter((waitlistEntry: any) => {
+                      const classDate = waitlistEntry.classes?.date;
+                      return classDate === tomorrowStr;
+                    }).length;
+                  } else {
+                    return additionalStats.waitlistCount || 0;
+                  }
+                })();
+                
+                if (waitlistCount > 0) {
+                  return 'People waiting for spots';
+                } else if (activeClassFilter === 'today') {
+                  return 'No waitlist today';
+                } else if (activeClassFilter === 'tomorrow') {
+                  return 'No waitlist tomorrow';
+                } else {
+                  return 'Check individual classes';
+                }
+              })()}
             </Text>
           </View>
 
@@ -1479,6 +1683,12 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
           ))}
         </View>
       </View>
+
+      {/* Islamic Celebration Card */}
+      <ReceptionEidMubarakMessageCard 
+        onPress={onOpenThemeSwitch}
+        showAnimations={true}
+      />
 
       {/* Recent Activity */}
       <View style={styles.recentActivitySection}>
@@ -2084,18 +2294,222 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation }: any) {
           </View>
         </Modal>
       </Portal>
+
+      {/* Clients Without Active Subscriptions Modal */}
+      <Portal>
+        <Modal
+          visible={clientsWithoutSubsModalVisible}
+          onDismiss={() => setClientsWithoutSubsModalVisible(false)}
+          contentContainerStyle={styles.modalContainer}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <View style={styles.modalIcon}>
+                  <WebCompatibleIcon name="person-remove" size={24} color="#F44336" />
+                </View>
+                <Text style={styles.modalTitle}>
+                  Clients Without Active Subscriptions
+                  {clientsWithoutSubscriptions.length > 0 && (
+                    <Text style={styles.modalSubtitle}>
+                      {'\n'}({clientsWithoutSubscriptions.length} clients found)
+                    </Text>
+                  )}
+                </Text>
+                <TouchableOpacity 
+                  onPress={() => setClientsWithoutSubsModalVisible(false)}
+                  style={styles.closeButton}
+                >
+                  <WebCompatibleIcon name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.subscriptionsEndingContent}>
+                {clientsWithoutSubscriptions.length > 0 ? (
+                  <ScrollView style={styles.subscriptionsList} showsVerticalScrollIndicator={true}>
+                    {clientsWithoutSubscriptions.map((client, index) => (
+                      <View key={client.id} style={styles.subscriptionItem}>
+                        <View style={styles.subscriptionItemHeader}>
+                          <View style={styles.subscriptionItemInfo}>
+                            <Text style={styles.subscriptionItemClient}>{client.name}</Text>
+                            <Text style={styles.subscriptionItemPlan}>Never had a subscription</Text>
+                            <Text style={styles.subscriptionItemEmail}>{client.email}</Text>
+                            {client.phone && (
+                              <Text style={styles.subscriptionItemDate}>📞 {client.phone}</Text>
+                            )}
+                            <Text style={styles.subscriptionItemDate}>
+                              Joined: {new Date(client.join_date).toLocaleDateString()}
+                            </Text>
+                          </View>
+                          <TouchableOpacity 
+                            style={styles.subscriptionItemButton}
+                            onPress={() => {
+                              try {
+                                if (navigation?.navigate) {
+                                  navigation.navigate('ClientProfile', { 
+                                    userId: client.id,
+                                    userName: client.name 
+                                  });
+                                  setClientsWithoutSubsModalVisible(false);
+                                } else {
+                                  console.error('Navigation failed: No navigation object');
+                                }
+                              } catch (navError) {
+                                console.error('Navigation failed:', navError);
+                              }
+                            }}
+                          >
+                            <Text style={styles.subscriptionItemButtonText}>View Profile</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))}
+                  </ScrollView>
+                ) : (
+                  <View style={styles.noSubscriptionsMessage}>
+                    <WebCompatibleIcon name="person-outline" size={48} color="#9CA3AF" />
+                    <Text style={styles.noSubscriptionsText}>All clients have active subscriptions</Text>
+                    <Text style={styles.noSubscriptionsSubtext}>
+                      Great! All your clients are actively subscribed to plans
+                    </Text>
+                  </View>
+                )}
+              </View>
+              
+              <View style={styles.modalActions}>
+                <TouchableOpacity 
+                  style={styles.modalButton}
+                  onPress={() => setClientsWithoutSubsModalVisible(false)}
+                >
+                  <Text style={styles.modalButtonText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </Portal>
+
+      {/* Clients Who Didn't Renew Modal */}
+      <Portal>
+        <Modal
+          visible={clientsWhoDidntRenewModalVisible}
+          onDismiss={() => setClientsWhoDidntRenewModalVisible(false)}
+          contentContainerStyle={styles.modalContainer}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <View style={styles.modalIcon}>
+                  <WebCompatibleIcon name="refresh" size={24} color="#FF9800" />
+                </View>
+                <Text style={styles.modalTitle}>
+                  Clients Who Didn't Renew
+                  {clientsWhoDidntRenew.length > 0 && (
+                    <Text style={styles.modalSubtitle}>
+                      {'\n'}({clientsWhoDidntRenew.length} clients with expired plans)
+                    </Text>
+                  )}
+                </Text>
+                <TouchableOpacity 
+                  onPress={() => setClientsWhoDidntRenewModalVisible(false)}
+                  style={styles.closeButton}
+                >
+                  <WebCompatibleIcon name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.subscriptionsEndingContent}>
+                {clientsWhoDidntRenew.length > 0 ? (
+                  <ScrollView style={styles.subscriptionsList} showsVerticalScrollIndicator={true}>
+                    {clientsWhoDidntRenew.map((client, index) => (
+                      <View key={client.id} style={styles.subscriptionItem}>
+                        <View style={styles.subscriptionItemHeader}>
+                          <View style={styles.subscriptionItemInfo}>
+                            <Text style={styles.subscriptionItemClient}>{client.name}</Text>
+                            {client.last_subscription ? (
+                              <>
+                                <Text style={styles.subscriptionItemPlan}>
+                                  Last Plan: {client.last_subscription.plan_name}
+                                </Text>
+                                <Text style={styles.subscriptionItemDate}>
+                                  Expired: {new Date(client.last_subscription.end_date).toLocaleDateString()}
+                                </Text>
+                                <Text style={styles.subscriptionItemStatus}>
+                                  Status: {client.last_subscription.status}
+                                </Text>
+                              </>
+                            ) : (
+                              <Text style={styles.subscriptionItemPlan}>No previous subscription found</Text>
+                            )}
+                            <Text style={styles.subscriptionItemEmail}>{client.email}</Text>
+                            {client.phone && (
+                              <Text style={styles.subscriptionItemDate}>📞 {client.phone}</Text>
+                            )}
+                          </View>
+                          <TouchableOpacity 
+                            style={styles.subscriptionItemButton}
+                            onPress={() => {
+                              try {
+                                if (navigation?.navigate) {
+                                  navigation.navigate('ClientProfile', { 
+                                    userId: client.id,
+                                    userName: client.name 
+                                  });
+                                  setClientsWhoDidntRenewModalVisible(false);
+                                } else {
+                                  console.error('Navigation failed: No navigation object');
+                                }
+                              } catch (navError) {
+                                console.error('Navigation failed:', navError);
+                              }
+                            }}
+                          >
+                            <Text style={styles.subscriptionItemButtonText}>View Profile</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))}
+                  </ScrollView>
+                ) : (
+                  <View style={styles.noSubscriptionsMessage}>
+                    <WebCompatibleIcon name="replay" size={48} color="#9CA3AF" />
+                    <Text style={styles.noSubscriptionsText}>All clients renewed their subscriptions</Text>
+                    <Text style={styles.noSubscriptionsSubtext}>
+                      Excellent! All clients with previous subscriptions have renewed
+                    </Text>
+                  </View>
+                )}
+              </View>
+              
+              <View style={styles.modalActions}>
+                <TouchableOpacity 
+                  style={styles.modalButton}
+                  onPress={() => setClientsWhoDidntRenewModalVisible(false)}
+                >
+                  <Text style={styles.modalButtonText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </Portal>
     </>
   );
 }
 
 // PC Sidebar Navigation with real data badges
-function ReceptionSidebar({ activeScreen, onNavigate, stats }: any) {
+function ReceptionSidebar({ activeScreen, onNavigate, stats, onOpenAnnouncements, onOpenThemeSwitch }: any) {
   const menuItems = [
     { key: 'Dashboard', icon: 'dashboard', label: 'Dashboard', badge: null },
     { key: 'Clients', icon: 'people', label: 'Client Management', badge: stats?.totalClients?.toString() || '0' },
     { key: 'Classes', icon: 'fitness-center', label: 'Class Management', badge: stats?.todayClasses?.toString() || '0' },
     { key: 'Plans', icon: 'card-membership', label: 'Subscription Plans', badge: null },
     { key: 'Reports', icon: 'assessment', label: 'Reports & Analytics', badge: null },
+  ];
+
+  const specialItems = [
+    { key: 'Announcements', icon: 'campaign', label: 'Manage Announcements', badge: null, action: onOpenAnnouncements },
+    { key: 'SwitchTheme', icon: 'color-lens', label: 'Manage Client Themes', badge: null, action: onOpenThemeSwitch },
   ];
 
   // Add back button when viewing client profile
@@ -2150,6 +2564,34 @@ function ReceptionSidebar({ activeScreen, onNavigate, stats }: any) {
             )}
           </TouchableOpacity>
         ))}
+
+        {/* Specials Section */}
+        <View style={styles.sidebarSection}>
+          <Text style={styles.sidebarSectionTitle}>Specials</Text>
+          {specialItems.map((item) => (
+            <TouchableOpacity
+              key={item.key}
+              style={styles.sidebarItem}
+              onPress={item.action}
+            >
+              <WebCompatibleIcon 
+                name={item.icon as any} 
+                size={24} 
+                color="#9B8A7D" 
+              />
+              <View style={styles.sidebarItemContent}>
+                <Text style={styles.sidebarItemText}>
+                  {item.label}
+                </Text>
+                {item.badge && (
+                  <View style={styles.sidebarBadge}>
+                    <Text style={styles.sidebarBadgeText}>{item.badge}</Text>
+                  </View>
+                )}
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
       </ScrollView>
 
       {/* Sidebar Footer */}
@@ -2170,8 +2612,8 @@ function ClientsScreen({ navigation, onViewProfile }: any) {
   // Add auth state debugging
   const authState = useSelector((state: RootState) => state.auth);
   
-  const handleViewProfile = (userId: string, userName: string) => {
-    console.log('🔍 ClientsScreen received profile view request:', { userId, userName });
+  const handleViewProfile = (userId: string, userName: string, userRole?: string) => {
+    console.log('🔍 ClientsScreen received profile view request:', { userId, userName, userRole });
     console.log('🔍 Auth state when clicking view profile:', {
       isLoggedIn: authState.isLoggedIn,
       userExists: !!authState.user,
@@ -2183,26 +2625,31 @@ function ClientsScreen({ navigation, onViewProfile }: any) {
     if (navigation && navigation.navigate) {
       console.log('🔍 Using React Navigation (preferred)');
       try {
-        navigation.navigate('ClientProfile', { userId, userName });
+        // Route to appropriate profile based on user role
+        if (userRole === 'instructor') {
+          navigation.navigate('InstructorProfile', { userId, userName });
+        } else {
+          navigation.navigate('ClientProfile', { userId, userName });
+        }
         console.log('✅ Navigation call completed successfully');
       } catch (navError) {
         console.error('❌ Navigation error:', navError);
         // Fallback to custom callback if navigation fails
         if (onViewProfile) {
           console.log('🔍 Falling back to reception onViewProfile callback');
-          onViewProfile(userId, userName);
+          onViewProfile(userId, userName, userRole);
         }
       }
     } else if (onViewProfile) {
       console.log('🔍 Using reception onViewProfile callback (fallback)');
-      onViewProfile(userId, userName);
+      onViewProfile(userId, userName, userRole);
     } else {
       console.error('❌ No navigation method available');
     }
   };
   
   console.log('👥 ClientsScreen rendering with navigation:', !!navigation);
-  return <PCUserManagement navigation={navigation} onViewProfile={handleViewProfile} />;
+  return <PCUserManagement navigation={navigation} onViewProfile={handleViewProfile} hideAdminUsers={true} />;
 }
 
 function ClassesScreen({ navigation }: any) {
@@ -2216,9 +2663,30 @@ function PlansScreen({ navigation }: any) {
 // Main PC Layout Container
 function ReceptionPCLayout({ navigation }: any) {
   const dispatch = useAppDispatch();
+  const { user: currentUser } = useSelector((state: RootState) => state.auth);
   const [activeScreen, setActiveScreen] = useState('Dashboard');
   const [navigationParams, setNavigationParams] = useState<any>(null);
   const [screenDimensions, setScreenDimensions] = useState(Dimensions.get('window'));
+  
+  // Announcement states
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [announcementModalVisible, setAnnouncementModalVisible] = useState(false);
+  
+  // Theme colors
+  const backgroundColor = '#FFFFFF'; // Default background
+  const surfaceColor = '#FFFFFF'; // Default surface
+  const textColor = '#1A1A1A'; // Default text
+  const textSecondaryColor = '#666666'; // Default secondary text
+  const primaryColor = '#E91E63'; // Default primary (pink)
+  
+  // Theme management states (for managing client themes from reception)
+  const [themeModalVisible, setThemeModalVisible] = useState(false);
+  
+  // Form states for announcements
+  const [announcementTitle, setAnnouncementTitle] = useState('');
+  const [announcementMessage, setAnnouncementMessage] = useState('');
+  const [announcementType, setAnnouncementType] = useState<'info' | 'warning' | 'urgent'>('info');
+  
   const [stats, setStats] = useState({
     totalClients: 0,
     todayClasses: 0,
@@ -2233,6 +2701,11 @@ function ReceptionPCLayout({ navigation }: any) {
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
+  
+  // Waitlist modal states
+  const [waitlistModalVisible, setWaitlistModalVisible] = useState(false);
+  const [waitlistModalData, setWaitlistModalData] = useState<any[]>([]);
+  const [waitlistModalTitle, setWaitlistModalTitle] = useState('');
   const [notifications, setNotifications] = useState<any[]>([]);
 
   const [notificationSettings, setNotificationSettings] = useState({
@@ -2250,6 +2723,91 @@ function ReceptionPCLayout({ navigation }: any) {
     return () => subscription?.remove();
   }, []);
 
+  // Load announcements
+  useEffect(() => {
+    loadAnnouncements();
+    
+    // Set up auto-refresh every 2 minutes
+    const interval = setInterval(() => {
+      loadAnnouncements();
+    }, 2 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Load announcements only
+  const loadAnnouncements = async () => {
+    try {
+      const announcementsData = await announcementService.getActiveAnnouncements();
+      setAnnouncements(announcementsData);
+    } catch (error) {
+      console.error('Error loading announcements:', error);
+    }
+  };
+
+  // Helper functions for announcements and themes
+  const handleCreateAnnouncement = async () => {
+    if (!announcementTitle.trim() || !announcementMessage.trim()) return;
+
+    try {
+      await announcementService.createAnnouncement({
+        title: announcementTitle.trim(),
+        message: announcementMessage.trim(),
+        type: announcementType,
+      });
+      
+      // Reset form and refresh
+      setAnnouncementTitle('');
+      setAnnouncementMessage('');
+      setAnnouncementType('info');
+      setAnnouncementModalVisible(false);
+      await loadAnnouncements();
+    } catch (error) {
+      console.error('Error creating announcement:', error);
+    }
+  };
+
+  // Theme management functions (for managing client app themes)
+  const handleSwitchTheme = async (themeName: string) => {
+    try {
+      console.log('🎨 Reception: Switching client app theme to:', themeName);
+      
+      if (themeName === 'default') {
+        // For default theme, activate the actual "default" theme record in the database
+        console.log('🎨 Reception: Activating default theme record in database');
+        await themeService.switchTheme('default');
+      } else {
+        // Switch to specific theme
+        await themeService.switchTheme(themeName);
+      }
+      
+      console.log('✅ Reception: Successfully switched client theme');
+      setThemeModalVisible(false);
+    } catch (error) {
+      console.error('❌ Reception: Error switching client theme:', error);
+    }
+  };
+
+  const handleWaitlistClick = () => {
+    // This function is implemented in the ReceptionDashboard component
+    // and will be called when the waitlist number is clicked
+  };
+
+  const getAnnouncementIcon = (type: string) => {
+    switch (type) {
+      case 'warning': return 'alert-circle';
+      case 'urgent': return 'alert-octagon';
+      default: return 'information';
+    }
+  };
+
+  const getAnnouncementColor = (type: string) => {
+    switch (type) {
+      case 'warning': return '#FF9800';
+      case 'urgent': return '#f44336';
+      default: return '#2196F3';
+    }
+  };
+
   const handleNavigate = (screenKey: string, params?: any) => {
     console.log('🏢 Reception navigating to:', screenKey, 'with params:', params);
     setActiveScreen(screenKey);
@@ -2259,23 +2817,22 @@ function ReceptionPCLayout({ navigation }: any) {
   };
 
   const renderMainContent = () => {
-    console.log('🔧 renderMainContent called with activeScreen:', activeScreen);
     
     switch (activeScreen) {
       case 'Clients':
-        console.log('🔧 Rendering ClientsScreen');
+
         return <ClientsScreen navigation={navigation} />;
       case 'Classes':
-        console.log('🔧 Rendering ClassesScreen');
+
         return <ClassesScreen navigation={navigation} />;
       case 'Plans':
-        console.log('🔧 Rendering PlansScreen');
+
         return <PCSubscriptionPlans />;
       case 'Reports':
-        console.log('🔧 Rendering ReportsScreen');
+
         return <ReceptionReports />;
       case 'ClientProfile':
-        console.log('🔧 Rendering ClientProfile with navigationParams:', navigationParams);
+
         return (
           <MockNavigationProvider 
             mockRoute={{
@@ -2300,12 +2857,26 @@ function ReceptionPCLayout({ navigation }: any) {
         );
       case 'Dashboard':
       default:
-        console.log('🔧 Rendering ReceptionDashboard (default case)');
+
         return (
           <ReceptionDashboard 
             navigation={navigation} 
             onNavigate={handleNavigate}
             onStatsUpdate={(newStats: any) => setStats(newStats)}
+            waitlistModalVisible={waitlistModalVisible}
+            setWaitlistModalVisible={setWaitlistModalVisible}
+            waitlistModalData={waitlistModalData}
+            setWaitlistModalData={setWaitlistModalData}
+            waitlistModalTitle={waitlistModalTitle}
+            setWaitlistModalTitle={setWaitlistModalTitle}
+            onWaitlistClick={handleWaitlistClick}
+            onWaitlistDataUpdate={(data: any, filter: string) => {
+              // This will be called from ReceptionDashboard to update waitlist data
+              setWaitlistModalData(data);
+              setWaitlistModalTitle(filter);
+            }}
+            onOpenThemeSwitch={() => setThemeModalVisible(true)}
+            currentUser={currentUser}
           />
         );
     }
@@ -2342,6 +2913,8 @@ function ReceptionPCLayout({ navigation }: any) {
         activeScreen={activeScreen} 
         onNavigate={handleNavigate}
         stats={stats}
+        onOpenAnnouncements={() => setAnnouncementModalVisible(true)}
+        onOpenThemeSwitch={() => setThemeModalVisible(true)}
       />
       <View style={styles.mainContent}>
         <View style={styles.contentHeader}>
@@ -2375,11 +2948,34 @@ function ReceptionPCLayout({ navigation }: any) {
             </TouchableOpacity>
           </View>
         </View>
+        
         <ScrollView 
           style={styles.contentBody}
           showsVerticalScrollIndicator={true}
           contentContainerStyle={styles.scrollContent}
         >
+          {/* Active Announcements Banner */}
+          {announcements.length > 0 && (
+            <View style={[styles.announcementBanner, { backgroundColor: surfaceColor, borderLeftColor: primaryColor }]}>
+              <Text style={[styles.bannerTitle, { color: textColor }]}>📢 Active Announcements</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {announcements.map((announcement) => (
+                  <View key={announcement.id} style={[styles.announcementCard, { backgroundColor: surfaceColor, borderLeftColor: getAnnouncementColor(announcement.type) }]}>
+                    <View style={styles.announcementHeader}>
+                      <WebCompatibleIcon 
+                        name={getAnnouncementIcon(announcement.type)} 
+                        size={16} 
+                        color={getAnnouncementColor(announcement.type)} 
+                      />
+                      <Text style={[styles.announcementTitle, { color: textColor }]}>{announcement.title}</Text>
+                    </View>
+                    <Text style={[styles.announcementMessage, { color: textSecondaryColor }]}>{announcement.message}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
           {renderMainContent()}
         </ScrollView>
       </View>
@@ -2503,15 +3099,272 @@ function ReceptionPCLayout({ navigation }: any) {
           </View>
         </Modal>
       </Portal>
+
+      {/* Announcement Management Modal */}
+      <Portal>
+        <Modal
+          visible={announcementModalVisible}
+          onDismiss={() => setAnnouncementModalVisible(false)}
+          contentContainerStyle={styles.modalContainer}
+        >
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Manage Announcements</Text>
+            
+            {/* Create Announcement Form */}
+            <View style={styles.formSection}>
+              <Text style={styles.formTitle}>Create New Announcement</Text>
+              
+              <TextInput
+                style={styles.formInput}
+                placeholder="Announcement title..."
+                value={announcementTitle}
+                onChangeText={setAnnouncementTitle}
+                mode="outlined"
+              />
+              
+              <TextInput
+                style={[styles.formInput, styles.multilineInput]}
+                placeholder="Announcement message..."
+                value={announcementMessage}
+                onChangeText={setAnnouncementMessage}
+                mode="outlined"
+                multiline
+                numberOfLines={3}
+              />
+              
+              <View style={styles.typeSelection}>
+                <Text style={styles.typeLabel}>Type:</Text>
+                {['info', 'warning', 'urgent'].map((type) => (
+                  <TouchableOpacity
+                    key={type}
+                    style={[
+                      styles.typeOption,
+                      announcementType === type && styles.typeOptionSelected
+                    ]}
+                    onPress={() => setAnnouncementType(type as 'info' | 'warning' | 'urgent')}
+                  >
+                    <Text style={[
+                      styles.typeOptionText,
+                      announcementType === type && styles.typeOptionTextSelected
+                    ]}>
+                      {type.charAt(0).toUpperCase() + type.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              
+              <TouchableOpacity
+                style={styles.createButton}
+                onPress={handleCreateAnnouncement}
+                disabled={!announcementTitle.trim() || !announcementMessage.trim()}
+              >
+                <Text style={styles.createButtonText}>Create Announcement</Text>
+              </TouchableOpacity>
+            </View>
+            
+            {/* Current Announcements */}
+            <View style={styles.currentSection}>
+              <Text style={styles.formTitle}>Current Announcements</Text>
+              {announcements.length > 0 ? (
+                announcements.map((announcement) => (
+                  <View key={announcement.id} style={styles.announcementItem}>
+                    <View style={styles.announcementItemHeader}>
+                      <Text style={styles.announcementItemTitle}>{announcement.title}</Text>
+                      <Text style={[styles.announcementItemType, { color: getAnnouncementColor(announcement.type) }]}>
+                        {announcement.type.toUpperCase()}
+                      </Text>
+                    </View>
+                    <Text style={styles.announcementItemMessage}>{announcement.message}</Text>
+                    <TouchableOpacity
+                      style={styles.deleteButton}
+                      onPress={() => {
+                        announcementService.deleteAnnouncement(announcement.id)
+                          .then(() => loadAnnouncements())
+                          .catch(console.error);
+                      }}
+                    >
+                      <Text style={styles.deleteButtonText}>Delete</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.noAnnouncementsText}>No active announcements</Text>
+              )}
+            </View>
+            
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setAnnouncementModalVisible(false)}
+            >
+              <Text style={styles.modalCloseButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </Modal>
+      </Portal>
+
+      {/* Client Theme Management Modal */}
+      <Portal>
+        <Modal
+          visible={themeModalVisible}
+          onDismiss={() => setThemeModalVisible(false)}
+          contentContainerStyle={styles.modalContainer}
+        >
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Manage Client App Themes</Text>
+            
+            <Text style={styles.modalDescription}>
+              Switch themes for the client mobile app experience. This will not affect the reception dashboard.
+            </Text>
+            
+            <View style={styles.receptionThemesGrid}>
+              {/* Default Theme Option */}
+              <TouchableOpacity
+                style={[styles.receptionThemeOption]}
+                onPress={() => handleSwitchTheme('default')}
+              >
+                <View style={styles.receptionThemePreview}>
+                  <View style={[styles.receptionThemePreviewHeader, { backgroundColor: '#007AFF' }]}>
+                    <Text style={[styles.receptionThemePreviewText, { color: '#FFFFFF' }]}>
+                      Default Theme
+                    </Text>
+                  </View>
+                  <View style={[styles.receptionThemePreviewContent, { backgroundColor: '#F8F9FA' }]}>
+                    <View style={[styles.receptionThemePreviewButton, { backgroundColor: '#4ECDC4' }]}>
+                      <Text style={styles.receptionThemePreviewButtonText}>Clean & Simple</Text>
+                    </View>
+                  </View>
+                </View>
+              </TouchableOpacity>
+              
+              {/* Predefined Theme Options */}
+              {[
+                { name: 'womens_day', display: "👩 Women's Day", description: 'Celebration theme' },
+                { name: 'christmas', display: '🎄 Christmas', description: 'Holiday festivities' },
+                { name: 'eid_mubarak_2025', display: '🕌 Eid Mubarak 2025', description: 'Traditional Islamic celebration' },
+                { name: 'ramadan_2025', display: '🌙 Ramadan 2025', description: 'Sacred holy month' },
+                { name: 'new_year', display: '🎊 New Year', description: 'New Year celebration' },
+                { name: 'pink_october', display: '🌸 Pink October', description: 'Breast Cancer Awareness Month' }
+              ].map((theme) => (
+                <TouchableOpacity
+                  key={theme.name}
+                  style={[styles.receptionThemeOption]}
+                  onPress={() => handleSwitchTheme(theme.name)}
+                >
+                  <View style={styles.receptionThemePreview}>
+                    <View style={[styles.receptionThemePreviewHeader, { backgroundColor: '#9B8A7D' }]}>
+                      <Text style={[styles.receptionThemePreviewText, { color: '#FFFFFF' }]}>
+                        {theme.display}
+                      </Text>
+                    </View>
+                    <View style={[styles.receptionThemePreviewContent, { backgroundColor: '#F5F5F5' }]}>
+                      <View style={[styles.receptionThemePreviewButton, { backgroundColor: '#D4B08A' }]}>
+                        <Text style={styles.receptionThemePreviewButtonText}>{theme.description}</Text>
+                      </View>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+            
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setThemeModalVisible(false)}
+            >
+              <Text style={styles.modalCloseButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </Modal>
+      </Portal>
+
+      {/* Waitlist Modal */}
+      <Portal>
+        <Modal
+          visible={waitlistModalVisible}
+          onDismiss={() => setWaitlistModalVisible(false)}
+          contentContainerStyle={styles.modalContainer}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <View style={styles.modalIcon}>
+                  <WebCompatibleIcon name="schedule" size={24} color="#FF9800" />
+                </View>
+                <Text style={styles.modalTitle}>{waitlistModalTitle}</Text>
+                <TouchableOpacity 
+                  onPress={() => setWaitlistModalVisible(false)}
+                  style={styles.closeButton}
+                >
+                  <WebCompatibleIcon name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+              
+              <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+                {waitlistModalData.length === 0 ? (
+                  <View style={styles.emptyState}>
+                    <WebCompatibleIcon name="check-circle" size={48} color="#4CAF50" />
+                    <Text style={styles.emptyStateTitle}>No Waitlist Entries</Text>
+                    <Text style={styles.emptyStateText}>
+                      No clients currently on waitlist
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.waitlistList}>
+                    {waitlistModalData.map((waitlistEntry, index) => (
+                      <View key={waitlistEntry.id} style={styles.waitlistItem}>
+                        <View style={styles.waitlistItemHeader}>
+                          <View style={styles.waitlistPosition}>
+                            <Text style={styles.waitlistPositionNumber}>#{waitlistEntry.position}</Text>
+                          </View>
+                          <View style={styles.waitlistClientInfo}>
+                            <Text style={styles.waitlistClientName}>
+                              {waitlistEntry.users?.name || 'Unknown Client'}
+                            </Text>
+                            <Text style={styles.waitlistClientEmail}>
+                              {waitlistEntry.users?.email || 'No email'}
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={styles.waitlistClassContainer}>
+                          <Text style={styles.waitlistClassName}>
+                            {waitlistEntry.classes?.name || 'Unknown Class'}
+                          </Text>
+                          <Text style={styles.waitlistClassDetails}>
+                            {waitlistEntry.classes?.date ? new Date(waitlistEntry.classes.date).toLocaleDateString() : 'No date'} • 
+                            {waitlistEntry.classes?.time || 'No time'} • 
+                            {waitlistEntry.classes?.equipment_type || 'Unknown equipment'}
+                          </Text>
+                        </View>
+                        <View style={styles.waitlistTimestamp}>
+                          <Text style={styles.waitlistTimestampText}>
+                            Added: {new Date(waitlistEntry.created_at).toLocaleString()}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </ScrollView>
+              
+              <View style={styles.modalFooter}>
+                <TouchableOpacity
+                  onPress={() => setWaitlistModalVisible(false)}
+                  style={styles.modalCancelButton}
+                >
+                  <Text style={styles.modalCancelButtonText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </Portal>
+
     </View>
   );
 }
 
 // Main Reception Dashboard for Web
 function ReceptionDashboardWeb({ navigation }: any) {
-  console.log('🏢 ReceptionDashboardWeb: Component rendering with navigation props');
-  console.log('🏢 ReceptionDashboardWeb: Navigation exists:', !!navigation);
-  console.log('🏢 ReceptionDashboardWeb: Navigation.navigate exists:', !!(navigation && navigation.navigate));
+
   
   return <ReceptionPCLayout navigation={navigation} />;
 }
@@ -2617,6 +3470,21 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  sidebarSection: {
+    marginTop: 24,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  sidebarSectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+    marginBottom: 12,
+    marginLeft: 16,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   activeIndicator: {
     position: 'absolute',
@@ -3832,6 +4700,505 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+
+  // Announcement Banner Styles
+  announcementBanner: {
+    padding: 16,
+    marginBottom: 16,
+    borderRadius: 8,
+    borderLeftWidth: 4,
+  },
+  bannerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  announcementCard: {
+    padding: 12,
+    marginRight: 12,
+    borderRadius: 6,
+    borderLeftWidth: 3,
+    minWidth: 280,
+    maxWidth: 320,
+    elevation: 1,
+  },
+  announcementHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  announcementTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginLeft: 8,
+  },
+  announcementMessage: {
+    fontSize: 13,
+    color: '#6B7280',
+    lineHeight: 18,
+  },
+
+  // Management Section Styles
+  managementSection: {
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    marginBottom: 16,
+    borderRadius: 8,
+    elevation: 1,
+  },
+  managementRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  managementButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
+  },
+  managementButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#374151',
+    marginLeft: 8,
+  },
+
+  // Announcement Modal Styles
+  formSection: {
+    marginBottom: 24,
+    padding: 16,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+  },
+  formTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 12,
+  },
+  formInput: {
+    marginBottom: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  multilineInput: {
+    minHeight: 80,
+  },
+  typeSelection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    flexWrap: 'wrap',
+  },
+  typeLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#374151',
+    marginRight: 12,
+  },
+  typeOption: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    backgroundColor: '#FFFFFF',
+    marginRight: 8,
+  },
+  typeOptionSelected: {
+    backgroundColor: '#3B82F6',
+    borderColor: '#3B82F6',
+  },
+  typeOptionText: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  typeOptionTextSelected: {
+    color: '#FFFFFF',
+  },
+  createButton: {
+    backgroundColor: '#10B981',
+    paddingVertical: 12,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  createButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
+  // Current Announcements Styles
+  currentSection: {
+    marginBottom: 24,
+  },
+  announcementItem: {
+    backgroundColor: '#FFFFFF',
+    padding: 12,
+    borderRadius: 6,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  announcementItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  announcementItemTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1F2937',
+    flex: 1,
+  },
+  announcementItemType: {
+    fontSize: 10,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  announcementItemMessage: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginBottom: 8,
+    lineHeight: 18,
+  },
+  deleteButton: {
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+  },
+  deleteButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  noAnnouncementsText: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    fontStyle: 'italic',
+    padding: 20,
+  },
+
+  // Theme Modal Styles
+  modalDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  themesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 16,
+    marginBottom: 24,
+  },
+  themeOption: {
+    width: '48%',
+    minWidth: 200,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+  },
+  themeOptionActive: {
+    borderColor: '#10B981',
+    backgroundColor: '#F0FDF4',
+  },
+  themePreview: {
+    borderRadius: 6,
+    overflow: 'hidden',
+    marginBottom: 8,
+    elevation: 1,
+  },
+  themePreviewHeader: {
+    padding: 8,
+    alignItems: 'center',
+  },
+  themePreviewText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  themePreviewContent: {
+    padding: 12,
+    alignItems: 'center',
+  },
+  themePreviewButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 4,
+  },
+  themePreviewButtonText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  themeOptionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  themeOptionDescription: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 4,
+  },
+  themeActiveIndicator: {
+    fontSize: 12,
+    color: '#10B981',
+    fontWeight: '600',
+  },
+  // New Year Theme Styles
+  newYearSection: {
+    marginTop: 20,
+    padding: 16,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  newYearTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  newYearDescription: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 16,
+    textAlign: 'center',
+    lineHeight: 16,
+  },
+  newYearButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    alignItems: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  newYearButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+
+  // Reception Theme Modal Styles (updated to avoid duplicates)
+  receptionThemesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginVertical: 20,
+  },
+  receptionThemeOption: {
+    width: '48%',
+    marginBottom: 16,
+    borderRadius: 12,
+    overflow: 'hidden',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    backgroundColor: '#FFFFFF',
+  },
+  receptionThemePreview: {
+    height: 120,
+    overflow: 'hidden',
+  },
+  receptionThemePreviewHeader: {
+    height: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  receptionThemePreviewContent: {
+    height: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  receptionThemePreviewButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  receptionThemePreviewButtonText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  receptionThemePreviewText: {
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  
+  modalCloseButton: {
+    backgroundColor: '#6B7280',
+    paddingVertical: 12,
+    borderRadius: 6,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  modalCloseButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
+  // Subscription modal styles
+  subscriptionItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  subscriptionItemInfo: {
+    flex: 1,
+    marginRight: 16,
+  },
+  subscriptionItemClient: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  subscriptionItemPlan: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 2,
+  },
+  subscriptionItemEmail: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    marginBottom: 2,
+  },
+  subscriptionItemDate: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginBottom: 2,
+  },
+  subscriptionItemStatus: {
+    fontSize: 12,
+    color: '#F59E0B',
+    fontWeight: '500',
+    textTransform: 'capitalize',
+  },
+  subscriptionItemButton: {
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  subscriptionItemButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  
+  // Waitlist Modal Styles
+  clickableMetricNumber: {
+    cursor: 'pointer',
+  },
+  waitlistItemHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  waitlistPosition: {
+    backgroundColor: '#FF9800',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  waitlistPositionNumber: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  waitlistClientInfo: {
+    flex: 1,
+  },
+  waitlistClientEmail: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  waitlistClassContainer: {
+    marginBottom: 8,
+  },
+  waitlistClassName: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#374151',
+    marginBottom: 4,
+  },
+  waitlistClassDetails: {
+    fontSize: 13,
+    color: '#6B7280',
+  },
+  waitlistTimestamp: {
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    paddingTop: 8,
+  },
+  waitlistTimestampText: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    fontStyle: 'italic',
+  },
+  
+  // Additional modal styles
+  modalBody: {
+    maxHeight: 400,
+    paddingVertical: 16,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 32,
+  },
+  emptyStateTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#374151',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
   },
 });
 

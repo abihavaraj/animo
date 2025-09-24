@@ -76,19 +76,10 @@ class AnalyticsService {
     try {
       console.log('📊 Fetching revenue analytics for range:', dateRange);
 
-      // Get payment data
+      // Get payment data (simplified - no joins needed for basic revenue)
       const { data: payments, error: paymentError } = await supabase
         .from('payments')
-        .select(`
-          amount,
-          payment_date,
-          subscription_id,
-          user_subscriptions!inner(
-            id,
-            plan_id,
-            subscription_plans!inner(name)
-          )
-        `)
+        .select('amount, payment_date')
         .gte('payment_date', dateRange.startDate)
         .lte('payment_date', dateRange.endDate)
         .order('payment_date');
@@ -144,7 +135,36 @@ class AnalyticsService {
         revenueMap[date].amount += Number(credit.amount);
       });
 
-      return Object.values(revenueMap).sort((a, b) => a.date.localeCompare(b.date));
+      // Fill in missing dates with zero values for better chart visualization
+      const result = Object.values(revenueMap).sort((a, b) => a.date.localeCompare(b.date));
+      
+      // If no data, return empty array
+      if (result.length === 0) {
+        return [];
+      }
+
+      // Fill gaps in date range for better visualization
+      const startDate = new Date(dateRange.startDate);
+      const endDate = new Date(dateRange.endDate);
+      const filledData: RevenueData[] = [];
+      
+      for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+        const dateStr = d.toISOString().split('T')[0];
+        const existingData = result.find(r => r.date === dateStr);
+        
+        if (existingData) {
+          filledData.push(existingData);
+        } else {
+          filledData.push({
+            date: dateStr,
+            amount: 0,
+            subscriptions: 0,
+            manualCredits: 0
+          });
+        }
+      }
+
+      return filledData;
     } catch (error) {
       console.error('❌ Error fetching revenue analytics:', error);
       throw new Error('Failed to fetch revenue analytics');
@@ -164,7 +184,7 @@ class AnalyticsService {
           date,
           capacity,
           enrolled,
-          bookings!inner(
+          bookings(
             id,
             status,
             checked_in
@@ -208,8 +228,9 @@ class AnalyticsService {
       // Get new clients in period
       const { data: newClients, error: newClientsError } = await supabase
         .from('users')
-        .select('id')
+        .select('id, join_date')
         .eq('role', 'client')
+        .eq('status', 'active')
         .gte('join_date', dateRange.startDate)
         .lte('join_date', dateRange.endDate);
 
@@ -218,31 +239,27 @@ class AnalyticsService {
       // Get active clients (those with bookings in period)
       const { data: activeBookings, error: activeError } = await supabase
         .from('bookings')
-        .select('user_id')
+        .select('user_id, booking_date, status')
         .gte('booking_date', dateRange.startDate)
-        .lte('booking_date', dateRange.endDate);
+        .lte('booking_date', dateRange.endDate)
+        .eq('status', 'confirmed');
 
       if (activeError) throw activeError;
 
       const uniqueActiveClients = new Set(activeBookings?.map(b => b.user_id)).size;
 
-      // Get client booking frequency
-      const { data: clientBookings, error: bookingsError } = await supabase
-        .from('bookings')
-        .select(`
-          user_id,
-          booking_date,
-          status
-        `)
-        .eq('status', 'confirmed')
-        .gte('booking_date', dateRange.startDate)
-        .lte('booking_date', dateRange.endDate);
+      // Get total clients for retention calculation
+      const { data: totalClients, error: totalClientsError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('role', 'client')
+        .eq('status', 'active');
 
-      if (bookingsError) throw bookingsError;
+      if (totalClientsError) throw totalClientsError;
 
       // Calculate average classes per client
       const clientBookingCounts: { [key: string]: number } = {};
-      clientBookings?.forEach(booking => {
+      activeBookings?.forEach(booking => {
         if (!clientBookingCounts[booking.user_id]) {
           clientBookingCounts[booking.user_id] = 0;
         }
@@ -253,12 +270,34 @@ class AnalyticsService {
         ? Object.values(clientBookingCounts).reduce((sum, count) => sum + count, 0) / uniqueActiveClients
         : 0;
 
+      // Calculate retention rate (active clients / total clients)
+      const retentionRate = totalClients && totalClients.length > 0 
+        ? Math.round((uniqueActiveClients / totalClients.length) * 100)
+        : 0;
+
+      // Calculate churned clients (clients who haven't booked in the period but were active before)
+      const { data: previousPeriodBookings, error: prevError } = await supabase
+        .from('bookings')
+        .select('user_id')
+        .lt('booking_date', dateRange.startDate)
+        .eq('status', 'confirmed');
+
+      if (prevError) throw prevError;
+
+      const previousActiveClients = new Set(previousPeriodBookings?.map(b => b.user_id));
+      const currentActiveClients = new Set(activeBookings?.map(b => b.user_id));
+      
+      // Clients who were active before but not in current period
+      const churnedClients = Array.from(previousActiveClients).filter(
+        clientId => !currentActiveClients.has(clientId)
+      ).length;
+
       return {
         newClients: newClients?.length || 0,
         activeClients: uniqueActiveClients,
-        churnedClients: 0, // This would require more complex calculation
+        churnedClients,
         averageClassesPerClient: Math.round(averageClassesPerClient * 10) / 10,
-        clientRetentionRate: 85 // Placeholder - would need historical data
+        clientRetentionRate: retentionRate
       };
     } catch (error) {
       console.error('❌ Error fetching client engagement analytics:', error);
@@ -275,11 +314,11 @@ class AnalyticsService {
         .from('classes')
         .select(`
           instructor_id,
-          users!inner(name),
+          users(name),
           enrolled,
           capacity,
           status,
-          bookings!inner(
+          bookings(
             id,
             status,
             checked_in
@@ -306,7 +345,8 @@ class AnalyticsService {
             totalStudents: 0,
             totalCapacity: 0,
             totalCheckedIn: 0,
-            cancellations: 0
+            cancellations: 0,
+            totalBookings: 0
           };
         }
 
@@ -314,20 +354,48 @@ class AnalyticsService {
         stats.totalClasses++;
         stats.totalStudents += classData.enrolled || 0;
         stats.totalCapacity += classData.capacity;
-        stats.totalCheckedIn += classData.bookings.filter((b: any) => b.checked_in).length;
+        stats.totalBookings += classData.bookings?.length || 0;
+        stats.totalCheckedIn += classData.bookings?.filter((b: any) => b.checked_in).length || 0;
+        
+        // Count cancellations (bookings with status 'cancelled')
+        const cancellations = classData.bookings?.filter((b: any) => b.status === 'cancelled').length || 0;
+        stats.cancellations += cancellations;
       });
 
-      return Object.values(instructorStats).map((stats: any) => ({
-        instructorId: stats.instructorId,
-        instructorName: stats.instructorName,
-        totalClasses: stats.totalClasses,
-        totalStudents: stats.totalStudents,
-        averageAttendance: stats.totalClasses > 0 
+      return Object.values(instructorStats).map((stats: any) => {
+        const averageAttendance = stats.totalClasses > 0 
           ? Math.round((stats.totalStudents / stats.totalClasses) * 10) / 10 
-          : 0,
-        clientSatisfaction: 4.2, // Placeholder - would need rating system
-        cancellationRate: Math.round((stats.cancellations / stats.totalClasses) * 100) || 0
-      }));
+          : 0;
+        
+        const cancellationRate = stats.totalBookings > 0 
+          ? Math.round((stats.cancellations / stats.totalBookings) * 100) 
+          : 0;
+
+        // Calculate utilization rate (checked in / capacity)
+        const utilizationRate = stats.totalCapacity > 0 
+          ? Math.round((stats.totalCheckedIn / stats.totalCapacity) * 100)
+          : 0;
+
+        // Calculate satisfaction based on utilization and cancellation rate
+        let satisfaction = 4.0; // Base rating
+        if (utilizationRate >= 80) satisfaction += 0.5;
+        if (utilizationRate >= 90) satisfaction += 0.3;
+        if (cancellationRate <= 5) satisfaction += 0.2;
+        if (cancellationRate <= 2) satisfaction += 0.3;
+        if (averageAttendance >= 8) satisfaction += 0.2;
+        
+        satisfaction = Math.min(5.0, Math.max(1.0, satisfaction));
+
+        return {
+          instructorId: stats.instructorId,
+          instructorName: stats.instructorName,
+          totalClasses: stats.totalClasses,
+          totalStudents: stats.totalStudents,
+          averageAttendance,
+          clientSatisfaction: Math.round(satisfaction * 10) / 10,
+          cancellationRate
+        };
+      });
     } catch (error) {
       console.error('❌ Error fetching instructor performance analytics:', error);
       throw new Error('Failed to fetch instructor performance analytics');
@@ -400,35 +468,89 @@ class AnalyticsService {
     try {
       console.log('📊 Fetching dashboard summary for range:', dateRange);
 
-      // Get revenue data
-      const { data: payments, error: paymentError } = await supabase
-        .from('payments')
-        .select('amount')
-        .gte('payment_date', dateRange.startDate)
-        .lte('payment_date', dateRange.endDate);
+      // Get revenue data including manual credits
+      const [paymentsResult, creditsResult] = await Promise.all([
+        supabase
+          .from('payments')
+          .select('amount')
+          .gte('payment_date', dateRange.startDate)
+          .lte('payment_date', dateRange.endDate),
+        supabase
+          .from('manual_credits')
+          .select('amount')
+          .gte('created_at', dateRange.startDate)
+          .lte('created_at', dateRange.endDate)
+      ]);
 
-      if (paymentError) throw paymentError;
+      if (paymentsResult.error) throw paymentsResult.error;
+      if (creditsResult.error) throw creditsResult.error;
 
-      const totalRevenue = payments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+      const paymentsRevenue = paymentsResult.data?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+      const creditsRevenue = creditsResult.data?.reduce((sum, c) => sum + Number(c.amount), 0) || 0;
+      const totalRevenue = paymentsRevenue + creditsRevenue;
 
-      // Get client count
+      // Get previous period revenue for growth calculation
+      const prevStartDate = new Date(dateRange.startDate);
+      const prevEndDate = new Date(dateRange.endDate);
+      const periodLength = prevEndDate.getTime() - prevStartDate.getTime();
+      prevStartDate.setTime(prevStartDate.getTime() - periodLength);
+      prevEndDate.setTime(prevEndDate.getTime() - periodLength);
+
+      const [prevPaymentsResult, prevCreditsResult] = await Promise.all([
+        supabase
+          .from('payments')
+          .select('amount')
+          .gte('payment_date', prevStartDate.toISOString().split('T')[0])
+          .lte('payment_date', prevEndDate.toISOString().split('T')[0]),
+        supabase
+          .from('manual_credits')
+          .select('amount')
+          .gte('created_at', prevStartDate.toISOString().split('T')[0])
+          .lte('created_at', prevEndDate.toISOString().split('T')[0])
+      ]);
+
+      const prevPaymentsRevenue = prevPaymentsResult.data?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+      const prevCreditsRevenue = prevCreditsResult.data?.reduce((sum, c) => sum + Number(c.amount), 0) || 0;
+      const prevTotalRevenue = prevPaymentsRevenue + prevCreditsRevenue;
+
+      const revenueGrowth = prevTotalRevenue > 0 
+        ? Math.round(((totalRevenue - prevTotalRevenue) / prevTotalRevenue) * 100 * 10) / 10
+        : 0;
+
+      // Get client data
       const { data: clients, error: clientError } = await supabase
         .from('users')
-        .select('id')
+        .select('id, join_date')
         .eq('role', 'client')
         .eq('status', 'active');
 
       if (clientError) throw clientError;
+
+      // Get new clients in period
+      const newClients = clients?.filter(c => 
+        c.join_date >= dateRange.startDate && c.join_date <= dateRange.endDate
+      ).length || 0;
+
+      // Get previous period new clients for growth calculation
+      const prevNewClients = clients?.filter(c => 
+        c.join_date >= prevStartDate.toISOString().split('T')[0] && 
+        c.join_date <= prevEndDate.toISOString().split('T')[0]
+      ).length || 0;
+
+      const clientGrowth = prevNewClients > 0 
+        ? Math.round(((newClients - prevNewClients) / prevNewClients) * 100 * 10) / 10
+        : 0;
 
       // Get class data
       const { data: classes, error: classError } = await supabase
         .from('classes')
         .select(`
           id,
+          name,
           enrolled,
           capacity,
           instructor_id,
-          users!inner(name)
+          users(name)
         `)
         .gte('date', dateRange.startDate)
         .lte('date', dateRange.endDate)
@@ -456,15 +578,25 @@ class AnalyticsService {
       const topInstructor = Object.values(instructorCounts)
         .sort((a, b) => b.count - a.count)[0]?.name || 'None';
 
+      // Find most popular class
+      const classCounts: { [key: string]: number } = {};
+      classes?.forEach(classData => {
+        const className = classData.name;
+        classCounts[className] = (classCounts[className] || 0) + 1;
+      });
+
+      const mostPopularClass = Object.entries(classCounts)
+        .sort(([,a], [,b]) => b - a)[0]?.[0] || 'No classes';
+
       return {
         totalRevenue,
-        revenueGrowth: 12.5, // Placeholder - would need historical comparison
+        revenueGrowth,
         totalClients: clients?.length || 0,
-        clientGrowth: 8.3, // Placeholder
+        clientGrowth,
         totalClasses,
         averageAttendance,
         topInstructor,
-        mostPopularClass: 'Pilates Fundamentals' // Placeholder
+        mostPopularClass
       };
     } catch (error) {
       console.error('❌ Error fetching dashboard summary:', error);
@@ -479,33 +611,40 @@ class AnalyticsService {
 
       const { data: subscriptions, error } = await supabase
         .from('user_subscriptions')
-        .select(`
-          id,
-          status,
-          start_date,
-          end_date,
-          subscription_plans!inner(
-            name,
-            monthly_price
-          )
-        `)
+        .select('id, status, start_date, end_date, plan_id')
         .eq('status', 'active');
 
       if (error) throw error;
 
       const totalActiveSubscriptions = subscriptions?.length || 0;
 
+      // Get subscription plans data separately
+      const { data: plans, error: plansError } = await supabase
+        .from('subscription_plans')
+        .select('id, name, monthly_price');
+
+      if (plansError) throw plansError;
+
+      // Create a plan lookup map
+      const planMap: { [key: string]: { name: string; price: number } } = {};
+      plans?.forEach(plan => {
+        planMap[plan.id] = { name: plan.name, price: Number(plan.monthly_price) };
+      });
+
       // Group by plan
       const planCounts: { [key: string]: { count: number; revenue: number } } = {};
       subscriptions?.forEach(sub => {
-        const planName = (sub.subscription_plans as any).name;
-        const price = Number((sub.subscription_plans as any).monthly_price);
-        
-        if (!planCounts[planName]) {
-          planCounts[planName] = { count: 0, revenue: 0 };
+        const planInfo = planMap[sub.plan_id];
+        if (planInfo) {
+          const planName = planInfo.name;
+          const price = planInfo.price;
+          
+          if (!planCounts[planName]) {
+            planCounts[planName] = { count: 0, revenue: 0 };
+          }
+          planCounts[planName].count++;
+          planCounts[planName].revenue += price;
         }
-        planCounts[planName].count++;
-        planCounts[planName].revenue += price;
       });
 
       const subscriptionsByPlan = Object.entries(planCounts).map(([planName, data]) => ({
@@ -514,12 +653,43 @@ class AnalyticsService {
         revenue: data.revenue
       }));
 
+      // Calculate average subscription duration
+      const now = new Date();
+      const durations = subscriptions?.map(sub => {
+        const startDate = new Date(sub.start_date);
+        const endDate = new Date(sub.end_date);
+        const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
+        const diffMonths = Math.ceil(diffTime / (1000 * 60 * 60 * 24 * 30));
+        return diffMonths;
+      }) || [];
+
+      const averageSubscriptionDuration = durations.length > 0 
+        ? Math.round((durations.reduce((sum, d) => sum + d, 0) / durations.length) * 10) / 10
+        : 0;
+
+      // Get cancelled subscriptions in the period for churn rate
+      const { data: cancelledSubs, error: cancelledError } = await supabase
+        .from('user_subscriptions')
+        .select('id, end_date')
+        .eq('status', 'cancelled')
+        .gte('end_date', dateRange.startDate)
+        .lte('end_date', dateRange.endDate);
+
+      if (cancelledError) throw cancelledError;
+
+      const churnedCount = cancelledSubs?.length || 0;
+      const churnRate = totalActiveSubscriptions > 0 
+        ? Math.round((churnedCount / totalActiveSubscriptions) * 100 * 10) / 10
+        : 0;
+
+      const retentionRate = Math.max(0, 100 - churnRate);
+
       return {
         totalActiveSubscriptions,
         subscriptionsByPlan,
-        averageSubscriptionDuration: 6.2, // Placeholder - months
-        churnRate: 5.8, // Placeholder - percentage
-        retentionRate: 94.2 // Placeholder - percentage
+        averageSubscriptionDuration,
+        churnRate,
+        retentionRate
       };
     } catch (error) {
       console.error('❌ Error fetching subscription analytics:', error);

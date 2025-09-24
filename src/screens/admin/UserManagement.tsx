@@ -45,7 +45,7 @@ function UserManagement() {
   const [users, setUsers] = useState<BackendUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterRole, setFilterRole] = useState<'all' | 'client' | 'instructor' | 'admin' | 'reception'>('all');
+  const [filterRole, setFilterRole] = useState<'all' | 'client' | 'instructor' | 'admin' | 'reception' | 'prospect'>('all');
   const [modalVisible, setModalVisible] = useState(false);
   const [userDetailsModalVisible, setUserDetailsModalVisible] = useState(false);
   const [selectedUser, setSelectedUser] = useState<BackendUser | null>(null);
@@ -72,7 +72,7 @@ function UserManagement() {
     try {
       setLoading(true);
       const filters = {
-        role: filterRole === 'all' ? undefined : filterRole as 'client' | 'instructor' | 'admin' | 'reception',
+        role: filterRole === 'all' ? undefined : filterRole as 'client' | 'instructor' | 'admin' | 'reception' | 'prospect',
         searchTerm: searchQuery || undefined
       };
       
@@ -127,6 +127,49 @@ function UserManagement() {
     }
   };
 
+  const isProspectClient = (user: BackendUser) => {
+    return user.role === 'client' && user.referral_source === 'Prospect Client';
+  };
+
+  const handleConvertProspectToClient = async (user: BackendUser) => {
+    console.log('🔄 Convert prospect clicked for user:', user.name, user.id);
+    console.log('🔍 Is prospect client:', isProspectClient(user));
+    console.log('🔍 User referral source:', user.referral_source);
+    
+    if (!isProspectClient(user)) {
+      Alert.alert('Error', 'This user is not a prospect client');
+      return;
+    }
+
+    Alert.alert(
+      'Convert Prospect to Client',
+      `Are you sure you want to convert "${user.name}" from prospect to regular client? This will remove the prospect label.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Convert',
+          onPress: async () => {
+            try {
+              const response = await userService.updateUser(String(user.id), {
+                referral_source: 'Converted from Prospect'
+              });
+
+              if (response.success) {
+                Alert.alert('Success', `${user.name} has been converted to a regular client`);
+                await loadUsers();
+              } else {
+                Alert.alert('Error', response.error || 'Failed to convert prospect');
+              }
+            } catch (error) {
+              console.error('Error converting prospect:', error);
+              Alert.alert('Error', 'Failed to convert prospect');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const handleCreateUser = () => {
     setEditingUser(null);
     setCustomReferralText('');
@@ -177,7 +220,6 @@ function UserManagement() {
   };
 
   const handleViewClientProfile = (user: BackendUser) => {
-    console.log('🔍 Navigating to ClientProfile for user:', user.id, user.name);
     navigation.navigate('ClientProfile', {
       userId: user.id,
       userName: user.name
@@ -478,7 +520,13 @@ function UserManagement() {
                          user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          (user.phone && user.phone.includes(searchQuery));
     
-    const matchesRole = filterRole === 'all' || user.role === filterRole;
+    // Handle prospect filtering separately since prospects are clients with special referral source
+    let matchesRole;
+    if (filterRole === 'prospect') {
+      matchesRole = isProspectClient(user);
+    } else {
+      matchesRole = filterRole === 'all' || user.role === filterRole;
+    }
     
     return matchesSearch && matchesRole;
   });
@@ -501,16 +549,16 @@ function UserManagement() {
         {/* User Statistics */}
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>
-            <Title style={styles.statNumber}>{filteredUsers.filter(u => u.role === 'client').length}</Title>
+            <Title style={styles.statNumber}>{filteredUsers.filter(u => u.role === 'client' && !isProspectClient(u)).length}</Title>
             <Paragraph style={styles.statLabel}>Clients</Paragraph>
+          </View>
+          <View style={styles.statItem}>
+            <Title style={styles.statNumber}>{filteredUsers.filter(u => isProspectClient(u)).length}</Title>
+            <Paragraph style={styles.statLabel}>Prospects</Paragraph>
           </View>
           <View style={styles.statItem}>
             <Title style={styles.statNumber}>{filteredUsers.filter(u => u.role === 'instructor').length}</Title>
             <Paragraph style={styles.statLabel}>Instructors</Paragraph>
-          </View>
-          <View style={styles.statItem}>
-            <Title style={styles.statNumber}>{filteredUsers.filter(u => u.role === 'reception').length}</Title>
-            <Paragraph style={styles.statLabel}>Reception</Paragraph>
           </View>
           <View style={styles.statItem}>
             <Title style={styles.statNumber}>{filteredUsers.filter(u => u.status === 'active').length}</Title>
@@ -536,6 +584,7 @@ function UserManagement() {
             { value: 'instructor', label: 'Instructors' },
             { value: 'reception', label: 'Reception' },
             { value: 'admin', label: 'Admins' },
+            { value: 'prospect', label: 'Prospects' },
           ]}
           style={styles.segmentedButtons}
         />
@@ -565,6 +614,14 @@ function UserManagement() {
                   >
                     {user.role}
                   </Chip>
+                  {isProspectClient(user) && (
+                    <Chip 
+                      style={[styles.roleChip, { backgroundColor: '#FF6B6B' }]}
+                      textStyle={styles.chipText}
+                    >
+                      PROSPECT
+                    </Chip>
+                  )}
                   <Chip 
                     style={[styles.statusChip, { backgroundColor: getStatusColor(user.status) }]}
                     textStyle={styles.chipText}
@@ -694,6 +751,17 @@ function UserManagement() {
                 >
                   Edit
                 </Button>
+                {isProspectClient(user) && (
+                  <Button
+                    mode="contained"
+                    onPress={() => handleConvertProspectToClient(user)}
+                    style={[styles.actionButton, { backgroundColor: '#FF6B6B' }]}
+                    icon="arrow-right"
+                    compact
+                  >
+                    Convert
+                  </Button>
+                )}
                 <IconButton
                   icon="email"
                   mode="outlined"

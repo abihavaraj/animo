@@ -23,8 +23,10 @@ import { Body, Caption, H2, H3 } from '../../../components/ui/Typography';
 import { Colors } from '../../../constants/Colors';
 import { layout, spacing } from '../../../constants/Spacing';
 import WebCompatibleIcon from '../../components/WebCompatibleIcon';
+import { activityService } from '../../services/activityService';
 import { bookingService } from '../../services/bookingService';
 import { BackendClass, classService, CreateClassRequest, UpdateClassRequest } from '../../services/classService';
+import { notificationService } from '../../services/notificationService';
 import { BackendUser, userService } from '../../services/userService';
 import { RootState } from '../../store';
 import { shadows } from '../../utils/shadows';
@@ -78,6 +80,18 @@ function PCClassManagement() {
   const [clientSearchQuery, setClientSearchQuery] = useState('');
   const [clientMenuVisible, setClientMenuVisible] = useState(false);
   
+  // Prospect client modal states
+  const [prospectClientModalVisible, setProspectClientModalVisible] = useState(false);
+  const [creatingProspectClient, setCreatingProspectClient] = useState(false);
+  const [prospectClientForm, setProspectClientForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    emergencyContact: '',
+    medicalConditions: '',
+    referralSource: ''
+  });
+  
   // Cancel booking modal states
   const [cancelBookingModalVisible, setCancelBookingModalVisible] = useState(false);
   const [selectedClassForCancellation, setSelectedClassForCancellation] = useState<BackendClass | null>(null);
@@ -85,6 +99,10 @@ function PCClassManagement() {
   const [cancelNotes, setCancelNotes] = useState('');
   const [cancellingBooking, setCancellingBooking] = useState(false);
   const [cancelBookingMenuVisible, setCancelBookingMenuVisible] = useState(false);
+  
+  // Unassign client modal states
+  const [unassignModalVisible, setUnassignModalVisible] = useState(false);
+  const [selectedClassForUnassign, setSelectedClassForUnassign] = useState<BackendClass | null>(null);
   
   // Error modal states
   const [errorModalVisible, setErrorModalVisible] = useState(false);
@@ -104,7 +122,7 @@ function PCClassManagement() {
     capacity: 10,
     equipment: '',
     description: '',
-    equipmentType: 'mat' as BackendClass['equipment_type'],
+    equipmentType: 'both' as BackendClass['equipment_type'],
     room: '' as 'Reformer Room' | 'Mat Room' | 'Cadillac Room' | 'Wall Room' | '',
     notes: '', // Add notes field
     visibility: 'public' as 'public' | 'private', // Add visibility field
@@ -126,6 +144,7 @@ function PCClassManagement() {
   useEffect(() => {
     generateMarkedDates();
   }, [classes, selectedDate, bookings]);
+
 
   // Check room availability when date, time, or room changes
   useEffect(() => {
@@ -219,12 +238,9 @@ function PCClassManagement() {
 
   const loadInstructors = async () => {
     try {
-      console.log('🎓 Loading instructors...');
       const response = await userService.getInstructors();
-      console.log('🎓 Instructors response:', response);
       if (response.success && response.data) {
         setInstructors(response.data);
-        console.log('🎓 Loaded instructors:', response.data.length, 'instructors:', response.data.map((i: any) => `${i.name} (ID: ${i.id})`));
       } else {
         console.error('❌ Failed to load instructors:', response.error);
         setInstructors([]);
@@ -252,7 +268,6 @@ function PCClassManagement() {
   const generateMarkedDates = useCallback(() => {
     const marked: any = {};
     
-    console.log(`🔍 [PCClassManagement] Generating marked dates for ${classes.length} classes`);
     
     // Group classes by date to handle multiple classes per date
     const classesByDate: { [date: string]: BackendClass[] } = {};
@@ -266,35 +281,25 @@ function PCClassManagement() {
 
     // Generate marked dates with proper multi-dot support
     Object.entries(classesByDate).forEach(([date, dateClasses]) => {
-      if (dateClasses.length === 1) {
-        // Single class - use simple dot
-        const color = getClassStatusColor(dateClasses[0]);
-        marked[date] = {
-          marked: true,
-          dotColor: color,
-          activeOpacity: 0.8
-        };
-        console.log(`🔍 [PCClassManagement] Added single dot for class "${dateClasses[0].name}" on ${date} with color ${color}`);
-      } else {
-        // Multiple classes - use multi-dot
-        const dots = dateClasses.map(classItem => ({
-          color: getClassStatusColor(classItem)
-        }));
-        marked[date] = {
-          dots: dots,
-          marked: true
-        };
-        console.log(`🔍 [PCClassManagement] Added ${dots.length} dots for ${dateClasses.length} classes on ${date}:`, 
-          dateClasses.map(c => `"${c.name}"`).join(', '));
-      }
+      // Always use dots array for consistency with markingType="multi-dot"
+      const dots = dateClasses.map(classItem => ({
+        color: getClassStatusColor(classItem)
+      }));
+      marked[date] = {
+        dots: dots,
+        marked: true
+      };
     });
 
     // Highlight selected date
     if (selectedDate) {
       if (!marked[selectedDate]) {
-        marked[selectedDate] = { marked: true };
+        marked[selectedDate] = { dots: [], marked: true };
       }
-      // Preserve existing dots/dotColor when selecting
+      if (!marked[selectedDate].dots) {
+        marked[selectedDate].dots = [];
+      }
+      // Preserve existing dots when selecting
       marked[selectedDate] = {
         ...marked[selectedDate],
         selected: true,
@@ -302,7 +307,6 @@ function PCClassManagement() {
       };
     }
 
-    console.log(`🔍 [PCClassManagement] Final marked dates:`, JSON.stringify(marked, null, 2));
     setMarkedDates(marked);
   }, [classes, selectedDate, bookings]);
 
@@ -335,7 +339,7 @@ function PCClassManagement() {
       capacity: 10,
       equipment: '',
       description: '',
-      equipmentType: 'mat' as 'mat' | 'reformer' | 'both',
+      equipmentType: 'both' as 'mat' | 'reformer' | 'both',
       room: '' as 'Reformer Room' | 'Mat Room' | 'Cadillac Room' | 'Wall Room' | '',
       notes: '', // Initialize notes
       visibility: 'public' as 'public' | 'private', // Initialize visibility
@@ -456,6 +460,81 @@ function PCClassManagement() {
 
         const response = await classService.updateClass(editingClass.id, updateData);
         if (response.success) {
+          // Check for changes that require notifications
+          const instructorChanged = String(editingClass.instructor_id) !== formData.instructorId;
+          const timeChanged = editingClass.time !== formData.time;
+          
+          // Send notifications for significant changes
+          try {
+            if (instructorChanged) {
+              const oldInstructorName = editingClass.instructor_name || 'Previous Instructor';
+              const newInstructorName = formData.instructorName || 'New Instructor';
+              
+              await notificationService.sendInstructorChangeNotifications(
+                editingClass.id,
+                formData.name,
+                formData.date,
+                oldInstructorName,
+                newInstructorName
+              );
+              console.log('📢 [RECEPTION] Instructor change notification sent for class:', formData.name);
+            }
+            
+            if (timeChanged) {
+              await notificationService.sendClassTimeChangeNotifications(
+                editingClass.id,
+                formData.name,
+                formData.date,
+                editingClass.time,
+                formData.time
+              );
+              console.log('📢 [RECEPTION] Time change notification sent for class:', formData.name);
+            }
+          } catch (notificationError) {
+            console.error('❌ Failed to send change notifications:', notificationError);
+            // Don't block the main operation for notification errors
+          }
+
+          // Log activity for class update
+          if (user) {
+            await activityService.logActivity({
+              staff_id: user.id,
+              staff_name: user.name,
+              staff_role: user.role as 'reception' | 'instructor' | 'admin',
+              activity_type: 'class_updated',
+              activity_description: `Updated class "${formData.name}"`,
+              metadata: {
+                classId: editingClass.id,
+                className: formData.name,
+                instructor: formData.instructorName,
+                date: formData.date,
+                time: formData.time,
+                duration: formData.duration,
+                category: formData.category,
+                capacity: formData.capacity,
+                room: formData.room,
+                equipmentType: formData.equipmentType,
+                visibility: formData.visibility,
+                changes: {
+                  from: {
+                    name: editingClass.name,
+                    instructor: editingClass.instructor_name,
+                    date: editingClass.date,
+                    time: editingClass.time,
+                    duration: editingClass.duration
+                  },
+                  to: {
+                    name: formData.name,
+                    instructor: formData.instructorName,
+                    date: formData.date,
+                    time: formData.time,
+                    duration: formData.duration
+                  }
+                }
+              }
+            });
+          }
+
           Alert.alert('Success', 'Class updated successfully');
           await loadClasses();
         } else {
@@ -504,6 +583,31 @@ function PCClassManagement() {
         console.log('🚀 Sending to API - createData:', JSON.stringify(createData, null, 2));
         const response = await classService.createClass(createData);
         if (response.success) {
+          // Log activity for class creation
+          if (user) {
+            await activityService.logActivity({
+              staff_id: user.id,
+              staff_name: user.name,
+              staff_role: user.role as 'reception' | 'instructor' | 'admin',
+              activity_type: 'class_created',
+              activity_description: `Created new class "${formData.name}"`,
+              metadata: {
+                classId: response.data?.id,
+                className: formData.name,
+                instructor: formData.instructorName,
+                date: formData.date,
+                time: formData.time,
+                duration: formData.duration,
+                category: formData.category,
+                capacity: formData.capacity,
+                room: formData.room,
+                equipmentType: formData.equipmentType,
+                visibility: formData.visibility,
+                equipment: equipmentArray
+              }
+            });
+          }
+
           Alert.alert('Success', 'Class created successfully');
           await loadClasses();
         } else {
@@ -635,10 +739,11 @@ function PCClassManagement() {
         <View style={styles.calendarClassesSection}>
           <View style={[styles.calendarDayHeader, {marginBottom: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: Colors.light.border}]}>
             <Body style={{...styles.calendarDayTitle, fontWeight: '600', fontSize: 16}}>
-              {new Date(selectedDate).toLocaleDateString('en-US', { 
+              {new Date(selectedDate).toLocaleDateString('sq-AL', { 
                 weekday: 'long', 
                 month: 'short', 
-                day: 'numeric' 
+                day: 'numeric',
+                timeZone: 'Europe/Tirane'
               }) + ' (' + dayClasses.length + ' ' + (dayClasses.length === 1 ? 'class' : 'classes') + ')'}
             </Body>
             <Button
@@ -750,10 +855,11 @@ function PCClassManagement() {
       <View style={styles.dayClassesSection}>
         <View style={styles.dayHeader}>
           <H2 style={styles.dayTitle}>
-            {new Date(selectedDate).toLocaleDateString('en-US', { 
+            {new Date(selectedDate).toLocaleDateString('sq-AL', { 
               weekday: 'long', 
               month: 'long', 
-              day: 'numeric' 
+              day: 'numeric',
+              timeZone: 'Europe/Tirane' 
             })}
           </H2>
           <Button
@@ -844,35 +950,7 @@ function PCClassManagement() {
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={styles.actionButton}
-                          onPress={() => {
-                            const classBookings = getBookingsForClass(classItem.id);
-                            console.log('🔍 Found class bookings:', classBookings);
-                            if (classBookings.length > 0) {
-                              const confirmedBookings = classBookings.filter(b => b.status === 'confirmed');
-                              console.log('🔍 Confirmed bookings:', confirmedBookings);
-                              
-                              if (confirmedBookings.length > 0) {
-                                if (confirmedBookings.length === 1) {
-                                  handleCancelBooking(classItem, confirmedBookings[0]);
-                                } else {
-                                  // Multiple bookings - show names and let user confirm
-                                  const bookingNames = confirmedBookings.map(b => b.users?.name || 'Unknown').join(', ');
-                                  Alert.alert(
-                                    'Multiple Bookings Found', 
-                                    `This class has ${confirmedBookings.length} bookings: ${bookingNames}. This will cancel the first booking.`,
-                                    [
-                                      { text: 'Cancel', style: 'cancel' },
-                                      { text: 'Continue', onPress: () => handleCancelBooking(classItem, confirmedBookings[0]) }
-                                    ]
-                                  );
-                                }
-                              } else {
-                                Alert.alert('No Active Bookings', 'This class has no confirmed bookings to cancel.');
-                              }
-                            } else {
-                              Alert.alert('No Bookings', 'This class has no bookings to cancel.');
-                            }
-                          }}
+                          onPress={() => handleUnassignClient(classItem)}
                         >
                           <WebCompatibleIcon name="account-remove" size={20} color={Colors.light.warning} />
                         </TouchableOpacity>
@@ -997,14 +1075,7 @@ function PCClassManagement() {
                       icon="account-remove"
                       size={16}
                       iconColor={Colors.light.warning}
-                      onPress={() => {
-                        const classBookings = getBookingsForClass(classItem.id);
-                        if (classBookings.length > 0) {
-                          handleCancelBooking(classItem, classBookings[0]);
-                        } else {
-                          Alert.alert('No Bookings', 'This class has no confirmed bookings to cancel.');
-                        }
-                      }}
+                      onPress={() => handleUnassignClient(classItem)}
                     />
                     <IconButton
                       icon="pencil"
@@ -1108,17 +1179,20 @@ function PCClassManagement() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    return new Date(dateString).toLocaleDateString('sq-AL', {
       year: 'numeric',
       month: 'short',
-      day: 'numeric'
+      day: 'numeric',
+      timeZone: 'Europe/Tirane' // Albania timezone
     });
   };
 
   const formatTime = (timeString: string) => {
-    return new Date(`2000-01-01T${timeString}`).toLocaleTimeString('en-US', {
+    return new Date(`2000-01-01T${timeString}`).toLocaleTimeString('sq-AL', {
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+      hour12: false, // Use 24-hour format for Albanian
+      timeZone: 'Europe/Tirane'
     });
   };
 
@@ -1127,14 +1201,14 @@ function PCClassManagement() {
       // Create a Date object from the full timestamp
       const date = new Date(timestamp);
       
-      // Format for Albania timezone (CET/CEST - UTC+1/UTC+2)
-      return date.toLocaleString('en-US', {
+      // Format for Albania timezone (CET/CEST - UTC+1/UTC+2) in Albanian format
+      return date.toLocaleString('sq-AL', {
         year: 'numeric',
         month: 'short',
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
-        hour12: true,
+        hour12: false, // Use 24-hour format for Albanian
         timeZone: 'Europe/Tirane' // Albania timezone
       });
     } catch (error) {
@@ -1151,9 +1225,39 @@ function PCClassManagement() {
   const handleUpdateBookingStatus = async (bookingId: number, newStatus: string) => {
     try {
       setUpdatingBooking(bookingId);
+      
+      // Get booking details before update for activity logging
+      const booking = bookings.find(b => b.id === bookingId);
+      const oldStatus = booking?.status;
+      
       const response = await bookingService.updateBookingStatus(bookingId, newStatus);
       
       if (response.success) {
+        // Log activity for booking status change
+        if (user && booking) {
+          const classInfo = classes.find(c => c.id === booking.class_id);
+          await activityService.logActivity({
+            staff_id: user.id,
+            staff_name: user.name,
+            staff_role: user.role as 'reception' | 'instructor' | 'admin',
+            activity_type: 'booking_status_changed',
+            activity_description: `Changed booking status from "${oldStatus}" to "${newStatus}"`,
+            client_id: String(booking.user_id),
+            client_name: booking.client_name || booking.user_name || 'Unknown Client',
+            metadata: {
+              bookingId: bookingId,
+              classId: booking.class_id,
+              className: classInfo?.name || 'Unknown Class',
+              classDate: classInfo?.date,
+              classTime: classInfo?.time,
+              instructor: classInfo?.instructor_name,
+              oldStatus: oldStatus,
+              newStatus: newStatus,
+              changeReason: 'Manual status update by staff'
+            }
+          });
+        }
+
         // Refresh bookings to show updated status
         await loadBookings();
         setBookingStatusMenuVisible(null);
@@ -1268,6 +1372,66 @@ function PCClassManagement() {
     }
   };
 
+  const handleCreateProspectClient = async () => {
+    if (!prospectClientForm.name.trim()) {
+      showErrorModal('Error', 'Please provide name for the prospect client');
+      return;
+    }
+
+    try {
+      setCreatingProspectClient(true);
+      
+      // Create prospect client with temporary password and client role (since prospect isn't in DB constraint yet)
+      const tempPassword = Math.random().toString(36).slice(-8);
+      const userData = {
+        name: prospectClientForm.name.trim(),
+        email: prospectClientForm.email.trim() || `prospect_${Date.now()}@temp.local`,
+        password: tempPassword,
+        phone: prospectClientForm.phone.trim() || undefined,
+        role: 'client' as const, // Use client role for now until DB constraint is updated
+        emergency_contact: prospectClientForm.emergencyContact.trim() || undefined,
+        medical_conditions: prospectClientForm.medicalConditions.trim() || undefined,
+        referral_source: prospectClientForm.referralSource.trim() || 'Prospect Client'
+      };
+
+      const response = await userService.createUser(userData);
+      
+      if (response.success && response.data) {
+        // Auto-assign the prospect client to the selected class
+        const assignResponse = await bookingService.assignClientToClass(
+          response.data.id,
+          selectedClassForAssignment!.id,
+          'Free trial class for prospect client',
+          true // Override restrictions for prospect clients
+        );
+
+        if (assignResponse.success) {
+          showErrorModal('Success', `Prospect client "${prospectClientForm.name}" created and assigned to class successfully! (Note: Created as regular client - free trial class assigned)`);
+          setProspectClientModalVisible(false);
+          setProspectClientForm({
+            name: '',
+            email: '',
+            phone: '',
+            emergencyContact: '',
+            medicalConditions: '',
+            referralSource: ''
+          });
+          await loadClasses(); // Refresh classes to show updated enrollment
+          await loadBookings(); // Refresh bookings
+        } else {
+          showErrorModal('Partial Success', `Prospect client created but failed to assign to class: ${assignResponse.error}`);
+        }
+      } else {
+        showErrorModal('Error', response.error || 'Failed to create prospect client');
+      }
+    } catch (error) {
+      console.error('Error creating prospect client:', error);
+      showErrorModal('Error', 'Failed to create prospect client');
+    } finally {
+      setCreatingProspectClient(false);
+    }
+  };
+
   const handleAssignClientToClass = async () => {
     console.log('🎯 handleAssignClientToClass called');
     console.log('🎯 selectedClient:', selectedClient);
@@ -1293,6 +1457,64 @@ function PCClassManagement() {
 
       if (response.success) {
         console.log('✅ Assignment successful');
+        
+        // Send class assignment notification to the client
+        try {
+          const notificationResult = await notificationService.createTranslatedNotification(
+            selectedClient.id,
+            'class_assignment',
+            {
+              type: 'class_assignment',
+              className: selectedClassForAssignment.name,
+              instructorName: selectedClassForAssignment.instructor_name,
+              date: new Date(selectedClassForAssignment.date).toLocaleDateString(),
+              time: selectedClassForAssignment.time
+            }
+          );
+
+          // Also send push notification to user's mobile device
+          if (notificationResult.success && notificationResult.data) {
+            await notificationService.sendPushNotificationToUser(
+              selectedClient.id,
+              notificationResult.data.title,
+              notificationResult.data.message
+            );
+          }
+
+          console.log('📢 [RECEPTION] Class assignment notification sent to client:', selectedClient.name);
+        } catch (notificationError) {
+          console.error('❌ Failed to send class assignment notification:', notificationError);
+          // Don't block the main operation for notification errors
+        }
+        
+        // Log activity for client assignment to class
+        if (user) {
+          await activityService.logActivity({
+            staff_id: user.id,
+            staff_name: user.name,
+            staff_role: user.role as 'reception' | 'instructor' | 'admin',
+            activity_type: overrideRestrictions ? 'client_assigned_with_override' : 'client_assigned_to_class',
+            activity_description: overrideRestrictions 
+              ? `Assigned ${selectedClient.name} to "${selectedClassForAssignment.name}" with override rules`
+              : `Assigned ${selectedClient.name} to "${selectedClassForAssignment.name}"`,
+            client_id: String(selectedClient.id),
+            client_name: selectedClient.name,
+            metadata: {
+              classId: selectedClassForAssignment.id,
+              className: selectedClassForAssignment.name,
+              classDate: selectedClassForAssignment.date,
+              classTime: selectedClassForAssignment.time,
+              instructor: selectedClassForAssignment.instructor_name,
+              category: selectedClassForAssignment.category,
+              overrideUsed: overrideRestrictions,
+              notes: assignNotes || null,
+              clientEmail: selectedClient.email,
+              clientRole: selectedClient.role,
+              bookingId: response.data?.id
+            }
+          });
+        }
+        
         const successMessage = overrideRestrictions 
           ? 'Client assigned successfully (restrictions overridden)' 
           : 'Client assigned successfully and 1 class deducted from subscription';
@@ -1314,20 +1536,13 @@ function PCClassManagement() {
           fullError: response.error
         });
         
-        // Check if it's a capacity error and offer override option
-        if (response.error?.includes('Class is full') && !overrideRestrictions) {
+        // Check if it's a capacity error - no override option for capacity limits
+        if (response.error?.includes('full capacity')) {
           showErrorModal(
             'Class Full',
-            `${response.error}\n\nWould you like to enable override to force this assignment?`,
+            response.error,
             [
-              { text: 'Cancel', onPress: () => setErrorModalVisible(false), style: 'cancel' },
-              { 
-                text: 'Enable Override', 
-                onPress: () => {
-                  setOverrideRestrictions(true);
-                  setErrorModalVisible(false);
-                }
-              }
+              { text: 'OK', onPress: () => setErrorModalVisible(false) }
             ]
           );
         } else if ((response.error?.includes('subscription') || response.error?.includes('active subscription')) && !overrideRestrictions) {
@@ -1404,13 +1619,21 @@ function PCClassManagement() {
 
       if (response.success) {
         console.log('✅ Cancellation successful');
-        Alert.alert('Success', 'Booking cancelled successfully');
+        const waitlistPromoted = response.data?.waitlistPromoted;
+        const successMessage = waitlistPromoted 
+          ? 'Booking cancelled successfully and next person on waitlist has been promoted!'
+          : 'Booking cancelled successfully';
+        Alert.alert('Success', successMessage);
         setCancelBookingModalVisible(false);
         setCancelBookingMenuVisible(false); // Reset menu state
         setSelectedClassForCancellation(null);
         setSelectedBookingForCancellation(null);
         await loadClasses(); // Refresh classes to show updated enrollment
         await loadBookings(); // Refresh bookings
+        // Reopen bookings modal to show updated list
+        setTimeout(() => {
+          setBookingsModalVisible(true);
+        }, 500);
       } else {
         console.log('❌ Cancellation failed:', response.error);
         Alert.alert('Error', response.error || 'Failed to cancel booking');
@@ -1420,6 +1643,251 @@ function PCClassManagement() {
       Alert.alert('Error', 'Failed to cancel booking');
     } finally {
       setCancellingBooking(false);
+    }
+  };
+
+  const handleRemoveClientFromClass = async (booking: any) => {
+    console.log('🗑️ handleRemoveClientFromClass called');
+    console.log('🗑️ booking:', booking);
+    console.log('🗑️ selectedClassForBookings:', selectedClassForBookings);
+    
+    if (!booking || !selectedClassForBookings) {
+      console.log('❌ Missing booking or selectedClassForBookings');
+      Alert.alert('Error', 'Please select a booking to remove');
+      return;
+    }
+
+    // Show confirmation dialog
+    const clientName = booking.users?.name || booking.client_name || booking.user_name || 'Unknown Client';
+    const className = selectedClassForBookings.name;
+    
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm(`Are you sure you want to completely remove ${clientName} from ${className}? This will permanently delete their booking and restore their class credit if applicable.`);
+      if (!confirmed) return;
+    } else {
+      Alert.alert(
+        'Remove Client',
+        `Are you sure you want to completely remove ${clientName} from ${className}? This will permanently delete their booking and restore their class credit if applicable.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Remove', 
+            style: 'destructive',
+            onPress: () => performRemoveClient(booking)
+          }
+        ]
+      );
+      return;
+    }
+    
+    performRemoveClient(booking);
+  };
+
+  const performRemoveClient = async (booking: any) => {
+    try {
+      console.log('🚀 Starting client removal...');
+      setUpdatingBooking(booking.id);
+      const response = await bookingService.removeClientBooking(
+        booking.user_id,
+        selectedClassForBookings!.id
+      );
+
+      console.log('📝 Removal response:', response);
+
+      if (response.success) {
+        console.log('✅ Client removal successful');
+        const waitlistPromoted = response.data?.waitlistPromoted;
+        const successMessage = waitlistPromoted 
+          ? 'Client removed successfully, credit restored, and next person on waitlist has been promoted!'
+          : 'Client removed successfully and class credit restored';
+        
+        if (Platform.OS === 'web') {
+          window.alert(successMessage);
+        } else {
+          Alert.alert('Success', successMessage);
+        }
+        
+        setBookingStatusMenuVisible(null); // Close any open menus
+        await loadClasses(); // Refresh classes to show updated enrollment
+        await loadBookings(); // Refresh bookings
+      } else {
+        console.log('❌ Client removal failed:', response.error);
+        const errorMsg = response.error || 'Failed to remove client';
+        if (Platform.OS === 'web') {
+          window.alert('Error: ' + errorMsg);
+        } else {
+          Alert.alert('Error', errorMsg);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error removing client:', error);
+      const errorMsg = 'Failed to remove client from class';
+      if (Platform.OS === 'web') {
+        window.alert('Error: ' + errorMsg);
+      } else {
+        Alert.alert('Error', errorMsg);
+      }
+    } finally {
+      setUpdatingBooking(null);
+    }
+  };
+
+  const handleUnassignClient = async (classItem: BackendClass) => {
+    console.log('🔄 handleUnassignClient called for class:', classItem.name);
+    
+    try {
+      // Get bookings for this class to find confirmed clients
+      const classBookings = getBookingsForClass(classItem.id);
+      console.log('📋 Found bookings for class:', classBookings.length);
+      
+      if (classBookings.length === 0) {
+        const message = 'No clients are assigned to this class.';
+        if (Platform.OS === 'web') {
+          window.alert(message);
+        } else {
+          Alert.alert('No Clients', message);
+        }
+        return;
+      }
+
+      // Filter only confirmed bookings (excluding cancelled, waitlist, etc.)
+      const confirmedBookings = classBookings.filter(booking => booking.status === 'confirmed');
+      
+      if (confirmedBookings.length === 0) {
+        const message = 'No confirmed clients found to unassign from this class.';
+        if (Platform.OS === 'web') {
+          window.alert(message);
+        } else {
+          Alert.alert('No Confirmed Clients', message);
+        }
+        return;
+      }
+
+      // Always open unassign modal for client selection and action
+      setSelectedClassForUnassign(classItem);
+      setUnassignModalVisible(true);
+    } catch (error) {
+      console.error('❌ Error in handleUnassignClient:', error);
+      const errorMsg = 'Failed to unassign client';
+      if (Platform.OS === 'web') {
+        window.alert('Error: ' + errorMsg);
+      } else {
+        Alert.alert('Error', errorMsg);
+      }
+    }
+  };
+
+  const performUnassignClient = async (booking: any, classItem: BackendClass) => {
+    try {
+      const clientName = booking.users?.name || booking.client_name || booking.user_name || 'Unknown Client';
+      
+      setUpdatingBooking(booking.id);
+      
+      // Use cancelClientBooking which handles refunds intelligently
+      // It will refund ONLY if the client was actually charged for the class
+      const response = await bookingService.cancelClientBooking(
+        booking.user_id,
+        classItem.id
+      );
+
+      if (response.success) {
+        
+        // Cancel any class reminders for this user
+        try {
+          const pushNotificationService = (await import('../../services/pushNotificationService')).pushNotificationService;
+          await pushNotificationService.cancelClassReminder(
+            booking.user_id, 
+            booking.class_id || classItem.id
+          );
+        } catch (reminderError) {
+          // Don't fail the operation if reminder cancellation fails
+        }
+        
+        // Log activity for client unassignment from class
+        if (user) {
+          await activityService.logActivity({
+            staff_id: user.id,
+            staff_name: user.name,
+            staff_role: user.role as 'reception' | 'instructor' | 'admin',
+            activity_type: 'client_unassigned_from_class',
+            activity_description: `Removed ${clientName} from "${classItem.name}"`,
+            client_id: String(booking.user_id),
+            client_name: clientName,
+            metadata: {
+              classId: classItem.id,
+              className: classItem.name,
+              classDate: classItem.date,
+              classTime: classItem.time,
+              instructor: classItem.instructor_name,
+              category: classItem.category,
+              bookingId: booking.id,
+              bookingStatus: booking.status,
+              creditRestored: response.data?.creditRestored || false,
+              waitlistPromoted: response.data?.waitlistPromoted || false,
+              promotedClient: response.data?.promotedClientName || null,
+              reason: 'Manual unassignment by staff'
+            }
+          });
+        }
+        
+        // Send notification to the removed client
+        try {
+          const staffName = user?.name || 'Studio Staff';
+          const notificationResult = await notificationService.createTranslatedNotification(
+            booking.user_id,
+            'class_assignment_cancelled',
+            {
+              type: 'class_assignment_cancelled',
+              className: classItem.name,
+              date: classItem.date,
+              time: classItem.time,
+              staffName: staffName,
+              creditRestored: response.data?.creditRestored || false
+            }
+          );
+          
+          // Send push notification for immediate delivery
+          if (notificationResult.success && notificationResult.data) {
+            await notificationService.sendPushNotificationToUser(
+              booking.user_id,
+              notificationResult.data.title,
+              notificationResult.data.message
+            );
+          }
+        } catch (notificationError) {
+          // Don't fail the operation if notification fails
+        }
+        
+        const waitlistPromoted = response.data?.waitlistPromoted;
+        const successMessage = waitlistPromoted 
+          ? `${clientName} unassigned successfully and next person on waitlist has been promoted!`
+          : `${clientName} unassigned successfully. Class credit restored if applicable.`;
+        
+        if (Platform.OS === 'web') {
+          window.alert(successMessage);
+        } else {
+          Alert.alert('Success', successMessage);
+        }
+        
+        await loadClasses(); // Refresh classes to show updated enrollment
+        await loadBookings(); // Refresh bookings
+        } else {
+          const errorMsg = response.error || 'Failed to unassign client';
+          if (Platform.OS === 'web') {
+            window.alert('Error: ' + errorMsg);
+          } else {
+            Alert.alert('Error', errorMsg);
+          }
+        }
+      } catch (error) {
+        const errorMsg = 'Failed to unassign client from class';
+        if (Platform.OS === 'web') {
+          window.alert('Error: ' + errorMsg);
+        } else {
+          Alert.alert('Error', errorMsg);
+        }
+      } finally {
+      setUpdatingBooking(null);
     }
   };
 
@@ -1455,6 +1923,9 @@ function PCClassManagement() {
   const performDeleteClass = async (classId: string) => {
     console.log('🗑️ Delete confirmed for class ID:', classId);
     
+    // Get class details before deletion for activity logging
+    const classToDelete = classes.find(cls => cls.id.toString() === classId);
+    
     // Debug authentication
     console.log('🔍 Current user:', user);
     console.log('🔍 User role:', user?.role);
@@ -1465,6 +1936,38 @@ function PCClassManagement() {
       const response = await classService.deleteClass(classId);
       console.log('🗑️ Delete response:', response);
       if (response.success) {
+        // Log activity for class deletion
+        if (user && classToDelete) {
+          await activityService.logActivity({
+            staff_id: user.id,
+            staff_name: user.name,
+            staff_role: user.role as 'reception' | 'instructor' | 'admin',
+            activity_type: 'class_deleted',
+            activity_description: `Deleted class "${classToDelete.name}"`,
+            metadata: {
+              classId: classToDelete.id,
+              className: classToDelete.name,
+              instructor: classToDelete.instructor_name,
+              date: classToDelete.date,
+              time: classToDelete.time,
+              duration: classToDelete.duration,
+              category: classToDelete.category,
+              capacity: classToDelete.capacity,
+              room: classToDelete.room,
+              equipmentType: classToDelete.equipment_type,
+              status: classToDelete.status
+            }
+          });
+        }
+        // Cancel any scheduled reminder notifications for this class
+        try {
+          await notificationService.cancelClassNotifications(Number(classId));
+          console.log('✅ Class reminder notifications cancelled for deleted class');
+        } catch (notificationError) {
+          console.error('❌ Failed to cancel class notifications:', notificationError);
+          // Don't block the deletion for notification errors
+        }
+        
         console.log('🗑️ Delete successful, reloading classes...');
         await loadClasses();
         // Show the detailed message including refund info
@@ -1671,14 +2174,12 @@ function PCClassManagement() {
                         <Menu.Item
                           key={instructor.id}
                           onPress={() => {
-                            console.log('🎓 Instructor selected:', instructor.name, 'ID:', instructor.id);
                             setFormData({
                               ...formData, 
                               instructorId: instructorId,
                               instructorName: instructor.name
                             });
                             setInstructorMenuVisible(false);
-                            console.log('🎓 Form data updated - instructorId:', instructorId, 'instructorName:', instructor.name);
                           }}
                           title={instructor.name + (isChecking ? ' (Checking...)' : !isAvailable ? ' (Busy ' + (conflictClass?.time || '') + ')' : ' (Available)')}
                           leadingIcon="person"
@@ -1743,9 +2244,7 @@ function PCClassManagement() {
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.timePickerScroll}>
                     <View style={styles.timePickerContainer}>
                       {[
-                        '06:00', '07:00', '08:00', '09:00', '10:00', '11:00',
-                        '12:00', '13:00', '14:00', '15:00', '16:00', '17:00',
-                        '18:00', '19:00', '20:00', '21:00'
+                        '08:00', '09:00', '18:00', '20:00'
                       ].map((time) => (
                         <Pressable
                           key={time}
@@ -1847,7 +2346,21 @@ function PCClassManagement() {
                 <Caption style={styles.pickerLabel}>Room *</Caption>
                 <SegmentedButtons
                   value={formData.room}
-                  onValueChange={(value) => setFormData({...formData, room: value as 'Reformer Room' | 'Mat Room' | 'Cadillac Room' | 'Wall Room'})}
+                  onValueChange={(value) => {
+                    const newRoom = value as 'Reformer Room' | 'Mat Room' | 'Cadillac Room' | 'Wall Room';
+                    // Set default capacity based on room selection
+                    let defaultCapacity = 10; // Default for other rooms
+                    if (newRoom === 'Reformer Room') {
+                      defaultCapacity = 8;
+                    } else if (newRoom === 'Mat Room') {
+                      defaultCapacity = 10;
+                    }
+                    setFormData({
+                      ...formData, 
+                      room: newRoom,
+                      capacity: defaultCapacity
+                    });
+                  }}
                   buttons={[
                     { value: 'Reformer Room', label: 'Reformer' },
                     { value: 'Mat Room', label: 'Mat' },
@@ -2007,45 +2520,13 @@ function PCClassManagement() {
                               </Body>
                             </View>
                             <View style={styles.bookingStatusContainer}>
-                              <Menu
-                                visible={bookingStatusMenuVisible === booking.id}
-                                onDismiss={() => setBookingStatusMenuVisible(null)}
-                                anchor={
-                                  <Pressable 
-                                    onPress={() => setBookingStatusMenuVisible(booking.id)}
-                                    style={styles.statusButton}
-                                  >
                                     <Chip
                                       style={[styles.bookingStatusChip, { backgroundColor: getStatusColor(booking.status) }]}
                                       textStyle={styles.chipText}
-                                      compact
+                                compact={false}
                                     >
                                       {updatingBooking === booking.id ? 'Updating...' : booking.status}
                                     </Chip>
-                                  </Pressable>
-                                }
-                              >
-                                <Menu.Item
-                                  onPress={() => handleUpdateBookingStatus(booking.id, 'confirmed')}
-                                  title="Confirm"
-                                  leadingIcon="check"
-                                />
-                                <Menu.Item
-                                  onPress={() => handleUpdateBookingStatus(booking.id, 'pending')}
-                                  title="Pending"
-                                  leadingIcon="access-time"
-                                />
-                                <Menu.Item
-                                  onPress={() => handleUpdateBookingStatus(booking.id, 'waitlist')}
-                                  title="Waitlist"
-                                  leadingIcon="schedule"
-                                />
-                                <Menu.Item
-                                  onPress={() => handleUpdateBookingStatus(booking.id, 'cancelled')}
-                                  title="Cancel"
-                                  leadingIcon="close"
-                                />
-                              </Menu>
                             </View>
                           </View>
                           <View style={styles.bookingDetails}>
@@ -2204,7 +2685,20 @@ function PCClassManagement() {
             
             <ScrollView style={styles.modalContent}>
               <View style={styles.pickerContainer}>
-                <Caption style={styles.pickerLabel}>Search and Select Client *</Caption>
+                <View style={styles.pickerHeader}>
+                  <Caption style={styles.pickerLabel}>Search and Select Client *</Caption>
+                  <Button
+                    mode="outlined"
+                    compact
+                    icon="account-plus"
+                    onPress={() => setProspectClientModalVisible(true)}
+                    style={styles.addProspectButton}
+                    buttonColor={Colors.light.success}
+                    textColor={Colors.light.surface}
+                  >
+                    Add Prospect
+                  </Button>
+                </View>
                 <Searchbar
                   placeholder="Search client by name or email..."
                   onChangeText={setClientSearchQuery}
@@ -2273,10 +2767,10 @@ function PCClassManagement() {
                       trackColor={{ false: Colors.light.border, true: Colors.light.secondary }}
                     />
                     <View style={{flex: 1}}>
-                      <Body style={styles.switchLabel}>Override client&apos;s booking restrictions</Body>
+                      <Body style={styles.switchLabel}>Override client&apos;s subscription restrictions</Body>
                       <Caption style={{color: Colors.light.textSecondary, marginTop: 4}}>
                         {overrideRestrictions 
-                          ? 'ON: Assign without checking subscription or class limits' 
+                          ? 'ON: Assign without checking subscription status (class capacity still enforced)' 
                           : 'OFF: Check subscription and deduct 1 class when assigned'}
                       </Caption>
                     </View>
@@ -2305,6 +2799,142 @@ function PCClassManagement() {
                 buttonColor={Colors.light.primary}
               >
                 Assign Client
+              </Button>
+            </View>
+          </Surface>
+        </Modal>
+      </Portal>
+
+      {/* Prospect Client Creation Modal */}
+      <Portal>
+        <Modal 
+          visible={prospectClientModalVisible} 
+          onDismiss={() => {
+            setProspectClientModalVisible(false);
+            setProspectClientForm({
+              name: '',
+              email: '',
+              phone: '',
+              emergencyContact: '',
+              medicalConditions: '',
+              referralSource: ''
+            });
+          }}
+          contentContainerStyle={styles.modalContainer}
+        >
+          <Surface style={styles.modalSurface}>
+            <H2 style={styles.modalTitle}>Add Prospect Client</H2>
+            <Caption style={styles.modalSubtitle}>
+              Create a new prospect client and assign them to "{selectedClassForAssignment?.name}" for a free trial class (temporarily created as regular client)
+            </Caption>
+            
+            <ScrollView style={styles.modalContent}>
+              <View style={styles.formRow}>
+                <TextInput
+                  label="Full Name *"
+                  value={prospectClientForm.name}
+                  onChangeText={(text) => setProspectClientForm(prev => ({ ...prev, name: text }))}
+                  mode="outlined"
+                  style={styles.input}
+                  placeholder="Enter full name"
+                />
+              </View>
+
+              <View style={styles.formRow}>
+                <TextInput
+                  label="Email Address"
+                  value={prospectClientForm.email}
+                  onChangeText={(text) => setProspectClientForm(prev => ({ ...prev, email: text }))}
+                  mode="outlined"
+                  style={styles.input}
+                  placeholder="Enter email address (optional)"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
+
+              <View style={styles.formRow}>
+                <TextInput
+                  label="Phone Number"
+                  value={prospectClientForm.phone}
+                  onChangeText={(text) => setProspectClientForm(prev => ({ ...prev, phone: text }))}
+                  mode="outlined"
+                  style={styles.input}
+                  placeholder="Enter phone number"
+                  keyboardType="phone-pad"
+                />
+              </View>
+
+              <View style={styles.formRow}>
+                <TextInput
+                  label="Emergency Contact"
+                  value={prospectClientForm.emergencyContact}
+                  onChangeText={(text) => setProspectClientForm(prev => ({ ...prev, emergencyContact: text }))}
+                  mode="outlined"
+                  style={styles.input}
+                  placeholder="Emergency contact name and phone"
+                />
+              </View>
+
+              <View style={styles.formRow}>
+                <TextInput
+                  label="Medical Conditions"
+                  value={prospectClientForm.medicalConditions}
+                  onChangeText={(text) => setProspectClientForm(prev => ({ ...prev, medicalConditions: text }))}
+                  mode="outlined"
+                  style={styles.input}
+                  placeholder="Any medical conditions or injuries"
+                  multiline
+                  numberOfLines={2}
+                />
+              </View>
+
+              <View style={styles.formRow}>
+                <TextInput
+                  label="Referral Source"
+                  value={prospectClientForm.referralSource}
+                  onChangeText={(text) => setProspectClientForm(prev => ({ ...prev, referralSource: text }))}
+                  mode="outlined"
+                  style={styles.input}
+                  placeholder="How did they hear about us?"
+                />
+              </View>
+
+              <View style={styles.infoBox}>
+                <Icon source="information" size={20} color={Colors.light.primary} />
+                <Caption style={styles.infoText}>
+                  This prospect client will be created as a regular client and assigned to the selected class with override enabled for a free trial session.
+                </Caption>
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <Button
+                mode="outlined"
+                onPress={() => {
+                  setProspectClientModalVisible(false);
+                  setProspectClientForm({
+                    name: '',
+                    email: '',
+                    phone: '',
+                    emergencyContact: '',
+                    medicalConditions: '',
+                    referralSource: ''
+                  });
+                }}
+                style={styles.modalActionButton}
+              >
+                Cancel
+              </Button>
+              <Button
+                mode="contained"
+                onPress={handleCreateProspectClient}
+                loading={creatingProspectClient}
+                disabled={!prospectClientForm.name.trim() || creatingProspectClient}
+                style={styles.modalActionButton}
+                buttonColor={Colors.light.success}
+              >
+                Create & Assign
               </Button>
             </View>
           </Surface>
@@ -2440,6 +3070,131 @@ function PCClassManagement() {
                   {action.text}
                 </Button>
               ))}
+            </View>
+          </Surface>
+        </Modal>
+      </Portal>
+
+      {/* Unassign Client Modal */}
+      <Portal>
+        <Modal 
+          visible={unassignModalVisible} 
+          onDismiss={() => {
+            setUnassignModalVisible(false);
+            setSelectedClassForUnassign(null);
+          }}
+          contentContainerStyle={styles.modalContainer}
+        >
+          <Surface style={styles.modalSurface}>
+            <H2 style={styles.modalTitle}>
+              {selectedClassForUnassign ? `Unassign Client from ${selectedClassForUnassign.name}` : 'Unassign Client'}
+            </H2>
+            
+            {selectedClassForUnassign && (
+              <View style={styles.classInfoHeader}>
+                <Body style={styles.classInfoText}>
+                  {selectedClassForUnassign.date} at {selectedClassForUnassign.time}
+                </Body>
+                <Body style={styles.classInfoText}>
+                  Instructor: {selectedClassForUnassign.instructor_name}
+                </Body>
+                <Body style={styles.classInfoText}>
+                  {getEnrollmentCount(selectedClassForUnassign.id)}/{selectedClassForUnassign.capacity || 0} enrolled
+                </Body>
+    </View>
+            )}
+
+            <ScrollView style={styles.modalContent}>
+              {selectedClassForUnassign ? (
+                (() => {
+                  const classBookings = getBookingsForClass(selectedClassForUnassign.id);
+                  const confirmedBookings = classBookings.filter(booking => booking.status === 'confirmed');
+                  
+                  return confirmedBookings.length > 0 ? (
+                    <View style={styles.bookingsList}>
+                      <Body style={styles.unassignInstructions}>
+                        Select a client to unassign. Credits will be refunded only if they were charged when assigned.
+                      </Body>
+                      {confirmedBookings.map((booking, index) => (
+                        <Surface key={booking.id || index} style={styles.unassignBookingCard}>
+                          <View style={styles.bookingHeader}>
+                            <View style={styles.bookingInfo}>
+                              <H3 style={styles.clientName}>
+                                {booking.users?.name || booking.client_name || booking.user_name || 'Unknown Client'}
+                              </H3>
+                              <Body style={styles.clientEmail}>
+                                {booking.users?.email || booking.client_email || booking.user_email || 'No email'}
+                              </Body>
+                            </View>
+                            <View style={styles.unassignActions}>
+                              <Button
+                                mode="contained"
+                                onPress={async () => {
+                                  const clientName = booking.users?.name || booking.client_name || booking.user_name || 'Unknown Client';
+                                  const confirmed = Platform.OS === 'web' 
+                                    ? window.confirm(`Unassign ${clientName} from this class?\n\nThis will:\n- Cancel their booking\n- Restore class credit if they were charged\n- Promote next person from waitlist if applicable`)
+                                    : await new Promise((resolve) => {
+                                        Alert.alert(
+                                          'Unassign Client',
+                                          `Unassign ${clientName} from this class?\n\nThis will:\n- Cancel their booking\n- Restore class credit if they were charged\n- Promote next person from waitlist if applicable`,
+                                          [
+                                            { text: 'No', style: 'cancel', onPress: () => resolve(false) },
+                                            { text: 'Yes, Unassign', style: 'destructive', onPress: () => resolve(true) }
+                                          ]
+                                        );
+                                      });
+                                  
+                                  if (confirmed) {
+                                    setUnassignModalVisible(false);
+                                    await performUnassignClient(booking, selectedClassForUnassign);
+                                  }
+                                }}
+                                style={styles.unassignButtonSingle}
+                                buttonColor={Colors.light.error}
+                              >
+                                Unassign
+                              </Button>
+                            </View>
+                          </View>
+                          <View style={styles.bookingDetails}>
+                            <Body style={styles.bookingTime}>
+                              Booked: {formatBookingTimestamp(booking.created_at)}
+                            </Body>
+                            {booking.notes && (
+                              <Body style={styles.bookingNotes}>
+                                Notes: {booking.notes}
+                              </Body>
+                            )}
+                          </View>
+                        </Surface>
+                      ))}
+                    </View>
+                  ) : (
+                    <View style={styles.emptyBookings}>
+                      <WebCompatibleIcon name="event-busy" size={48} color={Colors.light.textMuted} />
+                      <Body style={styles.emptyBookingsText}>No confirmed bookings for this class</Body>
+                    </View>
+                  );
+                })()
+              ) : (
+                <View style={styles.emptyBookings}>
+                  <WebCompatibleIcon name="warning" size={48} color={Colors.light.textMuted} />
+                  <Body style={styles.emptyBookingsText}>No class selected</Body>
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <Button
+                mode="outlined"
+                onPress={() => {
+                  setUnassignModalVisible(false);
+                  setSelectedClassForUnassign(null);
+                }}
+                style={styles.modalActionButton}
+              >
+                Close
+              </Button>
             </View>
           </Surface>
         </Modal>
@@ -2694,6 +3449,8 @@ const styles = StyleSheet.create({
   modalContainer: {
     margin: spacing.lg,
     maxHeight: '90%',
+    maxWidth: isLargeScreen ? 600 : '100%',
+    alignSelf: 'center',
   },
   modalSurface: {
     padding: spacing.lg,
@@ -3131,6 +3888,68 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
   },
+  statusButtonLarge: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.02)',
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  statusButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    gap: spacing.xs,
+  },
+  menuContent: {
+    backgroundColor: Colors.light.surface,
+    borderRadius: 8,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    minWidth: 160,
+  },
+  menuItem: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    minHeight: 48,
+  },
+  menuItemTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: Colors.light.text,
+  },
+  menuItemDanger: {
+    color: Colors.light.error,
+  },
+  // Unassign modal styles
+  unassignInstructions: {
+    textAlign: 'center',
+    color: Colors.light.textSecondary,
+    marginBottom: spacing.md,
+    fontStyle: 'italic',
+  },
+  unassignBookingCard: {
+    marginBottom: spacing.sm,
+    padding: spacing.md,
+    borderRadius: 8,
+    elevation: 2,
+  },
+  unassignActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  unassignButton: {
+    flex: 1,
+  },
+  unassignButtonSingle: {
+    minWidth: 120,
+    alignSelf: 'flex-end',
+  },
   // Template modal specific styles
   templateSaveSection: {
     marginBottom: spacing.md,
@@ -3327,6 +4146,38 @@ const styles = StyleSheet.create({
     color: Colors.light.textSecondary,
     fontSize: 12,
     lineHeight: 16,
+  },
+  // New styles for prospect client functionality
+  pickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  addProspectButton: {
+    borderRadius: spacing.sm,
+  },
+  modalSubtitle: {
+    color: Colors.light.textSecondary,
+    marginBottom: spacing.md,
+    textAlign: 'center',
+  },
+  formRow: {
+    marginBottom: spacing.md,
+  },
+  infoBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: Colors.light.surface,
+    padding: spacing.md,
+    borderRadius: layout.borderRadius,
+    marginTop: spacing.md,
+    gap: spacing.sm,
+  },
+  infoText: {
+    flex: 1,
+    color: Colors.light.textSecondary,
+    lineHeight: 18,
   },
 });
 

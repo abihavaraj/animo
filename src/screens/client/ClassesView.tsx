@@ -1,18 +1,59 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
+import moment from 'moment';
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Alert, AppState, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
 import { Button, Card, Chip, FAB, Paragraph, SegmentedButtons, Surface } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 import { Caption, H2 } from '../../../components/ui/Typography';
 import { spacing } from '../../../constants/Spacing';
-import { useThemeColor } from '../../../hooks/useThemeColor';
+import RainingHearts from '../../components/animations/RainingHearts';
+import { withChristmasDesign } from '../../components/withChristmasDesign';
+import i18n from '../../i18n';
+import { unifiedBookingUtils } from '../../utils/bookingUtils';
+
+// Configure calendar locales
+LocaleConfig.locales['en'] = {
+  monthNames: [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ],
+  monthNamesShort: [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ],
+  dayNames: [
+    'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
+  ],
+  dayNamesShort: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+  today: 'Today'
+};
+
+LocaleConfig.locales['sq'] = {
+  monthNames: [
+    'Janar', 'Shkurt', 'Mars', 'Prill', 'Maj', 'Qershor',
+    'Korrik', 'Gusht', 'Shtator', 'Tetor', 'Nëntor', 'Dhjetor'
+  ],
+  monthNamesShort: [
+    'Jan', 'Shk', 'Mar', 'Pri', 'Maj', 'Qer',
+    'Kor', 'Gus', 'Sht', 'Tet', 'Nën', 'Dhj'
+  ],
+  dayNames: [
+    'E diel', 'E hënë', 'E martë', 'E mërkurë', 'E enjte', 'E premte', 'E shtunë'
+  ],
+  dayNamesShort: ['Die', 'Hën', 'Mar', 'Mër', 'Enj', 'Pre', 'Sht'],
+  today: 'Sot'
+};
+
+import { useTheme } from '../../contexts/ThemeContext';
+import { useThemeColor } from '../../hooks/useDynamicThemeColor';
 import { bookingService } from '../../services/bookingService';
 import { BackendClass } from '../../services/classService';
 import { AppDispatch, RootState } from '../../store';
-import { cancelBooking, createBooking, fetchBookings } from '../../store/bookingSlice';
+import { fetchBookings } from '../../store/bookingSlice';
 import { fetchClasses } from '../../store/classSlice';
 import { fetchCurrentSubscription } from '../../store/subscriptionSlice';
 import { getResponsiveFontSize, getResponsiveModalDimensions, getResponsiveSpacing } from '../../utils/responsiveUtils';
@@ -84,7 +125,7 @@ interface DayClassesModalProps {
   onBookClass: (classId: string) => void;
   onCancelBooking: (bookingId: string) => void;
   onJoinWaitlist: (classId: string) => void;
-  onLeaveWaitlist: (waitlistId: number) => void;
+  onLeaveWaitlist: (waitlistId: number, className?: string) => void;
 }
 
 // Helper function to convert BackendClass to ClassItem
@@ -105,7 +146,7 @@ const mapBackendClassToClassItem = (backendClass: BackendClass, userBooking?: an
     date: backendClass.date,
     startTime: backendClass.time,
     endTime: calculateEndTime(backendClass.time, backendClass.duration),
-    instructorName: backendClass.instructor_name || 'TBD',
+    instructorName: backendClass.instructor_name || 'TBD', // This will be translated in the UI
     // level: removed from schema
     capacity: backendClass.capacity,
     enrolled: backendClass.enrolled || 0,
@@ -129,8 +170,11 @@ function DayClassesModal({
   onBookClass, 
   onCancelBooking, 
   onJoinWaitlist, 
-  onLeaveWaitlist 
+  onLeaveWaitlist
 }: DayClassesModalProps) {
+  // Get translation hook
+  const { t } = useTranslation();
+  
   // Get subscription state from Redux
   const { currentSubscription } = useSelector((state: RootState) => state.subscriptions);
   
@@ -169,7 +213,8 @@ function DayClassesModal({
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { 
+    const currentLang = i18n.language || 'en';
+    return date.toLocaleDateString(currentLang === 'sq' ? 'sq-AL' : 'en-US', { 
       weekday: 'long', 
       year: 'numeric', 
       month: 'long', 
@@ -195,14 +240,14 @@ function DayClassesModal({
       <View style={styles.enrollmentInfoContainer}>
         <View style={styles.enrollmentTextRow}>
           <Paragraph style={[styles.enrollmentText, { color: textColor }]}>
-            {enrolled}/{capacity} enrolled
+            {enrolled}/{capacity} {t('classes.enrolled')}
           </Paragraph>
           {!isPast && (
             <Caption style={{
               ...(isFull ? styles.fullClassText : styles.spotsLeftText),
               color: isFull ? errorColor : (isNearlyFull ? warningColor : successColor)
             }}>
-              {isFull ? 'Class Full' : `${spotsLeft} spot${spotsLeft !== 1 ? 's' : ''} left`}
+              {isFull ? t('classes.classFull') : `${spotsLeft} ${spotsLeft === 1 ? t('classes.spotLeft') : t('classes.spotsLeft')}`}
             </Caption>
           )}
         </View>
@@ -225,28 +270,10 @@ function DayClassesModal({
     );
   };
 
-  // Helper to check if class is bookable (calendar modal version)
+  // Helper to check if class is bookable (uses unified utils with Albanian timezone)
   const isBookable = (classItem: ClassItem): boolean => {
-    const now = new Date();
-    const classDateTime = new Date(`${classItem.date}T${classItem.startTime}`);
-
-    // Class is in the past
-    if (now > classDateTime) {
-      return false;
-    }
-
-    // Class is already booked
-    if (classItem.isBooked) {
-      return false;
-    }
-
-    // Booking cutoff (e.g., 15 minutes before class)
-    const cutoffTime = new Date(classDateTime.getTime() - 15 * 60 * 1000);
-    if (now > cutoffTime) {
-      return false;
-    }
-
-    return true;
+    if (classItem.isBooked) return false; // Already booked classes can't be booked again
+    return unifiedBookingUtils.isBookable(classItem.date, classItem.startTime);
   };
 
   // Helper to check if date is in the past
@@ -321,7 +348,7 @@ function DayClassesModal({
           icon="cancel"
           disabled={!isCancellable}
         >
-          {isCancellable ? 'Cancel' : 'Cannot Cancel'}
+          {isCancellable ? t('classes.cancelBooking') : t('classes.cannotCancel')}
         </Button>
       );
     }
@@ -333,12 +360,12 @@ function DayClassesModal({
       return (
         <Button 
           mode="outlined" 
-          onPress={() => onLeaveWaitlist(classItem.waitlistId!)}
+          onPress={() => onLeaveWaitlist(classItem.waitlistId!, classItem.name)}
           style={[styles.actionButton, { borderColor: warningColor }]}
           textColor={warningColor}
           icon="queue"
         >
-          Leave Waitlist #{classItem.waitlistPosition}
+          {t('classes.leaveWaitlist')} #{classItem.waitlistPosition}
         </Button>
       );
     }
@@ -356,7 +383,7 @@ function DayClassesModal({
           icon="queue"
           disabled={!canJoin}
         >
-          {canJoin ? 'Join Waitlist' : 'Waitlist Closed'}
+          {canJoin ? t('classes.joinWaitlist') : t('classes.waitlistClosed')}
         </Button>
       );
     }
@@ -374,7 +401,7 @@ function DayClassesModal({
         icon="calendar-today"
         disabled={!isBookable || !currentSubscription || currentSubscription.status !== 'active'}
       >
-        {(!currentSubscription || currentSubscription.status !== 'active') ? 'Subscription Required' : 'Book Class'}
+        {(!currentSubscription || currentSubscription.status !== 'active') ? t('classes.subscriptionRequired') : t('classes.bookClass')}
       </Button>
     );
   };
@@ -538,11 +565,13 @@ function DayClassesModal({
 }
 
 function ClassesView() {
+  const { t, i18n } = useTranslation();
   const dispatch = useDispatch<AppDispatch>();
   const { user } = useSelector((state: RootState) => state.auth);
   const { classes, isLoading: classesLoading } = useSelector((state: RootState) => state.classes);
   const { bookings, isLoading: bookingsLoading } = useSelector((state: RootState) => state.bookings);
   const { currentSubscription, isLoading: subscriptionLoading } = useSelector((state: RootState) => state.subscriptions);
+  const { refreshTheme } = useTheme();
 
   // Theme colors
   const backgroundColor = useThemeColor({}, 'background');
@@ -566,6 +595,8 @@ function ClassesView() {
   const [markedDates, setMarkedDates] = useState<any>({});
   const [refreshing, setRefreshing] = useState(false);
   const [userWaitlist, setUserWaitlist] = useState<any[]>([]);
+  const [cancellingBookings, setCancellingBookings] = useState<Set<string>>(new Set());
+  const [leavingWaitlist, setLeavingWaitlist] = useState<Set<string>>(new Set());
 
   // Helper function to get today's date string
   const getTodayString = () => {
@@ -603,14 +634,14 @@ function ClassesView() {
       <View style={styles.enrollmentInfoContainer}>
         <View style={styles.enrollmentTextRow}>
           <Paragraph style={[styles.enrollmentText, { color: textColor }]}>
-            {enrolled}/{capacity} enrolled
+            {enrolled}/{capacity} {t('classes.enrolled')}
           </Paragraph>
           {!isPast && (
             <Caption style={{
               ...(isFull ? styles.fullClassText : styles.spotsLeftText),
               color: isFull ? errorColor : (isNearlyFull ? warningColor : successColor)
             }}>
-              {isFull ? 'Class Full' : `${spotsLeft} spot${spotsLeft !== 1 ? 's' : ''} left`}
+              {isFull ? t('classes.classFull') : `${spotsLeft} ${spotsLeft === 1 ? t('classes.spotLeft') : t('classes.spotsLeft')}`}
             </Caption>
           )}
         </View>
@@ -709,6 +740,12 @@ function ClassesView() {
   useEffect(() => {
     loadData();
   }, [dispatch]);
+
+  // Change calendar locale based on current language
+  useEffect(() => {
+    const currentLang = i18n.language;
+    LocaleConfig.defaultLocale = currentLang === 'sq' ? 'sq' : 'en';
+  }, [i18n.language]);
 
   // Clear badge when classes screen is focused
   useFocusEffect(
@@ -852,9 +889,14 @@ function ClassesView() {
         // Gray dots for past dates
         dotColor = userBooking ? textMutedColor : textMutedColor;
       } else {
-        // Normal colors for future dates
+        // Normal colors for future dates - prioritize user booking status
         if (userBooking) {
-          dotColor = userBooking.status === 'confirmed' ? successColor : warningColor; // Green for booked, orange for waitlist
+          // Use distinctive colors for user's bookings that stand out clearly
+          if (userBooking.status === 'confirmed') {
+            dotColor = '#00C851'; // Bright green for confirmed bookings - highly visible
+          } else {
+            dotColor = '#FF8800'; // Bright orange for waitlist - clearly different from available
+          }
         } else if (classItem.enrolled >= classItem.capacity) {
           dotColor = errorColor; // Red for full classes
         } else {
@@ -966,11 +1008,12 @@ function ClassesView() {
       String(tomorrow.getDate()).padStart(2, '0');
     
     if (dateString === todayString) {
-      return 'Today';
+      return t('classes.today');
     } else if (dateString === tomorrowString) {
-      return 'Tomorrow';
+      return t('classes.tomorrow');
     } else {
-      return date.toLocaleDateString('en-US', { 
+      const currentLang = i18n.language || 'en';
+      return date.toLocaleDateString(currentLang === 'sq' ? 'sq-AL' : 'en-US', { 
         weekday: 'long', 
         month: 'long', 
         day: 'numeric' 
@@ -986,82 +1029,69 @@ function ClassesView() {
   };
 
   const handleBookClass = async (classId: string) => {
-    const class_ = classes.find(c => c.id === classId);
+    // Find the class from available classes data
+    const class_ = classes.find(c => c.id === classId) || selectedDateClasses.find(c => c.id === classId);
     if (!class_) return;
 
-    // Check if user has subscription
-    if (!currentSubscription) {
-      Alert.alert('Subscription Required', 'You need an active subscription plan to book classes. Please contact reception to purchase a plan.');
-      return;
-    }
-
-    // Check if subscription is active
-    if (currentSubscription.status !== 'active') {
-      Alert.alert('Subscription Not Active', 'Your subscription is not active. Please contact reception for assistance.');
-      return;
-    }
-
-    // Check if user has remaining classes (unless unlimited)
-    const monthlyClasses = currentSubscription.monthly_classes || 0;
-    const remainingClasses = currentSubscription.remaining_classes || 0;
+    // Calculate remaining for display in confirmation dialog
+    const monthlyClasses = currentSubscription?.monthly_classes || 0;
+    const remainingClasses = currentSubscription?.remaining_classes || 0;
     const isUnlimited = monthlyClasses >= 999;
-    
-    if (!isUnlimited && remainingClasses <= 0) {
-      Alert.alert('No Classes Remaining', 'You have no remaining classes in your subscription. Please renew or upgrade your plan.');
-      return;
-    }
-
-    // Check personal subscription restrictions
-    const subscriptionCategory = currentSubscription.category || currentSubscription.plan?.category;
-    const isPersonalSubscription = subscriptionCategory === 'personal';
-    const isPersonalClass = class_.category === 'personal';
-
-    if (isPersonalSubscription && !isPersonalClass) {
-      Alert.alert('Personal Subscription Required', 'Your personal subscription only allows booking personal/private classes. Please choose a personal training session.');
-      return;
-    }
-
-    if (!isPersonalSubscription && isPersonalClass) {
-      Alert.alert('Personal Training Session', 'This is a personal training session. You need a personal subscription to book this class.');
-      return;
-    }
-
-    // Check equipment access
-    const planEquipment = currentSubscription.equipment_access;
-    
-    if (!isEquipmentAccessAllowed(planEquipment, class_.equipment_type)) {
-      const accessMap = {
-        'mat': 'Mat-only',
-        'reformer': 'Reformer-only',
-        'both': 'Full equipment'
-      };
-      
-      Alert.alert(
-        'Equipment Access Required',
-        `This class requires ${accessMap[class_.equipment_type] || class_.equipment_type} access. Your subscription only includes ${accessMap[planEquipment] || planEquipment} access. Please upgrade your plan.`
-      );
-      return;
-    }
-
     const remainingAfterBooking = isUnlimited ? 'unlimited' : remainingClasses - 1;
 
+    // Format date and time like Dashboard
+    const formatDate = (dateStr: string) => {
+      const date = new Date(dateStr);
+      const weekdayIndex = date.getDay();
+      const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const weekday = weekdays[weekdayIndex];
+      const day = date.getDate().toString().padStart(2, '0');
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const year = date.getFullYear();
+      return `${weekday} ${day}/${month}/${year}`;
+    };
+
+    const formatTime = (time: string) => {
+      return moment(time, 'HH:mm:ss').format('h:mm A');
+    };
+
+    // Show same confirmation dialog as Dashboard
     Alert.alert(
-      'Confirm Booking',
-      `Book "${class_.name}" on ${new Date(class_.date).toLocaleDateString()} at ${class_.time}?\n\nRemaining classes after booking: ${remainingAfterBooking}`,
+      t('classes.confirmBooking'),
+      t('classes.confirmBookingMessage', { 
+        className: class_.name, 
+        date: formatDate(class_.date), 
+        time: formatTime((class_ as any).time || (class_ as any).startTime || '00:00'),
+        remaining: remainingAfterBooking
+      }),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         { 
-          text: 'Book Class', 
+          text: t('classes.bookClass'), 
           onPress: async () => {
-                          try {
-                await dispatch(createBooking({ classId }));
-                Alert.alert('Success', 'Class booked successfully!');
-                // Refresh data and close modal after successful booking
+            try {
+              const success = await unifiedBookingUtils.bookClass(classId, currentSubscription, class_, t);
+              if (success) {
                 await loadData();
                 setDayClassesVisible(false);
-              } catch (error) {
-                Alert.alert('Booking Failed', error as string || 'Failed to book class');
               }
+            } catch (error: any) {
+              // If booking fails, it might be because class is full - try to join waitlist
+              if (error.includes && (error.includes('full') || error.includes('capacity'))) {
+                Alert.alert(
+                  t('classes.classFull'),
+                  t('classes.classFullJoinWaitlist'),
+                  [
+                    { text: t('common.cancel'), style: 'cancel' },
+                    { text: t('classes.joinWaitlist'), onPress: async () => {
+                      await handleJoinWaitlist(classId);
+                    }}
+                  ]
+                );
+              } else {
+                Alert.alert(t('classes.bookingFailed'), error || t('classes.failedToBookClass'));
+              }
+            }
           }
         }
       ]
@@ -1069,85 +1099,124 @@ function ClassesView() {
   };
 
   const handleCancelBooking = async (bookingId: string) => {
+    // Prevent double cancellation
+    if (cancellingBookings.has(bookingId)) {
+      return; // Already cancelling this booking
+    }
+
+    // Mark as cancelling to prevent double clicks
+    setCancellingBookings(prev => new Set(prev).add(bookingId));
+
     try {
-      Alert.alert(
-        'Cancel Booking',
-        'Are you sure you want to cancel this booking?\n\nThis will refund 1 class to your subscription if cancelled more than 2 hours before the class starts.',
-        [
-          { text: 'Keep Booking', style: 'cancel' },
-          { 
-            text: 'Cancel Booking', 
-            style: 'destructive',
-            onPress: async () => {
-              try {
-                await dispatch(cancelBooking(bookingId)).unwrap();
-                Alert.alert('Success', 'Booking cancelled successfully');
-                // Refresh data and close modal after successful cancellation
-                await loadData();
-                setDayClassesVisible(false);
-              } catch (error) {
-                Alert.alert('Error', error as string || 'Failed to cancel booking');
-              }
-            }
-          }
-        ]
+      // Find the class data for this booking
+      const booking = bookings.find(b => b.id === bookingId);
+      const classData = booking?.classes;
+      
+      const success = await unifiedBookingUtils.cancelBooking(
+        {
+          id: bookingId,
+          classId: booking?.class_id || '',
+          class_name: classData?.name || booking?.class_name,
+          class_date: classData?.date || booking?.class_date,
+          class_time: classData?.time || booking?.class_time,
+          instructor_name: classData?.users?.name || booking?.instructor_name
+        },
+        () => {
+          // On success callback
+          loadData();
+          setDayClassesVisible(false);
+        },
+        t
       );
-    } catch (error) {
-      Alert.alert('Error', 'Failed to cancel booking');
+    } finally {
+      // Always remove from cancelling set
+      setCancellingBookings(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(bookingId);
+        return newSet;
+      });
     }
   };
 
   const handleJoinWaitlist = async (classId: string) => {
-    // Require active subscription to join waitlist
-    if (!currentSubscription) {
-      Alert.alert('Subscription Required', 'You need an active subscription plan to join waitlists. Please contact reception to purchase a plan.');
-      return;
-    }
-    if (currentSubscription.status !== 'active') {
-      Alert.alert('Subscription Not Active', 'Your subscription is not active. Please contact reception for assistance.');
-      return;
-    }
+    // Find the class from available classes data
+    const class_ = classes.find(c => c.id === classId) || selectedDateClasses.find(c => c.id === classId);
+    if (!class_) return;
 
-    try {
-      const result = await bookingService.joinWaitlist({ classId });
-      if (result.success) {
-        Alert.alert('Success', `You've been added to the waitlist at position #${result.data?.position}.`);
-        // Refresh data and close modal after successful waitlist join
-        await loadData();
-        setDayClassesVisible(false);
-      } else {
-        Alert.alert('Error', result.error || 'Failed to join waitlist');
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to join waitlist');
-    }
-  };
+    // Format date and time like Dashboard
+    const formatDate = (dateStr: string) => {
+      const date = new Date(dateStr);
+      const weekdayIndex = date.getDay();
+      const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const weekday = weekdays[weekdayIndex];
+      const day = date.getDate().toString().padStart(2, '0');
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const year = date.getFullYear();
+      return `${weekday} ${day}/${month}/${year}`;
+    };
 
-  const handleLeaveWaitlist = async (waitlistId: number) => {
-    try {
-      Alert.alert(
-        'Leave Waitlist',
-        'Are you sure you want to leave the waitlist?',
-        [
-          { text: 'No', style: 'cancel' },
-          { 
-            text: 'Yes', 
-            onPress: async () => {
-              const result = await bookingService.leaveWaitlist(waitlistId);
-              if (result.success) {
-                Alert.alert('Success', 'You have been removed from the waitlist.');
-                // Refresh data and close modal after successful waitlist leave
+    const formatTime = (time: string) => {
+      return moment(time, 'HH:mm:ss').format('h:mm A');
+    };
+
+    // Show SAME confirmation dialog as Dashboard
+    Alert.alert(
+      t('classes.joinWaitlist'),
+      `${t('classes.joinWaitlistConfirm', { 
+        className: class_.name, 
+        date: formatDate(class_.date), 
+        time: formatTime((class_ as any).time || (class_ as any).startTime || '00:00')
+      })}\n\n${t('classes.notifyWhenAvailable')}`,
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        { 
+          text: t('classes.joinWaitlist'), 
+          onPress: async () => {
+            try {
+              const success = await unifiedBookingUtils.joinWaitlist(classId, currentSubscription, class_, t);
+              if (success) {
                 await loadData();
                 setDayClassesVisible(false);
-              } else {
-                Alert.alert('Error', result.error || 'Failed to leave waitlist');
               }
+            } catch (error: any) {
+              console.error('❌ [ClassesView] Error joining waitlist:', error);
+              Alert.alert(t('alerts.error'), t('alerts.errorJoinWaitlist'));
             }
           }
-        ]
+        }
+      ]
+    );
+  };
+
+  const handleLeaveWaitlist = async (waitlistId: number, className?: string) => {
+    const waitlistIdStr = waitlistId.toString();
+    
+    // Prevent double leave waitlist
+    if (leavingWaitlist.has(waitlistIdStr)) {
+      return; // Already leaving this waitlist
+    }
+
+    // Mark as leaving to prevent double clicks
+    setLeavingWaitlist(prev => new Set(prev).add(waitlistIdStr));
+
+    try {
+      const success = await unifiedBookingUtils.leaveWaitlist(
+        waitlistId, 
+        className,
+        () => {
+          // On success callback
+          loadData();
+          setDayClassesVisible(false);
+        },
+        t
       );
-    } catch (error) {
-      Alert.alert('Error', 'Failed to leave waitlist');
+    } finally {
+      // Always remove from leaving set
+      setLeavingWaitlist(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(waitlistIdStr);
+        return newSet;
+      });
     }
   };
 
@@ -1197,6 +1266,7 @@ function ClassesView() {
 
   return (
     <View style={[styles.container, { backgroundColor }]}>
+      <RainingHearts />
       {/* Header */}
       <Surface style={[styles.headerImproved, { backgroundColor: surfaceColor, borderBottomWidth: 1, borderBottomColor: textMutedColor }]}>
         <View style={styles.headerContentVertical}>
@@ -1269,7 +1339,7 @@ function ClassesView() {
           {(classesLoading || bookingsLoading) && (
             <View style={[styles.loadingOverlay, { backgroundColor: `${backgroundColor}CC` }]}>
               <ActivityIndicator size="large" color={accentColor} />
-              <Paragraph style={[styles.loadingText, { color: textColor }]}>Loading classes...</Paragraph>
+              <Paragraph style={[styles.loadingText, { color: textColor }]}>{t('labels.loadingClasses')}</Paragraph>
             </View>
           )}
 
@@ -1285,7 +1355,9 @@ function ClassesView() {
             renderHeader={(date: any) => {
               // Custom header to avoid GMT timestamp display
               const monthDate = new Date(date);
-              const monthName = monthDate.toLocaleDateString('en-US', { 
+              // Get current language to format month header properly
+              const currentLang = i18n.language || 'en';
+              const monthName = monthDate.toLocaleDateString(currentLang === 'sq' ? 'sq-AL' : 'en-US', { 
                 month: 'long', 
                 year: 'numeric' 
               });
@@ -1329,30 +1401,30 @@ function ClassesView() {
             }}
             style={styles.calendar}
             firstDay={1}
-            hideExtraDays={true}
+            hideExtraDays={false}
             showWeekNumbers={false}
             enableSwipeMonths={true}
           />
 
           {/* Enhanced Inline Legend */}
           <Surface style={[styles.calendarLegendInline, { backgroundColor: surfaceColor }]}>
-            <Paragraph style={[styles.legendTitle, { color: textColor }]}>Class Status</Paragraph>
+            <Paragraph style={[styles.legendTitle, { color: textColor }]}>{t('classes.classStatus')}</Paragraph>
             <View style={styles.legendRowInline}>
               <View style={styles.legendItemInline}>
                 <View style={[styles.legendDotLarge, { backgroundColor: availableColor }]} />
-                <Paragraph style={[styles.legendTextInline, { color: textSecondaryColor }]}>Available</Paragraph>
+                <Paragraph style={[styles.legendTextInline, { color: textSecondaryColor }]}>{t('classes.available')}</Paragraph>
               </View>
               <View style={styles.legendItemInline}>
                 <View style={[styles.legendDotLarge, { backgroundColor: successColor }]} />
-                <Paragraph style={[styles.legendTextInline, { color: textSecondaryColor }]}>Booked</Paragraph>
+                <Paragraph style={[styles.legendTextInline, { color: textSecondaryColor }]}>{t('classes.booked')}</Paragraph>
               </View>
               <View style={styles.legendItemInline}>
                 <View style={[styles.legendDotLarge, { backgroundColor: warningColor }]} />
-                <Paragraph style={[styles.legendTextInline, { color: textSecondaryColor }]}>Waitlist</Paragraph>
+                <Paragraph style={[styles.legendTextInline, { color: textSecondaryColor }]}>{t('classes.waitlist')}</Paragraph>
               </View>
               <View style={styles.legendItemInline}>
                 <View style={[styles.legendDotLarge, { backgroundColor: errorColor }]} />
-                <Paragraph style={[styles.legendTextInline, { color: textSecondaryColor }]}>Full</Paragraph>
+                <Paragraph style={[styles.legendTextInline, { color: textSecondaryColor }]}>{t('classes.classFull')}</Paragraph>
               </View>
             </View>
           </Surface>
@@ -1366,7 +1438,7 @@ function ClassesView() {
             <View style={styles.noClassesContainer}>
               <MaterialIcons name="event-busy" size={48} color={textMutedColor} />
               <Paragraph style={[styles.noClassesText, { color: textColor }]}>
-                No upcoming classes available
+                {t('dashboard.noUpcomingClasses')}
               </Paragraph>
             </View>
           ) : (
@@ -1489,6 +1561,7 @@ function ClassesView() {
                             {classItem.isBooked ? (
                               (() => {
                                 const isCancellable = isBookingCancellable(classItem);
+                                const isCancelling = cancellingBookings.has(classItem.bookingId || '');
                                 return (
                                   <Button 
                                     mode="contained" 
@@ -1500,11 +1573,12 @@ function ClassesView() {
                                     ]}
                                     labelStyle={{ color: backgroundColor }}
                                     compact
-                                    disabled={!isCancellable}
+                                    disabled={!isCancellable || isCancelling}
+                                    loading={isCancelling}
                                     accessibilityLabel={`${isCancellable ? 'Cancel' : 'Cannot cancel'} booking for ${classItem.name} at ${classItem.startTime}`}
                                     accessibilityHint={isCancellable ? 'Double tap to cancel your booking for this class' : 'Cancellation not allowed within 2 hours of class start'}
                                   >
-                                    {isCancellable ? 'Cancel' : 'Cannot Cancel'}
+                                    {isCancelling ? t('classes.cancelling') : isCancellable ? t('classes.cancelBooking') : t('classes.cannotCancel')}
                                   </Button>
                                 );
                               })()
@@ -1520,7 +1594,7 @@ function ClassesView() {
                                   return (
                                     <Button 
                                       mode="outlined" 
-                                      onPress={() => handleLeaveWaitlist(classItem.waitlistId!)}
+                                      onPress={() => handleLeaveWaitlist(classItem.waitlistId!, classItem.name)}
                                       style={[styles.actionButton, { borderColor: warningColor }]}
                                       textColor={warningColor}
                                       compact
@@ -1547,7 +1621,7 @@ function ClassesView() {
                                       accessibilityLabel={`Join waitlist for ${classItem.name} at ${classItem.startTime}`}
                                       accessibilityHint="Double tap to join waitlist for this class"
                                     >
-                                      {(!currentSubscription || currentSubscription.status !== 'active') ? 'Subscription Required' : (canWaitlist ? 'Join Waitlist' : 'Waitlist Closed')}
+                                      {(!currentSubscription || currentSubscription.status !== 'active') ? t('classes.subscriptionRequired') : (canWaitlist ? t('classes.joinWaitlist') : t('classes.waitlistClosed'))}
                                     </Button>
                                   );
                                 }
@@ -1565,7 +1639,7 @@ function ClassesView() {
                                     accessibilityLabel={`Book ${classItem.name} at ${classItem.startTime}`}
                                     accessibilityHint="Double tap to book this class"
                                   >
-                                    {(!currentSubscription || currentSubscription.status !== 'active') ? 'Subscription Required' : 'Book'}
+                                    {(!currentSubscription || currentSubscription.status !== 'active') ? t('classes.subscriptionRequired') : t('classes.bookClass')}
                                   </Button>
                                 );
                               })()
@@ -1585,7 +1659,7 @@ function ClassesView() {
       {/* FAB positioned outside ScrollView for proper click handling */}
       <FAB
         icon={() => <MaterialIcons name="today" size={24} color={backgroundColor} />}
-        label="Today"
+        label={t('classes.today')}
         style={[styles.fab, { backgroundColor: accentColor }]}
         onPress={() => {
           const today = getTodayString();
@@ -2298,4 +2372,8 @@ const styles = StyleSheet.create({
 
 });
 
-export default ClassesView; 
+export default withChristmasDesign(ClassesView, { 
+  variant: 'green', 
+  showSnow: true, 
+  showLights: true 
+}); 

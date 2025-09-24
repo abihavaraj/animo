@@ -1,7 +1,7 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import React from 'react';
-import { Platform, Text, View } from 'react-native';
+import { Platform, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ClassDetails from '../screens/instructor/ClassDetails';
 import ClassFeedback from '../screens/instructor/ClassFeedback';
@@ -39,51 +39,103 @@ const SafeIcon = ({ name, size, color }: { name: string; size: number; color: st
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
-function InstructorTabs() {
+// Custom Tab Bar Component for Instructor
+const InstructorCustomTabBar = ({ state, descriptors, navigation }: any) => {
   const insets = useSafeAreaInsets();
   
-  // Calculate safe tab bar height for Android edge-to-edge
   const tabBarHeight = Platform.OS === 'android' ? 60 + insets.bottom : 60;
   const paddingBottom = Platform.OS === 'android' ? Math.max(8, insets.bottom) : 8;
-  
+
+  return (
+    <View style={{
+      flexDirection: 'row',
+      backgroundColor: '#ffffff',
+      borderTopWidth: 1,
+      borderTopColor: '#e0e0e0',
+      height: tabBarHeight,
+      paddingBottom: paddingBottom,
+      paddingTop: 8,
+      position: 'relative',
+      elevation: Platform.OS === 'android' ? 8 : 0,
+      shadowColor: Platform.OS === 'ios' ? '#000' : 'transparent',
+      shadowOffset: { width: 0, height: -2 },
+      shadowOpacity: Platform.OS === 'ios' ? 0.1 : 0,
+      shadowRadius: Platform.OS === 'ios' ? 3 : 0,
+    }}>
+      {state.routes.map((route: any, index: number) => {
+        const { options } = descriptors[route.key];
+        const label = options.tabBarLabel !== undefined ? options.tabBarLabel : 
+                     options.title !== undefined ? options.title : route.name;
+
+        const isFocused = state.index === index;
+        
+        let iconName: string;
+        if (route.name === 'Dashboard') {
+          iconName = 'dashboard';
+        } else if (route.name === 'Schedule') {
+          iconName = 'event';
+        } else if (route.name === 'My Clients') {
+          iconName = 'group';
+        } else if (route.name === 'Profile') {
+          iconName = 'person';
+        } else {
+          iconName = 'home';
+        }
+
+        const onPress = () => {
+          const event = navigation.emit({
+            type: 'tabPress',
+            target: route.key,
+            canPreventDefault: true,
+          });
+
+          if (!isFocused && !event.defaultPrevented) {
+            navigation.navigate(route.name);
+          }
+        };
+
+        return (
+          <TouchableOpacity
+            key={route.key}
+            accessibilityRole="button"
+            accessibilityState={isFocused ? { selected: true } : {}}
+            accessibilityLabel={options.tabBarAccessibilityLabel}
+            testID={options.tabBarTestID}
+            onPress={onPress}
+            style={{
+              flex: 1,
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingVertical: 4,
+            }}
+          >
+            <SafeIcon
+              name={iconName}
+              size={24}
+              color={isFocused ? '#9B8A7D' : 'gray'}
+            />
+            <Text style={{
+              color: isFocused ? '#9B8A7D' : 'gray',
+              fontSize: 12,
+              marginTop: 2,
+              fontWeight: isFocused ? '600' : '400',
+            }}>
+              {label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+};
+
+function InstructorTabs() {
   return (
     <Tab.Navigator
-      screenOptions={({ route }: any) => ({
-        tabBarIcon: ({ focused, color, size }: any) => {
-          let iconName: string;
-
-          if (route.name === 'Dashboard') {
-            iconName = 'dashboard';
-          } else if (route.name === 'Schedule') {
-            iconName = 'event';
-          } else if (route.name === 'My Clients') {
-            iconName = 'group';
-          } else if (route.name === 'Profile') {
-            iconName = 'person';
-          } else {
-            iconName = 'home';
-          }
-
-          return <SafeIcon name={iconName} size={size} color={color} />;
-        },
-        tabBarActiveTintColor: '#9B8A7D',
-        tabBarInactiveTintColor: 'gray',
-        tabBarStyle: {
-          backgroundColor: '#ffffff',
-          borderTopWidth: 1,
-          borderTopColor: '#e0e0e0',
-          height: tabBarHeight,
-          paddingBottom: paddingBottom,
-          paddingTop: 8,
-          // Ensure tab bar appears above Android navigation
-          elevation: Platform.OS === 'android' ? 8 : 0,
-          shadowColor: Platform.OS === 'ios' ? '#000' : 'transparent',
-          shadowOffset: { width: 0, height: -2 },
-          shadowOpacity: Platform.OS === 'ios' ? 0.1 : 0,
-          shadowRadius: Platform.OS === 'ios' ? 3 : 0,
-        },
+      screenOptions={{
         headerShown: false,
-      })}
+      }}
+      tabBar={(props) => <InstructorCustomTabBar {...props} />}
     >
       <Tab.Screen name="Dashboard" component={InstructorDashboard} />
       <Tab.Screen name="Schedule" component={ScheduleOverview} />

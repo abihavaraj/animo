@@ -102,4 +102,4 @@ if (require.main === module) {
     });
 }
 
-export { testSplinter }; 
+export { testSplinter };

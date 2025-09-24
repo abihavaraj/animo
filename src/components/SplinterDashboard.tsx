@@ -1,13 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
   ScrollView,
   StyleSheet,
+  Text,
   TouchableOpacity,
-  Alert,
-  ActivityIndicator,
-  RefreshControl,
+  View,
 } from 'react-native';
 import SplinterService, { SplinterLint, SplinterReport } from '../services/splinterService';
 

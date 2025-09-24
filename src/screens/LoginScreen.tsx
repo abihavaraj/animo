@@ -1,24 +1,49 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Alert, Dimensions, KeyboardAvoidingView, Linking, Platform, TextInput as RNTextInput, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Button, Modal, Portal } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
 import { Body, Caption, H1 } from '../../components/ui/Typography';
 import { layout, spacing } from '../../constants/Spacing';
 import { useThemeColor } from '../../hooks/useThemeColor';
+import { credentialsService } from '../services/credentialsService';
 import { AppDispatch, RootState } from '../store';
 import { loginUser } from '../store/authSlice';
 import { getResponsiveFontSize, getResponsiveSpacing, getScreenSize } from '../utils/responsiveUtils';
 import { componentShadows } from '../utils/shadows';
 
 function LoginScreen() {
+  const { t } = useTranslation();
   const [emailOrPhone, setEmailOrPhone] = useState('');
   const [password, setPassword] = useState('');
   const [localError, setLocalError] = useState('');
   const [hasLoginError, setHasLoginError] = useState(false);
   const [inputKey, setInputKey] = useState(0); // Force re-render to reset autocomplete
+  const [showSavePasswordModal, setShowSavePasswordModal] = useState(false);
+  const [credentialsToSave, setCredentialsToSave] = useState<{emailOrPhone: string, password: string} | null>(null);
+  const [hasLoadedCredentials, setHasLoadedCredentials] = useState(false);
   const dispatch = useDispatch<AppDispatch>();
   const { isLoading, error: reduxError, isLoggedIn } = useSelector((state: RootState) => state.auth);
   const passwordInputRef = useRef<RNTextInput>(null);
+
+  // Load saved credentials on component mount
+  useEffect(() => {
+    const loadSavedCredentials = async () => {
+      try {
+        const savedCredentials = await credentialsService.loadCredentials();
+        if (savedCredentials) {
+          setEmailOrPhone(savedCredentials.emailOrPhone);
+          setPassword(savedCredentials.password);
+          setHasLoadedCredentials(true);
+        }
+      } catch (error) {
+        console.error('Failed to load saved credentials:', error);
+      }
+    };
+
+    loadSavedCredentials();
+  }, []);
 
   // Handle Redux error and show alert
   useEffect(() => {
@@ -69,7 +94,7 @@ function LoginScreen() {
 
   const handleLogin = async () => {
     if (!emailOrPhone || !password) {
-      setLocalError('Please fill in all fields');
+      setLocalError(t('errors.validationError'));
       return;
     }
 
@@ -77,6 +102,26 @@ function LoginScreen() {
     
     try {
       await dispatch(loginUser({ emailOrPhone, password })).unwrap();
+      
+      // Save current session credentials for logout functionality
+      await credentialsService.saveCurrentSessionCredentials({ emailOrPhone, password });
+      
+      // Check if we should prompt to save password
+      const shouldCheckSavePreference = await credentialsService.getSavePasswordPreference();
+      const savedCredentials = await credentialsService.loadCredentials();
+      
+      // Show save prompt if:
+      // 1. User hasn't set a preference yet, or
+      // 2. Credentials are different from what's saved
+      const shouldPromptSave = !shouldCheckSavePreference || 
+        !savedCredentials || 
+        savedCredentials.emailOrPhone !== emailOrPhone || 
+        savedCredentials.password !== password;
+      
+      if (shouldPromptSave) {
+        setCredentialsToSave({ emailOrPhone, password });
+        setShowSavePasswordModal(true);
+      }
     } catch (err: any) {
       // The error from Redux thunk is in err.payload, not err.message
       const errorMessage = err.payload || err.message || 'Login failed. Please try again.';
@@ -93,6 +138,33 @@ function LoginScreen() {
           [{ text: 'Try Again', style: 'default' }]
         );
       }
+    }
+  };
+
+  const handleSavePassword = async (save: boolean) => {
+    try {
+      await credentialsService.setSavePasswordPreference(true);
+      
+      if (save && credentialsToSave) {
+        await credentialsService.saveCredentials(credentialsToSave);
+      }
+    } catch (error) {
+      console.error('Failed to save password preference:', error);
+    } finally {
+      setShowSavePasswordModal(false);
+      setCredentialsToSave(null);
+    }
+  };
+
+  const handleDoNotSavePassword = async () => {
+    try {
+      await credentialsService.setSavePasswordPreference(true);
+      await credentialsService.clearCredentials();
+    } catch (error) {
+      console.error('Failed to save password preference:', error);
+    } finally {
+      setShowSavePasswordModal(false);
+      setCredentialsToSave(null);
     }
   };
 
@@ -166,7 +238,7 @@ function LoginScreen() {
               color: primaryColor,
               fontSize: getResponsiveFontSize(screenSize.isSmall ? 24 : 28)
             }}>
-              Welcome to ANIMO
+              {t('auth.welcomeBack')}
             </H1>
             <View style={{
               alignItems: 'center',
@@ -183,7 +255,7 @@ function LoginScreen() {
                  paddingHorizontal: spacing.sm,
                }}
                allowFontScaling={false}>
-                 ⭐ Sign in to your pilates journey ⭐
+                 ⭐ {t('auth.loginToAccount')} ⭐
                </Text>
             </View>
             
@@ -200,7 +272,7 @@ function LoginScreen() {
           
             <RNTextInput
               key={`email-${inputKey}`}
-              placeholder="Email or Phone Number"
+              placeholder={t('auth.email')}
               value={emailOrPhone}
               onChangeText={(text) => {
                 setEmailOrPhone(text);
@@ -219,18 +291,19 @@ function LoginScreen() {
               placeholderTextColor={textSecondaryColor}
               autoCapitalize="none"
               autoCorrect={false}
-              keyboardType="default"
+              keyboardType="email-address"
               autoComplete={hasLoginError ? "off" : "username"}
               textContentType={hasLoginError ? "none" : "username"}
               returnKeyType="next"
               enablesReturnKeyAutomatically
+              importantForAutofill="yes"
               onSubmitEditing={() => passwordInputRef.current?.focus()}
             />
             
             <RNTextInput
               key={`password-${inputKey}`}
               ref={passwordInputRef}
-              placeholder="Password"
+              placeholder={t('auth.password')}
               value={password}
               onChangeText={(text) => {
                 setPassword(text);
@@ -253,6 +326,8 @@ function LoginScreen() {
               textContentType={hasLoginError ? "none" : "password"}
               returnKeyType="done"
               enablesReturnKeyAutomatically
+              importantForAutofill="yes"
+              passwordRules="minlength: 6;"
               onSubmitEditing={handleLogin}
             />
           
@@ -271,7 +346,7 @@ function LoginScreen() {
                 fontSize: getResponsiveFontSize(16),
                 color: backgroundColor
               }}>
-                {isLoading ? 'Signing In...' : 'Sign In'}
+                {isLoading ? t('common.loading') : t('auth.loginButton')}
               </Text>
             </TouchableOpacity>
 
@@ -355,6 +430,49 @@ function LoginScreen() {
           </View>
         </View>
       </ScrollView>
+
+      {/* Save Password Modal */}
+      <Portal>
+        <Modal
+          visible={showSavePasswordModal}
+          onDismiss={() => setShowSavePasswordModal(false)}
+          contentContainerStyle={[styles.modalContainer, { 
+            backgroundColor: surfaceColor,
+            borderColor: borderColor 
+          }]}
+        >
+          <View style={styles.modalContent}>
+            <H1 style={[styles.modalTitle, { color: primaryColor }]}>
+              🔐 Save Password?
+            </H1>
+            <Body style={[styles.modalText, { color: textColor }]}>
+              Would you like to save your login credentials for faster access next time?
+            </Body>
+            <Body style={[styles.modalSubtext, { color: textSecondaryColor }]}>
+              Your credentials will be stored securely using {Platform.OS === 'ios' ? 'iOS Keychain' : Platform.OS === 'android' ? 'Android Keystore' : 'secure storage'}.
+            </Body>
+            
+            <View style={styles.modalButtons}>
+              <Button
+                mode="outlined"
+                onPress={handleDoNotSavePassword}
+                style={[styles.modalButton, { borderColor: borderColor }]}
+                labelStyle={{ color: textSecondaryColor }}
+              >
+                Don't Save
+              </Button>
+              <Button
+                mode="contained"
+                onPress={() => handleSavePassword(true)}
+                style={[styles.modalButton, { backgroundColor: accentColor }]}
+                labelStyle={{ color: backgroundColor }}
+              >
+                Save Password
+              </Button>
+            </View>
+          </View>
+        </Modal>
+      </Portal>
     </KeyboardAvoidingView>
   );
 }
@@ -430,6 +548,42 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.03)',
     borderRadius: spacing.sm,
+  },
+  modalContainer: {
+    margin: spacing.lg,
+    borderRadius: layout.borderRadius,
+    borderWidth: 1,
+    maxWidth: 400,
+    alignSelf: 'center',
+    width: '90%',
+  },
+  modalContent: {
+    padding: spacing.lg,
+    alignItems: 'center',
+  },
+  modalTitle: {
+    textAlign: 'center',
+    marginBottom: spacing.md,
+    fontWeight: 'bold',
+  },
+  modalText: {
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+    lineHeight: 22,
+  },
+  modalSubtext: {
+    textAlign: 'center',
+    marginBottom: spacing.lg,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    width: '100%',
+  },
+  modalButton: {
+    flex: 1,
   },
 });
 

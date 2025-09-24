@@ -1,11 +1,11 @@
 import React, { useEffect } from 'react';
 import { StyleSheet } from 'react-native';
 import Animated, {
-    useAnimatedStyle,
-    useSharedValue,
-    withRepeat,
-    withSequence,
-    withTiming,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
 } from 'react-native-reanimated';
 
 import { ThemedText } from './ThemedText';

@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import {
-    Button,
-    Card,
-    Chip,
-    Icon,
-    Menu,
-    SegmentedButtons,
-    Surface,
-    Switch,
-    TextInput
+  Button,
+  Card,
+  Chip,
+  Icon,
+  Menu,
+  SegmentedButtons,
+  Surface,
+  Switch,
+  TextInput
 } from 'react-native-paper';
 import { Colors } from '../../constants/Colors';
 import { CreateClassRequest } from '../../services/classService';

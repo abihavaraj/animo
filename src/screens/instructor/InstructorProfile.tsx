@@ -5,21 +5,21 @@ import { layout, spacing } from '@/constants/Spacing';
 import React, { useEffect, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import {
-    Avatar,
-    Divider,
-    Button as PaperButton,
-    Card as PaperCard,
-    Switch
+  Avatar,
+  Divider,
+  Button as PaperButton,
+  Card as PaperCard,
+  Switch
 } from 'react-native-paper';
 import { useSelector } from 'react-redux';
 import WebCompatibleIcon from '../../components/WebCompatibleIcon';
 import { supabase } from '../../config/supabase.config';
+import { useLogoutWithCredentialSave } from '../../hooks/useLogoutWithCredentialSave';
 import { bookingService } from '../../services/bookingService';
 import { classService } from '../../services/classService';
 import { notificationService } from '../../services/notificationService';
 import { pushNotificationService } from '../../services/pushNotificationService';
-import { RootState, useAppDispatch } from '../../store';
-import { logoutUser } from '../../store/authSlice';
+import { RootState } from '../../store';
 import { shadows } from '../../utils/shadows';
 
 interface InstructorStats {
@@ -31,8 +31,8 @@ interface InstructorStats {
 }
 
 function InstructorProfile() {
-  const dispatch = useAppDispatch();
   const { user } = useSelector((state: RootState) => state.auth);
+  const { logoutWithCredentialSave } = useLogoutWithCredentialSave();
   const [stats, setStats] = useState<InstructorStats>({
     totalClasses: 0,
     totalStudents: 0,
@@ -287,7 +287,7 @@ function InstructorProfile() {
         {
           text: 'Logout',
           style: 'destructive',
-          onPress: async () => await dispatch(logoutUser()),
+          onPress: async () => await logoutWithCredentialSave(),
         },
       ]
     );

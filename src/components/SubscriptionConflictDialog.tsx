@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import {
-    Button,
-    Chip,
-    Dialog,
-    Divider,
-    Icon,
-    Portal,
-    RadioButton,
-    Surface
+  Button,
+  Chip,
+  Dialog,
+  Divider,
+  Icon,
+  Portal,
+  RadioButton,
+  Surface
 } from 'react-native-paper';
 import { Body, Caption, H3 } from '../../components/ui/Typography';
 import { Colors } from '../../constants/Colors';

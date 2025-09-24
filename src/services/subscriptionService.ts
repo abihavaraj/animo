@@ -3,6 +3,7 @@ import { API_MODE_CONFIG } from '../config/apiMode.config';
 import { supabase } from '../config/supabase.config';
 import { SimpleDateCalculator } from '../utils/simpleDateCalculator';
 import { apiService } from './api';
+import { notificationService } from './notificationService';
 import { supabaseNotificationService } from './supabaseNotificationService';
 
 // Define ApiResponse interface locally
@@ -72,6 +73,21 @@ export interface UserSubscription {
   createdAt?: string;
   updatedAt?: string;
   plan?: SubscriptionPlan;
+}
+
+export interface ClientWithoutSubscription {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  join_date: string;
+  status: string;
+  has_previous_subscription: boolean;
+  last_subscription?: {
+    plan_name: string;
+    end_date: string;
+    status: string;
+  };
 }
 
 export interface PurchaseSubscriptionRequest {
@@ -2114,6 +2130,224 @@ class SubscriptionService {
     } catch (error) {
       console.error('❌ Error fetching plan statistics:', error);
       return { success: false, error: 'Failed to fetch plan statistics' };
+    }
+  }
+  // Method to get clients without active subscriptions
+  async getClientsWithoutActiveSubscriptions(): Promise<ApiResponse<ClientWithoutSubscription[]>> {
+    try {
+      if (!this.useSupabase()) {
+        return { success: false, error: 'Supabase mode required for this operation' };
+      }
+
+      // First, run expiration cleanup to ensure expired subscriptions are marked correctly
+      await this.runExpirationCleanup();
+
+      // Get all clients with their latest subscription status
+      const { data: clients, error: clientsError } = await supabase
+        .from('users')
+        .select(`
+          id,
+          name,
+          email,
+          phone,
+          join_date,
+          status,
+          role
+        `)
+        .eq('role', 'client')
+        .eq('status', 'active');
+
+      if (clientsError) {
+        console.error('Error fetching clients:', clientsError);
+        return { success: false, error: clientsError.message };
+      }
+
+      if (!clients || clients.length === 0) {
+        return { success: true, data: [] };
+      }
+
+      // Get all subscriptions to check status
+      const { data: subscriptions, error: subscriptionsError } = await supabase
+        .from('user_subscriptions')
+        .select(`
+          user_id,
+          status,
+          end_date,
+          created_at,
+          subscription_plans:plan_id (
+            name
+          )
+        `)
+        .order('created_at', { ascending: false });
+
+      if (subscriptionsError) {
+        console.error('Error fetching subscriptions:', subscriptionsError);
+        return { success: false, error: subscriptionsError.message };
+      }
+
+      const today = new Date().toISOString().split('T')[0];
+      const clientsWithoutActiveSubscriptions: ClientWithoutSubscription[] = [];
+
+      for (const client of clients) {
+        // Find all subscriptions for this client
+        const clientSubscriptions = subscriptions?.filter(sub => sub.user_id === client.id) || [];
+        
+        // Check if client has any active subscription
+        const hasActiveSubscription = clientSubscriptions.some(sub => 
+          sub.status === 'active' && sub.end_date >= today
+        );
+
+        if (!hasActiveSubscription) {
+          // Find the most recent subscription (if any) for previous subscription info
+          const lastSubscription = clientSubscriptions.length > 0 ? clientSubscriptions[0] : null;
+          
+          clientsWithoutActiveSubscriptions.push({
+            id: client.id,
+            name: client.name,
+            email: client.email,
+            phone: client.phone,
+            join_date: client.join_date,
+            status: client.status,
+            has_previous_subscription: clientSubscriptions.length > 0,
+            last_subscription: lastSubscription ? {
+              plan_name: (lastSubscription.subscription_plans as any)?.name || 'Unknown Plan',
+              end_date: lastSubscription.end_date,
+              status: lastSubscription.status
+            } : undefined
+          });
+        }
+      }
+
+      return { success: true, data: clientsWithoutActiveSubscriptions };
+    } catch (error) {
+      console.error('Failed to fetch clients without active subscriptions:', error);
+      return { success: false, error: 'Failed to fetch clients without active subscriptions' };
+    }
+  }
+
+  // Helper method to run expiration cleanup for all users
+  private async runExpirationCleanup(): Promise<void> {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Get all expired subscriptions that are still marked as active
+      const { data: expiredSubs, error: expiredError } = await supabase
+        .from('user_subscriptions')
+        .select('id, end_date')
+        .eq('status', 'active')
+        .lt('end_date', today);
+      
+      if (expiredError) {
+        console.error('Error checking for expired subscriptions:', expiredError);
+        return;
+      }
+      
+      if (expiredSubs && expiredSubs.length > 0) {
+        // Update expired subscriptions to 'expired' status
+        const expiredIds = expiredSubs.map(sub => sub.id);
+        const { error: updateError } = await supabase
+          .from('user_subscriptions')
+          .update({ 
+            status: 'expired',
+            updated_at: new Date().toISOString() 
+          })
+          .in('id', expiredIds);
+        
+        if (updateError) {
+          console.error('❌ Error updating expired subscriptions:', updateError);
+        } else {
+        }
+      }
+    } catch (error) {
+      console.error('Error during expiration cleanup:', error);
+    }
+  }
+
+  // Get subscription history for a user - NEW METHOD
+  async getSubscriptionHistory(): Promise<ApiResponse<UserSubscription[]>> {
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError || !user) {
+        return { success: false, error: 'User not authenticated' };
+      }
+
+      const { data: subscriptions, error } = await supabase
+        .from('user_subscriptions')
+        .select(`
+          *,
+          subscription_plans (
+            name,
+            monthly_classes,
+            equipment_access,
+            monthly_price,
+            duration,
+            duration_unit,
+            category
+          )
+        `)
+        .eq('user_id', user.id)
+        .order('start_date', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching subscription history:', error);
+        return { success: false, error: error.message };
+      }
+
+      // Transform the data to match the expected format
+      const transformedSubscriptions = subscriptions?.map(sub => ({
+        ...sub,
+        plan_name: sub.subscription_plans?.name || 'Unknown Plan',
+        monthly_classes: sub.subscription_plans?.monthly_classes || 0,
+        equipment_access: sub.subscription_plans?.equipment_access || 'mat',
+        monthly_price: sub.subscription_plans?.monthly_price || 0,
+        duration: sub.subscription_plans?.duration || 1,
+        duration_unit: sub.subscription_plans?.duration_unit || 'months',
+        category: sub.subscription_plans?.category || 'group'
+      })) || [];
+
+      return { success: true, data: transformedSubscriptions };
+    } catch (error) {
+      console.error('Error in getSubscriptionHistory:', error);
+      return { success: false, error: 'Failed to fetch subscription history' };
+    }
+  }
+
+  // Automatic daily notification checking
+  static lastNotificationCheck: { [key: string]: string } = {};
+
+  async checkAndSendAutomaticNotifications(): Promise<void> {
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+    const checkKey = 'daily_notification_check';
+
+    // Only run once per day
+    if (SubscriptionService.lastNotificationCheck[checkKey] === today) {
+      return;
+    }
+
+    try {
+      console.log('🔔 [DAILY CHECK] Running automatic subscription notifications...');
+      
+      // Send expiring notifications (5 days warning)
+      const expiringResult = await notificationService.sendSubscriptionExpiryNotifications();
+      if (expiringResult.success) {
+        const expiringCount = expiringResult.data?.notificationCount || 0;
+        console.log(`📅 [DAILY CHECK] Sent ${expiringCount} expiring subscription notifications`);
+      }
+
+      // Send expired notifications
+      const expiredResult = await notificationService.sendSubscriptionExpiredNotifications();
+      if (expiredResult.success) {
+        const expiredCount = expiredResult.data?.notificationCount || 0;
+        console.log(`❌ [DAILY CHECK] Sent ${expiredCount} expired subscription notifications`);
+      }
+
+      // Mark as completed for today
+      SubscriptionService.lastNotificationCheck[checkKey] = today;
+      console.log('✅ [DAILY CHECK] Automatic notification check completed');
+
+    } catch (error) {
+      console.error('❌ [DAILY CHECK] Error in automatic notification check:', error);
     }
   }
 }

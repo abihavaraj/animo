@@ -3,6 +3,7 @@ import { Alert, Dimensions, ScrollView, StyleSheet, Text, TextInput, TouchableOp
 import { useDispatch, useSelector } from 'react-redux';
 import { SubscriptionConflictDialog } from '../../components/SubscriptionConflictDialog';
 import WebCompatibleIcon from '../../components/WebCompatibleIcon';
+import { notificationService } from '../../services/notificationService';
 import { SubscriptionPlan, subscriptionService } from '../../services/subscriptionService';
 import { BackendUser, userService } from '../../services/userService';
 import { AppDispatch, RootState } from '../../store';
@@ -57,6 +58,11 @@ function PCSubscriptionPlans() {
   // Subscription options modal state
   const [showSubscriptionOptionsModal, setShowSubscriptionOptionsModal] = useState(false);
   const [subscriptionOptionsData, setSubscriptionOptionsData] = useState<any>(null);
+  
+  // Notification testing modal state
+  const [showNotificationTestModal, setShowNotificationTestModal] = useState(false);
+  const [showExpiringConfirmModal, setShowExpiringConfirmModal] = useState(false);
+  const [showExpiredConfirmModal, setShowExpiredConfirmModal] = useState(false);
   const [planFormData, setPlanFormData] = useState<PlanFormData>({
     name: '',
     monthlyClasses: 8,
@@ -102,11 +108,9 @@ function PCSubscriptionPlans() {
 
   const loadPlanStatistics = async () => {
     try {
-      console.log('📊 Loading real plan statistics...');
       const response = await subscriptionService.getPlanStatistics();
       
       if (response.success && response.data) {
-        console.log('✅ Plan statistics loaded successfully:', response.data);
         setPlanStats(response.data);
       } else {
         console.error('❌ Failed to load plan statistics:', response.error);
@@ -123,13 +127,6 @@ function PCSubscriptionPlans() {
   // Filter and sort plans
   const filteredAndSortedPlans = React.useMemo(() => {
     let filtered = Array.isArray(plans) ? [...plans] : [];
-    
-    console.log('📊 All plans before filtering:', filtered.map(p => ({ 
-      id: p.id || 'no-id', 
-      name: p.name || 'unnamed', 
-      isActive: p.isActive, 
-      type: typeof p.isActive 
-    })));
 
     // Apply search filter
     if (searchTerm) {
@@ -152,17 +149,10 @@ function PCSubscriptionPlans() {
         const shouldShowActive = filterStatus === 'active';
         const shouldShow = shouldShowActive ? isActive : !isActive;
         
-        console.log(`🔍 Plan ${plan.name || 'unnamed'}: isActive=${plan.isActive}, filterStatus=${filterStatus}, shouldShow=${shouldShow}`);
         
         return shouldShow;
       });
     }
-
-    console.log('📋 Filtered plans:', filtered.map(p => ({ 
-      id: p.id || 'no-id', 
-      name: p.name || 'unnamed', 
-      isActive: p.isActive 
-    })));
 
     // Apply sorting
     filtered.sort((a, b) => {
@@ -293,6 +283,21 @@ function PCSubscriptionPlans() {
         const response = await subscriptionService.assignSubscription(clientId, planId);
         console.log('🔍 ASSIGN: Assignment response:', response);
         if (response.success) {
+          // Send subscription assignment notification to the client
+          try {
+            const plan = plans.find(p => p.id === planId);
+            if (plan) {
+              // Skip welcome notification here - it will be sent when user first logs in
+              // This ensures user has credentials and push token before receiving notification
+              console.log('📋 Subscription assigned - welcome notification will be sent on first login');
+
+              console.log('📢 [RECEPTION] Subscription assignment notification sent to client');
+            }
+          } catch (notificationError) {
+            console.error('❌ Failed to send subscription assignment notification:', notificationError);
+            // Don't block the main operation for notification errors
+          }
+
           Alert.alert('Success', 'Subscription plan assigned successfully!');
           // Refresh statistics
           loadPlanStatistics();
@@ -307,6 +312,187 @@ function PCSubscriptionPlans() {
       } else {
         Alert.alert('Error', 'An unexpected error occurred');
       }
+    }
+  };
+
+  const handleCheckExpiringSubscriptions = async () => {
+    try {
+      setShowExpiringConfirmModal(true);
+    } catch (error) {
+      console.error('Error in handleCheckExpiringSubscriptions:', error);
+      console.log('❌ Error: An unexpected error occurred');
+    }
+  };
+
+  const performExpiringCheck = async () => {
+    try {
+      setShowExpiringConfirmModal(false);
+      console.log('🔍 Checking for expiring subscriptions...');
+      const result = await notificationService.checkAndSendExpiringSubscriptionNotifications();
+      if (result.success) {
+        const count = result.data?.notificationCount || 0;
+        console.log(
+          count > 0 
+            ? `✅ Found ${count} expiring subscription${count === 1 ? '' : 's'}. Notifications sent to clients.`
+            : '✅ No subscriptions expiring in the next 7 days.'
+        );
+      } else {
+        console.error('❌ Error:', result.error || 'Failed to check expiring subscriptions');
+      }
+    } catch (error) {
+      console.error('❌ Error checking expiring subscriptions:', error);
+    }
+  };
+
+  const handleCheckExpiredSubscriptions = async () => {
+    try {
+      setShowExpiredConfirmModal(true);
+    } catch (error) {
+      console.error('Error in handleCheckExpiredSubscriptions:', error);
+      console.log('❌ Error: An unexpected error occurred');
+    }
+  };
+
+  const performExpiredCheck = async () => {
+    try {
+      setShowExpiredConfirmModal(false);
+      console.log('🔍 Checking for expired subscriptions...');
+      const result = await notificationService.sendSubscriptionExpiredNotifications();
+      if (result.success) {
+        const count = result.data?.notificationCount || 0;
+        console.log(
+          count > 0 
+            ? `✅ Found ${count} expired subscription${count === 1 ? '' : 's'}. Notifications sent to clients.`
+            : '✅ No recently expired subscriptions found.'
+        );
+      } else {
+        console.error('❌ Error:', result.error || 'Failed to check expired subscriptions');
+      }
+    } catch (error) {
+      console.error('❌ Error checking expired subscriptions:', error);
+    }
+  };
+
+  const handleTestSubscriptionNotifications = async () => {
+    try {
+      setShowNotificationTestModal(true);
+    } catch (error) {
+      console.error('Error in handleTestSubscriptionNotifications:', error);
+      console.log('❌ Error: An unexpected error occurred');
+    }
+  };
+
+  const testWelcomeNotification = async () => {
+    try {
+      setShowNotificationTestModal(false);
+      
+      // Show available clients for debugging
+      const availableClients = clients.filter(u => u.role === 'client').map(u => u.name);
+      console.log('👥 Available clients for testing:', availableClients);
+      
+      // Find a test user - prioritize "argjend" or use first client
+      const testUser = clients.find(u => u.role === 'client' && u.name.toLowerCase().includes('argjend')) || 
+                      clients.find(u => u.role === 'client');
+      if (!testUser) {
+        console.log('❌ Error: No client users found to test with');
+        return;
+      }
+
+      console.log(`🧪 Testing welcome notification for ${testUser.name}...`);
+      const notificationResult = await notificationService.createTranslatedNotification(
+        testUser.id,
+        'welcome',
+        {
+          type: 'welcome',
+          userName: testUser.name
+        }
+      );
+
+      if (notificationResult.success && notificationResult.data) {
+        await notificationService.sendPushNotificationToUser(
+          testUser.id,
+          notificationResult.data.title,
+          notificationResult.data.message
+        );
+        console.log(`✅ Welcome notification sent to ${testUser.name}`);
+      } else {
+        console.error('❌ Error:', notificationResult.error || 'Failed to send welcome notification');
+      }
+    } catch (error) {
+      console.error('❌ Error testing welcome notification:', error);
+    }
+  };
+
+  const testExpiringNotification = async () => {
+    try {
+      setShowNotificationTestModal(false);
+      // Find a test user - prioritize "argjend" or use first client
+      const testUser = clients.find(u => u.role === 'client' && u.name.toLowerCase().includes('argjend')) || 
+                      clients.find(u => u.role === 'client');
+      if (!testUser) {
+        console.log('❌ Error: No client users found to test with');
+        return;
+      }
+
+      console.log(`🧪 Testing expiring notification for ${testUser.name}...`);
+      const notificationResult = await notificationService.createTranslatedNotification(
+        testUser.id,
+        'subscription_expiring',
+        {
+          type: 'subscription_expiring',
+          planName: 'Test Plan',
+          expiryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString()
+        }
+      );
+
+      if (notificationResult.success && notificationResult.data) {
+        await notificationService.sendPushNotificationToUser(
+          testUser.id,
+          notificationResult.data.title,
+          notificationResult.data.message
+        );
+        console.log(`✅ Expiring notification sent to ${testUser.name}`);
+      } else {
+        console.error('❌ Error:', notificationResult.error || 'Failed to send expiring notification');
+      }
+    } catch (error) {
+      console.error('❌ Error testing expiring notification:', error);
+    }
+  };
+
+  const testExpiredNotification = async () => {
+    try {
+      setShowNotificationTestModal(false);
+      // Find a test user - prioritize "argjend" or use first client
+      const testUser = clients.find(u => u.role === 'client' && u.name.toLowerCase().includes('argjend')) || 
+                      clients.find(u => u.role === 'client');
+      if (!testUser) {
+        console.log('❌ Error: No client users found to test with');
+        return;
+      }
+
+      console.log(`🧪 Testing expired notification for ${testUser.name}...`);
+      const notificationResult = await notificationService.createTranslatedNotification(
+        testUser.id,
+        'subscription_expired',
+        {
+          type: 'subscription_expired',
+          planName: 'Test Plan'
+        }
+      );
+
+      if (notificationResult.success && notificationResult.data) {
+        await notificationService.sendPushNotificationToUser(
+          testUser.id,
+          notificationResult.data.title,
+          notificationResult.data.message
+        );
+        console.log(`✅ Expired notification sent to ${testUser.name}`);
+      } else {
+        console.error('❌ Error:', notificationResult.error || 'Failed to send expired notification');
+      }
+    } catch (error) {
+      console.error('❌ Error testing expired notification:', error);
     }
   };
 
@@ -711,6 +897,30 @@ function PCSubscriptionPlans() {
             >
               <WebCompatibleIcon name="add" size={20} color="white" />
               <Text style={styles.headerButtonText}>New Plan</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.headerButton, styles.notificationHeaderButton]}
+              onPress={handleCheckExpiringSubscriptions}
+            >
+              <WebCompatibleIcon name="notifications" size={20} color="white" />
+              <Text style={styles.headerButtonText}>Check Expiring</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.headerButton, styles.notificationHeaderButton]}
+              onPress={handleCheckExpiredSubscriptions}
+            >
+              <WebCompatibleIcon name="notifications-off" size={20} color="white" />
+              <Text style={styles.headerButtonText}>Check Expired</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.headerButton, styles.debugHeaderButton]}
+              onPress={handleTestSubscriptionNotifications}
+            >
+              <WebCompatibleIcon name="bug-report" size={20} color="white" />
+              <Text style={styles.headerButtonText}>Test Notifications</Text>
             </TouchableOpacity>
             
             {selectedPlans.length > 0 && (
@@ -1239,6 +1449,96 @@ function PCSubscriptionPlans() {
         }}
         loading={false}
       />
+
+      {/* Expiring Subscriptions Confirmation Modal */}
+      {showExpiringConfirmModal && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmModal}>
+            <Text style={styles.confirmTitle}>Check Expiring Subscriptions</Text>
+            <Text style={styles.confirmMessage}>
+              This will check for subscriptions expiring in the next 5 days and send notifications to clients.
+            </Text>
+            <View style={styles.confirmActions}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setShowExpiringConfirmModal(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.confirmButton}
+                onPress={performExpiringCheck}
+              >
+                <Text style={styles.confirmButtonText}>Check Now</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Expired Subscriptions Confirmation Modal */}
+      {showExpiredConfirmModal && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmModal}>
+            <Text style={styles.confirmTitle}>Check Expired Subscriptions</Text>
+            <Text style={styles.confirmMessage}>
+              This will check for subscriptions that expired recently and send notifications to clients.
+            </Text>
+            <View style={styles.confirmActions}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setShowExpiredConfirmModal(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.confirmButton}
+                onPress={performExpiredCheck}
+              >
+                <Text style={styles.confirmButtonText}>Check Now</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Notification Test Modal */}
+      {showNotificationTestModal && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.testModal}>
+            <Text style={styles.confirmTitle}>Test Subscription Notifications</Text>
+            <Text style={styles.confirmMessage}>
+              Choose which type of subscription notification to test:
+            </Text>
+            <View style={styles.testActions}>
+              <TouchableOpacity
+                style={styles.testButton}
+                onPress={testWelcomeNotification}
+              >
+                <Text style={styles.testButtonText}>Test Welcome</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.testButton}
+                onPress={testExpiringNotification}
+              >
+                <Text style={styles.testButtonText}>Test Expiring</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.testButton}
+                onPress={testExpiredNotification}
+              >
+                <Text style={styles.testButtonText}>Test Expired</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setShowNotificationTestModal(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -1286,6 +1586,73 @@ const styles = StyleSheet.create({
   },
   assignHeaderButton: {
     backgroundColor: '#C77474',
+  },
+  notificationHeaderButton: {
+    backgroundColor: '#ff9800',
+  },
+  debugHeaderButton: {
+    backgroundColor: '#9c27b0',
+  },
+  confirmModal: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 20,
+    margin: 20,
+    maxWidth: 400,
+    alignSelf: 'center',
+  },
+  confirmTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  confirmMessage: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  confirmButton: {
+    backgroundColor: '#007bff',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  confirmButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  testModal: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 20,
+    margin: 20,
+    maxWidth: 400,
+    alignSelf: 'center',
+  },
+  testActions: {
+    gap: 12,
+  },
+  testButton: {
+    backgroundColor: '#28a745',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  testButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '500',
   },
   headerButtonText: {
     color: 'white',

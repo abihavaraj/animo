@@ -3,6 +3,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { Expo } from 'expo-server-sdk';
+const { getTranslatedNotification, getUserLanguage } = require('../utils/notificationTranslator');
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -117,12 +118,33 @@ export default async function handler(req, res) {
             continue;
           }
 
+          // Get translated notification content if available
+          let title = notification.title || '🧘‍♀️ Pilates Studio';
+          let body = notification.message;
+          
+          // If metadata contains translation info, use translated content
+          if (notification.metadata?.translation_type && notification.metadata?.original_data) {
+            try {
+              const userLanguage = await getUserLanguage(supabase, notification.user_id);
+              const translated = getTranslatedNotification(
+                notification.metadata.translation_type,
+                notification.metadata.original_data,
+                userLanguage
+              );
+              title = translated.title;
+              body = translated.body;
+              console.log(`📝 Using translated content (${userLanguage}):`, { title: title.substring(0, 30) + '...', body: body.substring(0, 50) + '...' });
+            } catch (translationError) {
+              console.warn('Translation failed, using original content:', translationError);
+            }
+          }
+
           // Create push message with enhanced metadata
           const pushMessage = {
             to: pushToken,
             sound: 'default',
-            title: notification.title || '🧘‍♀️ Pilates Studio',
-            body: notification.message,
+            title: title,
+            body: body,
             data: {
               notificationId: notification.id,
               type: notification.type,

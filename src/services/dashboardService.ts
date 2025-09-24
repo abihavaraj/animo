@@ -247,16 +247,13 @@ class DashboardService {
    */
   async getDashboardStats(dateRange?: DateRange): Promise<ApiResponse<DashboardStats>> {
     try {
-      console.log('📊 [DashboardService] Starting to fetch dashboard statistics...');
       const today = new Date().toISOString().split('T')[0];
       const startOfWeek = this.getStartOfWeek();
       const startOfMonth = this.getStartOfMonth();
       const startOfYear = this.getStartOfYear();
 
-      console.log('📅 [DashboardService] Date ranges:', { today, startOfWeek, startOfMonth, dateRange });
 
       // Run all queries in parallel for better performance
-      console.log('🔄 [DashboardService] Running parallel queries...');
       const [
         overviewStats,
         financialStats,
@@ -497,7 +494,6 @@ class DashboardService {
         })
       ]);
 
-      console.log('✅ [DashboardService] All queries completed successfully');
 
       const dashboardStats: DashboardStats = {
         overview: overviewStats,
@@ -510,12 +506,6 @@ class DashboardService {
         recentActivity: recentActivityStats
       };
 
-      console.log('📊 [DashboardService] Dashboard stats compiled:', {
-        clients: overviewStats.totalClients,
-        revenue: financialStats.totalRevenue,
-        classes: overviewStats.totalClasses,
-        alerts: notificationStats.systemAlerts
-      });
 
       return { success: true, data: dashboardStats };
     } catch (error) {
@@ -550,7 +540,6 @@ class DashboardService {
       return client.created_at >= startOfMonth;
     }).length || 0;
     
-    console.log(`👥 Client stats: total=${totalClients}, active=${activeClients}, newThisMonth=${newClientsInPeriod}`);
 
     // Instructors
     const { data: instructorsData } = await supabase
@@ -572,7 +561,6 @@ class DashboardService {
     const classesThisWeek = classesData?.filter(cls => cls.date >= startOfWeek).length || 0;
     const classesThisMonth = classesData?.filter(cls => cls.date >= startOfMonth).length || 0;
     
-    console.log(`🏋️ Class stats: total=${totalClasses}, thisWeek=${classesThisWeek}, thisMonth=${classesThisMonth}`);
 
     // Calculate attendance rate
     let totalCapacity = 0;
@@ -596,7 +584,6 @@ class DashboardService {
     if (dateRange) {
       const periodStart = dateRange.start;
       const periodEnd = dateRange.end;
-      console.log(`💰 [Overview] Applying payment date range filter: ${periodStart} to ${periodEnd}`);
       paymentsQuery = paymentsQuery.gte('created_at', periodStart).lte('created_at', `${periodEnd}T23:59:59.999Z`);
     }
     
@@ -605,7 +592,6 @@ class DashboardService {
     const totalRevenue = paymentsData?.reduce((sum, payment) => sum + (payment.amount || 0), 0) || 0;
     const averageClientLifetime = totalClients > 0 ? Math.round(totalRevenue / totalClients) : 0;
     
-    console.log(`💰 [Overview] Total revenue in period: ${totalRevenue} from ${paymentsData?.length || 0} payments`);
     
     // Get peak hours and popular days from class data with date filtering
     let classDataQuery = supabase
@@ -617,7 +603,6 @@ class DashboardService {
     if (dateRange) {
       const periodStart = dateRange.start;
       const periodEnd = dateRange.end;
-      console.log(`🏋️ [Overview] Applying class date range filter: ${periodStart} to ${periodEnd}`);
       classDataQuery = classDataQuery.gte('created_at', periodStart).lte('created_at', `${periodEnd}T23:59:59.999Z`);
     }
     
@@ -679,15 +664,11 @@ class DashboardService {
       .eq('status', 'completed');
     
     if (dateRange) {
-      console.log(`💰 Applying financial date range filter: ${periodStart} to ${periodEnd}`);
       paymentsQuery = paymentsQuery.gte('created_at', periodStart).lte('created_at', `${periodEnd}T23:59:59.999Z`);
     }
     
     const { data: paymentsData } = await paymentsQuery;
     
-    console.log(`💰 Found ${paymentsData?.length || 0} completed payments for financial calculations`);
-    console.log(`📅 Date range filter: ${dateRange ? `${periodStart} to ${periodEnd}` : 'No filter applied'}`);
-    console.log(`💰 Sample payment dates:`, paymentsData?.slice(0, 3).map(p => p.created_at) || 'No payments');
 
     const totalRevenue = paymentsData?.reduce((sum, payment) => sum + (payment.amount || 0), 0) || 0;
     
@@ -704,10 +685,6 @@ class DashboardService {
       payment.created_at.split('T')[0] === today
     ).reduce((sum, payment) => sum + (payment.amount || 0), 0) || 0;
     
-    console.log(`💰 Revenue calculated: total=${totalRevenue}, month=${revenueThisMonth}, week=${revenueThisWeek}, today=${revenueToday}`);
-    console.log(`💰 Date periods: startOfMonth=${startOfMonth}, startOfWeek=${startOfWeek}, today=${today}`);
-    console.log(`💰 Date range filter: ${dateRange ? `${periodStart} to ${periodEnd}` : 'No filter'}`);
-    console.log(`💰 Total payments processed: ${paymentsData?.length}`)
 
     // Get subscription statistics (using correct join syntax)
     let subscriptionsQuery = supabase
@@ -761,7 +738,6 @@ class DashboardService {
     const revenueForecast = Math.round(revenueThisMonth * 1.1); // Simple 10% growth forecast
 
     // Calculate advanced revenue analytics
-    console.log(`📊 Starting advanced analytics with dateRange:`, dateRange);
     const clientLifetimeValue = this.calculateClientLifetimeValue(paymentsData || [], subscriptionsData || []);
     const churnRate = this.calculateAdvancedChurnRate(subscriptionsData || []);
     const renewalRate = Math.max(0, 100 - churnRate);
@@ -824,7 +800,6 @@ class DashboardService {
 
     // Apply date range filter if specified (filter by created_at for when classes were created)
     if (dateRange) {
-      console.log(`🏋️ Applying class date range filter: ${periodStart} to ${periodEnd}`);
       classesQuery = classesQuery.gte('created_at', periodStart).lte('created_at', `${periodEnd}T23:59:59.999Z`);
     }
 
@@ -834,7 +809,6 @@ class DashboardService {
     const upcomingClasses = classesData?.filter(cls => cls.date >= today).length || 0;
     const classesThisWeek = classesData?.filter(cls => cls.date >= startOfWeek).length || 0;
     
-    console.log(`🏋️ [ClassStats] Classes: upcoming=${upcomingClasses}, thisWeek=${classesThisWeek}, total=${classesData?.length}`);
 
     // Calculate attendance statistics
     let totalBookings = 0;
@@ -921,7 +895,6 @@ class DashboardService {
     
     // Apply date range filter if specified
     if (dateRange) {
-      console.log(`🔍 Applying date range filter: ${periodStart} to ${periodEnd}`);
       clientQuery = clientQuery.gte('created_at', periodStart).lte('created_at', periodEnd);
     }
     
@@ -940,7 +913,6 @@ class DashboardService {
       return clientDate >= weekStart;
     }).length || 0;
     
-    console.log(`📊 Calculated ${newClientsThisMonth} new clients this month, ${newClientsThisWeek} this week`);
 
     // Calculate retention rate (clients with bookings in the period)
     let bookingsQuery = supabase
@@ -950,7 +922,6 @@ class DashboardService {
 
     if (dateRange) {
       // Use the same date range as the main filter
-      console.log(`📊 [ClientStats] Applying booking date range filter: ${periodStart} to ${periodEnd}`);
       bookingsQuery = bookingsQuery.gte('created_at', periodStart).lte('created_at', `${periodEnd}T23:59:59.999Z`);
     } else {
       // Default to last 30 days when no filter
@@ -1040,7 +1011,6 @@ class DashboardService {
 
     // Apply date range filter if specified (filter by created_at for when subscriptions were created)
     if (dateRange) {
-      console.log(`📋 Applying subscription date range filter: ${periodStart} to ${periodEnd}`);
       subscriptionsQuery = subscriptionsQuery.gte('created_at', periodStart).lte('created_at', `${periodEnd}T23:59:59.999Z`);
     }
 
@@ -1066,17 +1036,7 @@ class DashboardService {
       };
     }
 
-    console.log(`📊 Found ${subscriptionsData?.length || 0} total subscriptions in database`);
 
-    // Debug: Log first few subscriptions to check data structure
-    if (subscriptionsData?.length > 0) {
-      console.log('🔍 Sample subscription data:', {
-        first: subscriptionsData[0],
-        planData: subscriptionsData[0]?.subscription_plans,
-        planName: (subscriptionsData[0]?.subscription_plans as any)?.name,
-        monthlyPrice: (subscriptionsData[0]?.subscription_plans as any)?.monthly_price
-      });
-    }
 
     // Calculate basic counts
     const totalActive = subscriptionsData?.filter(sub => sub.status === 'active').length || 0;
@@ -1130,19 +1090,11 @@ class DashboardService {
     // Calculate subscriptions by plan
     const planStats: { [key: string]: { active: number; expiring: number; revenue: number; cancelled: number } } = {};
 
-    console.log('📋 Calculating subscriptions by plan...');
 
     subscriptionsData?.forEach((sub, index) => {
       const planName = (sub.subscription_plans as any)?.name || 'Unknown';
       const monthlyPrice = (sub.subscription_plans as any)?.monthly_price || 0;
 
-      console.log(`🔍 Subscription ${index + 1}:`, {
-        status: sub.status,
-        planName,
-        monthlyPrice,
-        endDate: sub.end_date,
-        isExpiring: sub.status === 'active' && sub.end_date <= next30DaysStr && sub.end_date >= today
-      });
 
       if (!planStats[planName]) {
         planStats[planName] = { active: 0, expiring: 0, revenue: 0, cancelled: 0 };
@@ -1164,21 +1116,12 @@ class DashboardService {
       }
     });
 
-    console.log('📊 Plan stats calculated:', planStats);
 
     const subscriptionsByPlan = Object.entries(planStats).map(([planName, stats]) => {
       const totalSubscriptions = stats.active + stats.cancelled;
       const churnRate = totalSubscriptions > 0 ?
         Math.round((stats.cancelled / totalSubscriptions) * 100) : 0;
 
-      console.log(`📊 Plan "${planName}" stats:`, {
-        active: stats.active,
-        expiring: stats.expiring,
-        cancelled: stats.cancelled,
-        revenue: stats.revenue,
-        churnRate,
-        totalSubscriptions
-      });
 
       return {
         planName,
@@ -1223,7 +1166,6 @@ class DashboardService {
           .eq('is_active', true);
 
         if (!plansError && plansData && plansData.length > 0) {
-          console.log('✅ Found subscription plans directly:', plansData);
 
           // Create mock stats for plans that exist but have no subscriptions
           const mockPlans = plansData.map(plan => ({
@@ -1329,7 +1271,6 @@ class DashboardService {
    */
   private async getReferralSourcesStats(dateRange?: DateRange) {
     try {
-      console.log('🔍 Fetching referral sources data...');
       
       // Query referral_source column directly with better error handling
       const { data: referralData, error: referralError } = await supabase
@@ -1347,7 +1288,6 @@ class DashboardService {
         return { sources: [], totalResponses: 0 };
       }
 
-      console.log(`📊 Found ${referralData?.length || 0} users, processing referral sources...`);
 
       const sourceCounts: { [key: string]: number } = {};
       let totalResponses = 0;
@@ -1358,7 +1298,6 @@ class DashboardService {
         
         // Debug logging for first few users
         if (index < 5) {
-          console.log(`🔍 User ${index + 1} referral_source:`, source, `(type: ${typeof source})`);
         }
         
         if (source && source.trim() !== '') {
@@ -1371,7 +1310,6 @@ class DashboardService {
         totalResponses++;
       });
 
-      console.log('📈 Referral source counts:', sourceCounts);
 
       // Convert to array with percentages
       const sources = Object.entries(sourceCounts)
@@ -1382,7 +1320,6 @@ class DashboardService {
         }))
         .sort((a, b) => b.count - a.count);
 
-      console.log('✅ Referral sources processed:', { sources: sources.length, totalResponses });
       return { sources, totalResponses };
     } catch (error) {
       console.error('❌ Exception in getReferralSourcesStats:', error);
@@ -2131,7 +2068,6 @@ class DashboardService {
   }
 
   private async getNewClientsInPeriod(startDate: string) {
-    console.log(`🔍 Getting new clients since: ${startDate}`);
     
     const { data: clients, error } = await supabase
       .from('users')
@@ -2151,12 +2087,10 @@ class DashboardService {
       return [];
     }
 
-    console.log(`✅ Found ${clients?.length || 0} new clients since ${startDate}`);
     return clients || [];
   }
 
   async getClientsBySubscriptionStatus(status: 'active' | 'expired' | 'cancelled') {
-    console.log(`🔍 Getting clients with ${status} subscriptions...`);
     
     const { data: clients, error } = await supabase
       .from('users')
@@ -2176,7 +2110,6 @@ class DashboardService {
       return [];
     }
 
-    console.log(`✅ Found ${clients?.length || 0} clients with ${status} subscriptions`);
     return clients || [];
   }
 
@@ -2291,7 +2224,6 @@ class DashboardService {
   }
 
   private async getClientsByReferralSource(referralSource: string) {
-    console.log(`🔍 Getting clients for referral source: "${referralSource}"`);
     
     try {
       let query = supabase
@@ -2308,7 +2240,6 @@ class DashboardService {
 
       // Convert display name back to database value
       const databaseValue = this.getReferralSourceDatabaseValue(referralSource);
-      console.log(`🔄 Converting "${referralSource}" to database value: "${databaseValue}"`);
 
       // Filter by referral source
       if (referralSource === 'Not Specified') {
@@ -2324,7 +2255,6 @@ class DashboardService {
         return [];
       }
 
-      console.log(`✅ Found ${clients?.length || 0} clients for referral source "${referralSource}"`);
 
       // Format the data for display
       return (clients || []).map(client => {
@@ -2350,7 +2280,6 @@ class DashboardService {
   }
 
   async getClientsWithPayments() {
-    console.log('💰 Getting clients with payments...');
     try {
       const { data: clients, error } = await supabase
         .from('users')
@@ -2373,7 +2302,6 @@ class DashboardService {
         return [];
       }
 
-      console.log(`✅ Found ${clients?.length || 0} clients with payments`);
       return this.formatClientsForModal(clients || []);
     } catch (error) {
       console.error('Error in getClientsWithPayments:', error);
@@ -2382,7 +2310,6 @@ class DashboardService {
   }
 
   async getClientsWithRecentPayments() {
-    console.log('💰 Getting clients with recent payments...');
     try {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -2410,7 +2337,6 @@ class DashboardService {
         return [];
       }
 
-      console.log(`✅ Found ${clients?.length || 0} clients with recent payments`);
       return this.formatClientsForModal(clients || []);
     } catch (error) {
       console.error('Error in getClientsWithRecentPayments:', error);
@@ -2419,7 +2345,6 @@ class DashboardService {
   }
 
   async getClientsWithOneTimePayments() {
-    console.log('💰 Getting clients with one-time payments...');
     try {
       // This is a simplified implementation - you might want to add logic to identify one-time vs subscription payments
       const { data: clients, error } = await supabase
@@ -2444,7 +2369,6 @@ class DashboardService {
         return [];
       }
 
-      console.log(`✅ Found ${clients?.length || 0} clients with one-time payments`);
       return this.formatClientsForModal(clients || []);
     } catch (error) {
       console.error('Error in getClientsWithOneTimePayments:', error);
@@ -2454,7 +2378,6 @@ class DashboardService {
 
   async getClientsByPlan(planName: string, statusFilter?: 'active' | 'cancelled' | 'expired' | 'expiring' | 'all') {
     const filter = statusFilter || 'all';
-    console.log(`📋 [getClientsByPlan] Getting clients with plan: "${planName}", status: "${filter}"`);
 
     // Calculate date range for expiring subscriptions (next 10 days)
     const today = new Date().toISOString().split('T')[0];
@@ -2482,7 +2405,6 @@ class DashboardService {
         return [];
       }
 
-      console.log(`📊 [getClientsByPlan] Total clients with subscriptions: ${allClients?.length || 0}`);
 
       // Filter clients that have the specific plan and status
       const matchingClients = allClients?.filter(client => {
@@ -2502,10 +2424,8 @@ class DashboardService {
           } else if (filter === 'expiring') {
             // Expiring = active subscriptions ending within 10 days
             statusMatch = subscriptionStatus === 'active' && endDate && endDate <= next10DaysStr && endDate >= today;
-            console.log(`🔍 [getClientsByPlan] Client ${client.name}: Plan="${actualPlanName}" (${planMatch}), Status="${subscriptionStatus}", EndDate="${endDate}", Expiring=${statusMatch} (within 10 days), Expected="${planName}"/${filter}`);
           } else {
             statusMatch = subscriptionStatus === filter;
-            console.log(`🔍 [getClientsByPlan] Client ${client.name}: Plan="${actualPlanName}" (${planMatch}), Status="${subscriptionStatus}" (${statusMatch}), Expected="${planName}"/${filter}`);
           }
 
           return planMatch && statusMatch;
@@ -2514,18 +2434,6 @@ class DashboardService {
         return hasMatchingPlan;
       }) || [];
       
-      console.log(`✅ [getClientsByPlan] Found ${matchingClients.length} clients matching plan "${planName}" with status "${filter}"`);
-      
-      if (matchingClients.length > 0) {
-        console.log(`📋 [getClientsByPlan] Sample client for "${planName}" (${filter}):`, {
-          name: matchingClients[0].name,
-          email: matchingClients[0].email,
-          plans: matchingClients[0].user_subscriptions?.map(s => {
-            const planData = Array.isArray(s?.subscription_plans) ? s.subscription_plans[0] : s?.subscription_plans;
-            return `${planData?.name} (${s.status})`;
-          })
-        });
-      }
       
       return this.formatClientsForModal(matchingClients);
     } catch (error) {
@@ -2599,7 +2507,6 @@ class DashboardService {
     avgRevenuePerClass: number;
   }>> {
     try {
-      console.log(`👨‍🏫 Calculating revenue by instructor with date range: ${dateRange ? `${dateRange.start} to ${dateRange.end}` : 'No filter'}`);
       if (dateRange) {
         // Parse date strings and create UTC dates to avoid timezone issues
         const [startYear, startMonth, startDay] = dateRange.start.split('-').map(Number);
@@ -2609,8 +2516,6 @@ class DashboardService {
         const startDate = new Date(Date.UTC(startYear, startMonth - 1, startDay, 0, 0, 0, 0));
         const endDate = new Date(Date.UTC(endYear, endMonth - 1, endDay, 23, 59, 59, 999));
 
-        console.log(`👨‍🏫 Formatted dates: ${startDate.toISOString()} to ${endDate.toISOString()}`);
-        console.log(`👨‍🏫 Original input: ${dateRange.start} to ${dateRange.end}`);
       }
 
       // Step 1: Get all instructors
@@ -2620,7 +2525,6 @@ class DashboardService {
         .eq('role', 'instructor');
 
       if (!instructors || instructors.length === 0) {
-        console.log('👨‍🏫 No instructors found');
         return [];
       }
 
@@ -2650,12 +2554,11 @@ class DashboardService {
       }
 
       const { data: classesData } = await classesQuery;
-      console.log(`👨‍🏫 Found ${classesData?.length || 0} classes with instructors`);
 
       // Step 3: Get payments data with date filtering
       let paymentsQuery = supabase
         .from('payments')
-        .select('amount, created_at, status, booking_id')
+        .select('amount, created_at, status, user_id')
         .eq('status', 'completed');
 
       if (dateRange) {
@@ -2673,27 +2576,11 @@ class DashboardService {
       }
 
       const { data: paymentsData } = await paymentsQuery;
-      console.log(`💰 Found ${paymentsData?.length || 0} payments for analysis`);
       if (paymentsData && paymentsData.length > 0) {
-        console.log(`💰 Sample payment dates:`, paymentsData.slice(0, 3).map(p => p.created_at));
       }
 
-      // Step 4: Get bookings to link payments to classes
-      const bookingIds = paymentsData?.map(p => p.booking_id).filter(Boolean) || [];
-      console.log(`🎫 Looking for ${bookingIds.length} booking IDs:`, bookingIds.slice(0, 5));
-
-      const { data: bookingsData } = await supabase
-        .from('bookings')
-        .select('id, class_id')
-        .in('id', bookingIds);
-
-      console.log(`🎫 Found ${bookingsData?.length || 0} bookings`);
-
-      // Create booking to class mapping
-      const bookingToClassMap = new Map();
-      bookingsData?.forEach(booking => {
-        bookingToClassMap.set(booking.id, booking.class_id);
-      });
+      // Note: Payments don't directly link to bookings in this schema
+      // We'll analyze payments by user and subscription instead
 
       // Step 5: Calculate stats
       const instructorStats: { [key: string]: { revenue: number; classCount: number } } = {};
@@ -2712,18 +2599,19 @@ class DashboardService {
       });
 
       // Calculate revenue per instructor
-      paymentsData?.forEach(payment => {
-        const classId = bookingToClassMap.get(payment.booking_id);
-        if (classId) {
-          const classData = classesData?.find(cls => cls.id === classId);
-          if (classData) {
-            const instructorName = instructorMap.get(classData.instructor_id) || 'Unknown Instructor';
-            if (instructorStats[instructorName]) {
-              instructorStats[instructorName].revenue += payment.amount || 0;
-            }
+      // Since payments don't directly link to bookings, distribute revenue proportionally by class count
+      const totalRevenue = paymentsData?.reduce((sum, payment) => sum + (payment.amount || 0), 0) || 0;
+      const totalClasses = classesData?.length || 0;
+      
+      if (totalRevenue > 0 && totalClasses > 0) {
+        const revenuePerClass = totalRevenue / totalClasses;
+        Object.keys(instructorStats).forEach(instructorName => {
+          const stats = instructorStats[instructorName];
+          if (stats.classCount > 0) {
+            stats.revenue = Math.round(stats.classCount * revenuePerClass);
           }
-        }
-      });
+        });
+      }
 
       const result = Object.entries(instructorStats)
         .map(([instructorName, data]) => ({
@@ -2735,7 +2623,6 @@ class DashboardService {
         .sort((a, b) => b.revenue - a.revenue)
         .filter(item => item.classCount > 0 || item.revenue > 0);
 
-      console.log(`👨‍🏫 Revenue by instructor result: ${result.length} instructors with revenue data`);
       return result;
 
     } catch (error) {
@@ -2751,7 +2638,6 @@ class DashboardService {
     avgRevenuePerBooking: number;
   }>> {
     try {
-      console.log(`🎯 Calculating revenue by class type with date range: ${dateRange ? `${dateRange.start} to ${dateRange.end}` : 'No filter'}`);
       if (dateRange) {
         // Parse date strings and create UTC dates to avoid timezone issues
         const [startYear, startMonth, startDay] = dateRange.start.split('-').map(Number);
@@ -2760,15 +2646,13 @@ class DashboardService {
         // Create dates in UTC to avoid timezone conversion issues
         const startDate = new Date(Date.UTC(startYear, startMonth - 1, startDay, 0, 0, 0, 0));
         const endDate = new Date(Date.UTC(endYear, endMonth - 1, endDay, 23, 59, 59, 999));
-        console.log(`🎯 Formatted dates: ${startDate.toISOString()} to ${endDate.toISOString()}`);
-        console.log(`🎯 Original input: ${dateRange.start} to ${dateRange.end}`);
       }
 
       // Step 1: Get all classes with their types
       let classesQuery = supabase
         .from('classes')
-        .select('id, class_type, created_at')
-        .not('class_type', 'is', null);
+        .select('id, category, created_at')
+        .not('category', 'is', null);
 
       if (dateRange) {
         // Parse date strings and create UTC dates to avoid timezone issues
@@ -2785,17 +2669,15 @@ class DashboardService {
       }
 
       const { data: classesData } = await classesQuery;
-      console.log(`🎯 Found ${classesData?.length || 0} classes for analysis`);
 
       if (!classesData || classesData.length === 0) {
-        console.log('🎯 No classes found for class type analysis');
         return [];
       }
 
       // Step 2: Get payments data with date filtering
       let paymentsQuery = supabase
         .from('payments')
-        .select('amount, created_at, status, booking_id')
+        .select('amount, created_at, status, user_id')
         .eq('status', 'completed');
 
       if (dateRange) {
@@ -2813,21 +2695,17 @@ class DashboardService {
       }
 
       const { data: paymentsData } = await paymentsQuery;
-      console.log(`💰 Found ${paymentsData?.length || 0} payments for class type analysis`);
       if (paymentsData && paymentsData.length > 0) {
-        console.log(`💰 Sample payment dates:`, paymentsData.slice(0, 3).map(p => p.created_at));
       }
 
       // Step 3: Get bookings to link payments to classes
       const bookingIds = paymentsData?.map(p => p.booking_id).filter(Boolean) || [];
-      console.log(`🎫 Looking for ${bookingIds.length} booking IDs:`, bookingIds.slice(0, 5));
 
       const { data: bookingsData } = await supabase
         .from('bookings')
         .select('id, class_id, created_at')
         .in('id', bookingIds);
 
-      console.log(`🎫 Found ${bookingsData?.length || 0} bookings for class type analysis`);
 
       // Apply date range to bookings if needed
       let filteredBookingsData = bookingsData;
@@ -2851,7 +2729,7 @@ class DashboardService {
       filteredBookingsData?.forEach(booking => {
         const classData = classesData?.find(cls => cls.id === booking.class_id);
         if (classData) {
-          const classType = classData.class_type || 'General';
+          const classType = classData.category || 'General';
           if (!classTypeStats[classType]) {
             classTypeStats[classType] = { revenue: 0, bookingCount: 0 };
           }
@@ -2865,7 +2743,7 @@ class DashboardService {
         if (classId) {
           const classData = classesData?.find(cls => cls.id === classId);
           if (classData) {
-            const classType = classData.class_type || 'General';
+            const classType = classData.category || 'General';
             if (!classTypeStats[classType]) {
               classTypeStats[classType] = { revenue: 0, bookingCount: 0 };
             }
@@ -2884,7 +2762,6 @@ class DashboardService {
         .sort((a, b) => b.revenue - a.revenue)
         .filter(item => item.bookingCount > 0 || item.revenue > 0);
 
-      console.log(`🎯 Revenue by class type result: ${result.length} class types with revenue data`);
       return result;
 
     } catch (error) {

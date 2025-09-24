@@ -197,10 +197,8 @@ class ClassService {
       }
 
       // 🔒 PRIVACY FILTERING: Filter by visibility and date based on user role
-      console.log('🔍 [ClassService] Privacy filtering - userRole:', filters?.userRole);
       if (filters?.userRole === 'client') {
         // Clients can only see public classes
-        console.log('🔍 [ClassService] Client role: filtering by visibility = public');
         baseQuery = baseQuery.eq('visibility', 'public');
         
         // 📅 CLIENT 1-MONTH RULE: Only show classes from 1 month ago onwards
@@ -209,10 +207,8 @@ class ClassService {
           const oneMonthAgo = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate());
           const oneMonthAgoStr = oneMonthAgo.toISOString().split('T')[0];
           baseQuery = baseQuery.gte('date', oneMonthAgoStr);
-          console.log('🔍 [ClassService] Client role: filtering classes from', oneMonthAgoStr, 'onwards');
         }
       } else {
-        console.log('🔍 [ClassService] Non-client role (' + (filters?.userRole || 'undefined') + '): no visibility filtering - see ALL classes');
       }
       // Admin, instructor, and reception can see ALL classes (no additional filters)
       

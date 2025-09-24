@@ -3,12 +3,14 @@ import { Body, Caption, H1, H2 } from '@/components/ui/Typography';
 import { Colors } from '@/constants/Colors';
 import { layout, spacing } from '@/constants/Spacing';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { useRoute } from '@react-navigation/native';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, Platform, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { ActivityIndicator, FAB, Modal, Button as PaperButton, Card as PaperCard, Portal, SegmentedButtons, TextInput } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 import WebCompatibleIcon from '../../components/WebCompatibleIcon';
+import { activityService } from '../../services/activityService';
 import { bookingService } from '../../services/bookingService';
 import { classService } from '../../services/classService';
 import { instructorClientService } from '../../services/instructorClientService';
@@ -31,12 +33,21 @@ interface Class {
 function ScheduleOverview() {
   const dispatch = useDispatch<AppDispatch>();
   const { user } = useSelector((state: RootState) => state.auth);
+  const route = useRoute();
   const [refreshing, setRefreshing] = useState(false);
   const [classes, setClasses] = useState<Class[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
   const [loading, setLoading] = useState(true);
   const [markedDates, setMarkedDates] = useState<any>({});
+
+  // 🚀 OPTIMIZATION: Calendar lazy loading states
+  const [currentMonth, setCurrentMonth] = useState<string>('');
+  const [loadedMonths, setLoadedMonths] = useState<Set<string>>(new Set());
+  const [calendarClasses, setCalendarClasses] = useState<Class[]>([]);
+  const [selectedDateClasses, setSelectedDateClasses] = useState<Class[]>([]);
+  const [loadingSelectedDate, setLoadingSelectedDate] = useState(false);
+  const [calendarLoading, setCalendarLoading] = useState(false);
 
   // Class creation modal states
   const [createModalVisible, setCreateModalVisible] = useState(false);
@@ -80,6 +91,7 @@ function ScheduleOverview() {
   const [overrideRestrictions, setOverrideRestrictions] = useState<boolean>(false);
   const [loadingClients, setLoadingClients] = useState(false);
   const [assigningClient, setAssigningClient] = useState(false);
+  const [clientSearchQuery, setClientSearchQuery] = useState<string>('');
 
   // Client unassignment states
   const [unassignClientModalVisible, setUnassignClientModalVisible] = useState(false);
@@ -90,54 +102,118 @@ function ScheduleOverview() {
   const [unassigningClient, setUnassigningClient] = useState(false);
 
   useEffect(() => {
-    loadSchedule();
-  }, []);
+    if (viewMode === 'calendar') {
+      // Load all future classes for calendar view
+      loadAllFutureClasses();
+    } else {
+      loadUpcomingClasses();
+    }
+  }, [viewMode]);
 
-  // Generate base marked dates from classes only
+  // Handle navigation parameters from notifications
+  useEffect(() => {
+    const params = route.params as any;
+    if (!params?.classId || !params?.openClassDetails) return;
+
+    const classId = params.classId;
+    console.log('🎯 Handling notification navigation to class:', classId);
+
+    // Try to find the class in any loaded source
+    const localClass =
+      classes.find(c => c.id === classId) ||
+      calendarClasses.find(c => c.id === classId) ||
+      selectedDateClasses.find(c => c.id === classId);
+
+    if (localClass) {
+      console.log('✅ Found target class locally:', localClass.name);
+      viewClassEnrollments(localClass);
+      return;
+    }
+
+    // Fallback: fetch by ID
+    (async () => {
+      try {
+        const res = await classService.getClassById(classId);
+        if (res.success && res.data) {
+          console.log('✅ Loaded target class by ID:', res.data.name);
+          // Minimal shape to satisfy viewClassEnrollments
+          const fetchedClass = {
+            ...res.data,
+            equipment_type: (res.data as any).equipment_type || 'mat',
+          } as Class;
+          viewClassEnrollments(fetchedClass);
+        } else {
+          console.log('❌ Could not load class by ID for notification:', res.error);
+        }
+      } catch (e) {
+        console.error('❌ Error loading class by ID for notification:', e);
+      }
+    })();
+  }, [route.params, classes, calendarClasses, selectedDateClasses]);
+
+  // Generate base marked dates from classes with multiple dots
   const generateBaseMarkedDates = useCallback(() => {
     const marked: any = {};
     
     console.log(`🔍 [ScheduleOverview] Generating base marked dates for ${classes.length} classes`);
+    
+    // Group classes by date
+    const classesByDate: { [date: string]: any[] } = {};
     classes.forEach(cls => {
-      const date = cls.date;
-      
-      let dotColor = Colors.light.success; // Default green for available
-      
-      if (isPastClass(cls.date, cls.time)) {
-        dotColor = Colors.light.textMuted; // Gray for past classes
-      } else {
-        const enrollmentPercentage = (cls.enrolled / cls.capacity) * 100;
-        if (enrollmentPercentage >= 100) {
-          dotColor = Colors.light.error; // Red for full
-        } else if (enrollmentPercentage >= 80) {
-          dotColor = Colors.light.warning; // Yellow for almost full
-        }
+      if (!classesByDate[cls.date]) {
+        classesByDate[cls.date] = [];
       }
+      classesByDate[cls.date].push(cls);
+    });
 
-      // For multiple classes on same date, prioritize error > warning > success > muted
-      const existingMarking = marked[date];
-      const shouldUpdate = !existingMarking || 
-        (dotColor === Colors.light.error) || 
-        (dotColor === Colors.light.warning && existingMarking.dotColor !== Colors.light.error) ||
-        (dotColor === Colors.light.success && !existingMarking.dotColor.includes('#f44336') && !existingMarking.dotColor.includes('#ff9800'));
+    // Create dots for each date based on number and status of classes
+    Object.entries(classesByDate).forEach(([date, dateClasses]) => {
+      const dots: any[] = [];
+      
+      dateClasses.slice(0, 5).forEach((cls, index) => { // Limit to 5 dots max
+        let dotColor = Colors.light.success; // Default green for available
+        
+        if (isPastClass(cls.date, cls.time)) {
+          dotColor = Colors.light.textMuted; // Gray for past classes
+        } else {
+          const enrollmentPercentage = (cls.enrolled / cls.capacity) * 100;
+          if (enrollmentPercentage >= 100) {
+            dotColor = Colors.light.error; // Red for full
+          } else if (enrollmentPercentage >= 80) {
+            dotColor = Colors.light.warning; // Yellow for almost full
+          }
+        }
 
-      if (shouldUpdate) {
-        marked[date] = {
-          marked: true,
-          dotColor: dotColor,
-          activeOpacity: 0.8
+        dots.push({
+          key: `class-${cls.id}`,
+          color: dotColor,
+          selectedDotColor: dotColor
+        });
+      });
+
+      // If more than 5 classes, add a special indicator dot
+      if (dateClasses.length > 5) {
+        dots[4] = {
+          key: `more-classes-${date}`,
+          color: Colors.light.primary,
+          selectedDotColor: Colors.light.primary
         };
       }
+
+      marked[date] = {
+        dots: dots,
+        marked: true,
+        dotColor: 'transparent' // Hide default single dot since we're using custom dots
+      };
     });
 
     return marked;
-  }, [classes]);
+  }, [calendarClasses]);
 
-  // Update marked dates when classes change
+  // Update marked dates when calendar classes change or selection changes
   useEffect(() => {
-    const baseMarked = generateBaseMarkedDates();
-    setMarkedDates(baseMarked);
-  }, [generateBaseMarkedDates]);
+    updateMarkedDates();
+  }, [calendarClasses, selectedDate]);
 
   // No visual selection - just track selected date for showing classes below
 
@@ -150,25 +226,122 @@ function ScheduleOverview() {
     }
   }, [newClass.date, newClass.time, newClass.room, newClass.duration]);
 
-  const loadSchedule = async () => {
+  // 🚀 OPTIMIZATION: Load all classes from current month onwards for calendar view
+  const loadAllFutureClasses = async () => {
+    try {
+      setCalendarLoading(true);
+      console.log(`🔄 [ScheduleOverview] Loading all classes from current month onwards for calendar`);
+      
+      const today = new Date();
+      const currentMonth = today.toISOString().slice(0, 7); // YYYY-MM format
+      const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+      
+      // Load all classes from start of current month onwards
+      const response = await classService.getClasses({
+        instructor: user?.id?.toString(),
+        userRole: 'instructor',
+        date_from: firstDayOfMonth, // From start of current month
+        upcoming: false // Include both past and future
+      });
+
+      if (response.success && response.data) {
+        const allClasses = response.data.map(cls => ({
+          id: cls.id,
+          name: cls.name,
+          date: cls.date,
+          time: cls.time,
+          duration: cls.duration || 60,
+          enrolled: cls.enrolled,
+          capacity: cls.capacity,
+          status: cls.status,
+          equipment_type: cls.equipment_type || 'mat',
+          level: 'Beginner' as string
+        }));
+        
+        console.log(`✅ [ScheduleOverview] Loaded ${allClasses.length} classes for calendar (current month onwards)`);
+        setCalendarClasses(allClasses);
+      }
+    } catch (error) {
+      console.error('❌ [ScheduleOverview] Failed to load calendar classes:', error);
+    } finally {
+      setCalendarLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  // 🚀 OPTIMIZATION: Load calendar dots for visible months only (no full class data)
+  const loadCalendarData = async (month?: string) => {
+    try {
+      setCalendarLoading(true);
+      const targetMonth = month || new Date().toISOString().slice(0, 7); // YYYY-MM format
+      
+      // Don't reload if already loaded
+      if (loadedMonths.has(targetMonth)) {
+        setCalendarLoading(false);
+        return;
+      }
+
+      console.log(`🔄 [ScheduleOverview] Loading calendar dots for month: ${targetMonth}`);
+      
+      // Calculate date range for the month
+      const startDate = `${targetMonth}-01`;
+      const endDate = getLastDayOfMonth(targetMonth);
+      
+      // Load only minimal data needed for dots (id, date, time, enrolled, capacity, status)
+      const response = await classService.getClasses({
+        instructor: user?.id?.toString(),
+        userRole: 'instructor',
+        date_from: startDate,
+        date_to: endDate
+      });
+
+      if (response.success && response.data) {
+        const monthClasses = response.data.map(cls => ({
+          id: cls.id,
+          name: cls.name,
+          date: cls.date,
+          time: cls.time,
+          duration: cls.duration || 60,
+          enrolled: cls.enrolled,
+          capacity: cls.capacity,
+          status: cls.status,
+          equipment_type: cls.equipment_type || 'mat',
+          level: 'Beginner' as string
+        }));
+        
+        console.log(`✅ [ScheduleOverview] Loaded ${monthClasses.length} class dots for ${targetMonth}`);
+        
+        // Update calendarClasses with new month data (deduplicated)
+        setCalendarClasses(prev => {
+          const filtered = prev.filter(cls => !cls.date.startsWith(targetMonth));
+          const merged = [...filtered, ...monthClasses];
+          // Deduplicate by id to avoid duplicate keys in dots
+          const byId: Record<string, Class> = {} as any;
+          merged.forEach(c => { byId[c.id] = c; });
+          return Object.values(byId);
+        });
+        
+        // Mark month as loaded
+        setLoadedMonths(prev => new Set([...prev, targetMonth]));
+      }
+    } catch (error) {
+      console.error('❌ [ScheduleOverview] Failed to load calendar data:', error);
+    } finally {
+      setCalendarLoading(false);
+    }
+  };
+
+  // 🚀 OPTIMIZATION: Load upcoming classes for list view
+  const loadUpcomingClasses = async () => {
     try {
       setLoading(true);
-      console.log(`🔄 [ScheduleOverview] Loading classes for instructor: ${user?.id}`);
-      console.log(`🔄 [ScheduleOverview] User object:`, user);
-      console.log(`🔄 [ScheduleOverview] Instructor filter value:`, user?.id?.toString());
+      console.log(`🔄 [ScheduleOverview] Loading upcoming classes for instructor: ${user?.id}`);
       
       const response = await classService.getClasses({
         instructor: user?.id?.toString(),
-        userRole: 'instructor' // Ensure instructor can see ALL their classes including private ones
-        // Removed status filter temporarily to see all classes for this instructor
-        // status: 'active'
-        // Removed upcoming: true filter so instructor can see all classes including past ones
-      });
-
-      console.log(`📊 [ScheduleOverview] API Response:`, {
-        success: response.success,
-        dataLength: response.data?.length || 0,
-        error: response.error
+        userRole: 'instructor',
+        upcoming: true,
+        status: 'active'
       });
 
       if (response.success && response.data) {
@@ -177,25 +350,88 @@ function ScheduleOverview() {
           equipment_type: cls.equipment_type || 'mat'
         }));
         
-        console.log(`✅ [ScheduleOverview] Loaded ${classesData.length} classes:`, 
-          classesData.map(c => ({ id: c.id, name: c.name, date: c.date, status: c.status, instructor_id: c.instructor_id }))
-        );
-        
+        console.log(`✅ [ScheduleOverview] Loaded ${classesData.length} upcoming classes`);
         setClasses(classesData);
-        
-        // Note: Class full notifications are sent automatically when classes become full during booking
-        // No need to send them again when instructor views schedule
       } else {
-        console.log(`⚠️ [ScheduleOverview] No classes found or API error:`, response.error);
         setClasses([]);
       }
     } catch (error) {
-      console.error('❌ [ScheduleOverview] Failed to load schedule:', error);
+      console.error('❌ [ScheduleOverview] Failed to load upcoming classes:', error);
       setClasses([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
+  };
+
+  // 🚀 OPTIMIZATION: Load full class details for specific date when clicked
+  const loadDateClasses = async (date: string) => {
+    try {
+      setLoadingSelectedDate(true);
+      console.log(`🔄 [ScheduleOverview] Loading full class details for date: ${date}`);
+      
+      const response = await classService.getClasses({
+        instructor: user?.id?.toString(),
+        userRole: 'instructor',
+        date: date
+      });
+
+      if (response.success && response.data) {
+        const dateClasses = response.data.map(cls => ({
+          ...cls,
+          equipment_type: cls.equipment_type || 'mat'
+        }));
+        
+        console.log(`✅ [ScheduleOverview] Loaded ${dateClasses.length} full class details for ${date}`);
+        setSelectedDateClasses(dateClasses);
+      } else {
+        setSelectedDateClasses([]);
+      }
+    } catch (error) {
+      console.error('❌ [ScheduleOverview] Failed to load date classes:', error);
+      setSelectedDateClasses([]);
+    } finally {
+      setLoadingSelectedDate(false);
+    }
+  };
+
+  // 🚀 OPTIMIZATION: Update marked dates for calendar display
+  const updateMarkedDates = () => {
+    const marked: any = {};
+    console.log(`🔍 [ScheduleOverview] Generating base marked dates for ${calendarClasses.length} classes`);
+    const classesByDate: { [date: string]: Class[] } = {};
+    calendarClasses.forEach(cls => {
+      if (!classesByDate[cls.date]) classesByDate[cls.date] = [];
+      classesByDate[cls.date].push(cls);
+    });
+
+    Object.entries(classesByDate).forEach(([date, dateClasses]) => {
+      const dots: any[] = [];
+      // Limit to 5 dots per date
+      dateClasses.slice(0, 5).forEach((cls) => {
+        let color = '#2196F3';
+        if (isPastClass(cls.date, cls.time)) color = Colors.light.textMuted; // past gray
+        else if (cls.enrolled >= cls.capacity) color = '#F44336'; // full red
+        else if (cls.status === 'completed') color = '#4CAF50'; // completed green
+        dots.push({ key: `class-${cls.id}`, color, selectedDotColor: color });
+      });
+      marked[date] = { dots };
+    });
+
+    if (selectedDate) {
+      marked[selectedDate] = marked[selectedDate] || { dots: [] };
+      marked[selectedDate].selected = true;
+      marked[selectedDate].selectedColor = Colors.light.accent || '#3f51b5';
+    }
+
+    setMarkedDates(marked);
+  };
+
+  // 🚀 OPTIMIZATION: Helper function to get last day of month
+  const getLastDayOfMonth = (monthString: string) => {
+    const [year, month] = monthString.split('-').map(Number);
+    const lastDay = new Date(year, month, 0).getDate();
+    return `${monthString}-${lastDay.toString().padStart(2, '0')}`;
   };
 
   const checkRoomAvailability = async () => {
@@ -293,10 +529,33 @@ function ScheduleOverview() {
         const successMessage = overrideRestrictions 
           ? 'Client assigned to class successfully (restrictions bypassed)' 
           : 'Client assigned to class successfully';
+        
+        // Log activity for reception
+        const selectedClient = availableClients.find(c => c.id === selectedClientId);
+        if (selectedClient && selectedClassForAssignment && user) {
+          await activityService.logActivity({
+            user_id: user.id.toString(),
+            user_name: user.name || 'Instructor',
+            user_role: 'instructor',
+            action_type: 'client_assigned',
+            action_description: `${user.name || 'Instructor'} assigned ${selectedClient.name} to class "${selectedClassForAssignment.name}" on ${selectedClassForAssignment.date} at ${selectedClassForAssignment.time}`,
+            target_id: selectedClassForAssignment.id,
+            target_type: 'class',
+            target_name: selectedClassForAssignment.name
+          });
+        }
+        
         Alert.alert('Success', successMessage);
         setAssignClientModalVisible(false);
         resetAssignmentModal();
-        loadSchedule(); // Refresh the schedule
+        // Refresh the schedule based on current view mode
+        if (viewMode === 'calendar') {
+          // Clear loaded months to force reload
+          setLoadedMonths(new Set());
+          loadAllFutureClasses();
+        } else {
+          loadUpcomingClasses();
+        }
       } else {
         Alert.alert('Error', response.error || 'Failed to assign client to class');
       }
@@ -314,6 +573,7 @@ function ScheduleOverview() {
     setOverrideRestrictions(false);
     setSelectedClassForAssignment(null);
     setAvailableClients([]);
+    setClientSearchQuery('');
   };
 
   const handleUnassignClient = async (classItem: Class) => {
@@ -360,10 +620,31 @@ function ScheduleOverview() {
       );
       
       if (response.success) {
+        // Log activity for reception
+        if (selectedClientForUnassignment && selectedClassForUnassignment && user) {
+          await activityService.logActivity({
+            user_id: user.id.toString(),
+            user_name: user.name || 'Instructor',
+            user_role: 'instructor',
+            action_type: 'client_unassigned',
+            action_description: `${user.name || 'Instructor'} unassigned ${selectedClientForUnassignment.name} from class "${selectedClassForUnassignment.name}" on ${selectedClassForUnassignment.date} at ${selectedClassForUnassignment.time}`,
+            target_id: selectedClassForUnassignment.id,
+            target_type: 'class',
+            target_name: selectedClassForUnassignment.name
+          });
+        }
+        
         Alert.alert('Success', 'Client unassigned successfully');
         setUnassignClientModalVisible(false);
         resetUnassignmentModal();
-        loadSchedule(); // Refresh the schedule
+        // Refresh the schedule based on current view mode
+        if (viewMode === 'calendar') {
+          // Clear loaded months to force reload
+          setLoadedMonths(new Set());
+          loadAllFutureClasses();
+        } else {
+          loadUpcomingClasses();
+        }
       } else {
         Alert.alert('Error', response.error || 'Failed to unassign client');
       }
@@ -383,9 +664,16 @@ function ScheduleOverview() {
     setEnrolledClients([]);
   };
 
-  const onRefresh = () => {
+  const onRefresh = async () => {
     setRefreshing(true);
-    loadSchedule();
+    // Refresh based on current view mode
+    if (viewMode === 'calendar') {
+      // Clear loaded months to force reload
+      setLoadedMonths(new Set());
+      await loadAllFutureClasses();
+    } else {
+      await loadUpcomingClasses();
+    }
   };
 
   const handleCreateClass = () => {
@@ -520,9 +808,28 @@ function ScheduleOverview() {
       });
 
       if (response.success) {
+        // Log activity for reception
+        if (user && response.data) {
+          await activityService.logActivity({
+            user_id: user.id.toString(),
+            user_name: user.name || 'Instructor',
+            user_role: 'instructor',
+            action_type: 'class_created',
+            action_description: `${user.name || 'Instructor'} created class "${newClass.name}" on ${newClass.date} at ${newClass.time} (${newClass.category})`,
+            target_id: response.data.id?.toString(),
+            target_type: 'class',
+            target_name: newClass.name
+          });
+        }
+        
         Alert.alert('Success', 'Class created successfully');
         setCreateModalVisible(false);
-        loadSchedule(); // Refresh list
+        // Refresh based on current view mode
+        if (viewMode === 'calendar') {
+          loadAllFutureClasses();
+        } else {
+          loadUpcomingClasses();
+        }
       } else {
         Alert.alert('Error', response.error || 'Failed to create class');
       }
@@ -532,7 +839,7 @@ function ScheduleOverview() {
     }
   };
 
-  const handleDeleteClass = (classId: number) => {
+  const handleDeleteClass = (classId: string | number) => {
     Alert.alert(
       'Delete Class',
       'Are you sure you want to delete this class? This action cannot be undone.',
@@ -543,13 +850,18 @@ function ScheduleOverview() {
     );
   };
 
-  const confirmDeleteClass = async (classId: number) => {
+  const confirmDeleteClass = async (classId: string | number) => {
     try {
       const response = await classService.deleteClass(classId);
       
       if (response.success) {
         Alert.alert('Success', 'Class deleted successfully');
-        loadSchedule(); // Refresh list
+        // Refresh based on current view mode
+        if (viewMode === 'calendar') {
+          loadAllFutureClasses();
+        } else {
+          loadUpcomingClasses();
+        }
       } else {
         Alert.alert('Error', response.error || 'Failed to delete class');
       }
@@ -560,12 +872,20 @@ function ScheduleOverview() {
   };
 
   const getClassesForDate = (date: string) => {
-    return classes.filter(cls => cls.date === date);
+    return calendarClasses.filter(cls => cls.date === date);
   };
 
   const getSelectedDateClasses = () => {
-    if (!selectedDate) return [];
-    return getClassesForDate(selectedDate);
+    if (!selectedDate) return selectedDateClasses;
+    return selectedDateClasses;
+  };
+
+  // 🚀 OPTIMIZATION: Get classes for list view
+  const getListClasses = () => {
+    if (viewMode === 'list') {
+      return classes; // Already filtered for upcoming classes
+    }
+    return [];
   };
 
 
@@ -732,10 +1052,17 @@ function ScheduleOverview() {
                     Create Class
                   </PaperButton>
                 </View>
+                {calendarLoading && (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="small" color={Colors.light.primary} />
+                    <Text style={styles.loadingText}>Loading calendar...</Text>
+                  </View>
+                )}
 
                 <Calendar
                   key={`calendar-${classes.length}`}
                   style={styles.calendar}
+                  markingType={'multi-dot'}
                   theme={{
                     backgroundColor: Colors.light.surface,
                     calendarBackground: Colors.light.surface,
@@ -756,8 +1083,18 @@ function ScheduleOverview() {
                   markedDates={markedDates}
                   onDayPress={(day) => {
                     console.log(`🔍 [ScheduleOverview] Day pressed: ${day.dateString}`);
-                    console.log(`🔍 [ScheduleOverview] Classes for ${day.dateString}:`, classes.filter(cls => cls.date === day.dateString));
                     setSelectedDate(day.dateString);
+                    loadDateClasses(day.dateString);
+                  }}
+                  onMonthChange={(month) => {
+                    const monthString = month.dateString.slice(0, 7); // YYYY-MM format
+                    setCurrentMonth(monthString);
+                    console.log(`📅 [ScheduleOverview] Month changed to: ${monthString}`);
+                    
+                    // Load data for any month that hasn't been loaded yet
+                    if (!loadedMonths.has(monthString)) {
+                      loadCalendarData(monthString);
+                    }
                   }}
                   initialDate={classes.length > 0 ? classes[0].date : new Date().toISOString().split('T')[0]}
                 />
@@ -769,7 +1106,12 @@ function ScheduleOverview() {
               <PaperCard style={styles.card}>
                 <PaperCard.Content style={styles.cardContent}>
                   <H2 style={styles.cardTitle}>Classes for {selectedDate}</H2>
-                  {getSelectedDateClasses().length > 0 ? (
+                  {loadingSelectedDate ? (
+                    <View style={styles.loadingContainer}>
+                      <ActivityIndicator size="small" color={Colors.light.primary} />
+                      <Text style={styles.loadingText}>Loading classes...</Text>
+                    </View>
+                  ) : getSelectedDateClasses().length > 0 ? (
                     getSelectedDateClasses().map((cls) => (
                       <View key={cls.id} style={[
                         styles.classItem,
@@ -831,7 +1173,7 @@ function ScheduleOverview() {
                           </TouchableOpacity>
                           <TouchableOpacity
                             style={[styles.actionButton, { backgroundColor: Colors.light.error + '20' }]}
-                            onPress={() => handleDeleteClass(parseInt(cls.id))}
+                            onPress={() => handleDeleteClass(cls.id)}
                           >
                             <WebCompatibleIcon name="clear" size={16} color={Colors.light.error} />
                             <Text style={{ fontSize: 10, color: Colors.light.error, marginTop: 2 }}>Delete</Text>
@@ -867,14 +1209,19 @@ function ScheduleOverview() {
                 </PaperButton>
               </View>
 
-              {classes.length === 0 ? (
+              {loading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="small" color={Colors.light.primary} />
+                  <Text style={styles.loadingText}>Loading classes...</Text>
+                </View>
+              ) : getListClasses().length === 0 ? (
                 <View style={styles.emptyState}>
                   <WebCompatibleIcon name="event-note" size={48} color={Colors.light.textMuted} />
-                  <Body style={styles.emptyStateText}>No classes created yet</Body>
+                  <Body style={styles.emptyStateText}>No upcoming classes</Body>
                   <Caption style={styles.emptyStateSubtext}>Create your first class to get started</Caption>
                 </View>
               ) : (
-                classes.map((cls) => (
+                getListClasses().map((cls) => (
                   <View key={cls.id} style={[
                     styles.classItem,
                     { 
@@ -957,7 +1304,7 @@ function ScheduleOverview() {
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={[styles.actionButton, { backgroundColor: Colors.light.error + '20' }]}
-                        onPress={() => handleDeleteClass(parseInt(cls.id))}
+                        onPress={() => handleDeleteClass(cls.id)}
                       >
                         <WebCompatibleIcon name="clear" size={16} color={Colors.light.error} />
                         <Text style={{ fontSize: 10, color: Colors.light.error, marginTop: 2 }}>Delete</Text>
@@ -1294,6 +1641,18 @@ function ScheduleOverview() {
                 {/* Client Selection */}
                 <View style={styles.formSection}>
                   <Caption style={styles.sectionLabel}>Select Client *</Caption>
+                  
+                  {/* Search Input */}
+                  <TextInput
+                    label="Search clients"
+                    value={clientSearchQuery}
+                    onChangeText={setClientSearchQuery}
+                    style={styles.searchInput}
+                    mode="outlined"
+                    left={<TextInput.Icon icon="search" />}
+                    placeholder="Search by name or email..."
+                  />
+                  
                   {loadingClients ? (
                     <View style={styles.loadingContainer}>
                       <ActivityIndicator size="small" color={Colors.light.accent} />
@@ -1301,7 +1660,12 @@ function ScheduleOverview() {
                     </View>
                   ) : (
                     <ScrollView style={styles.clientsList} nestedScrollEnabled>
-                      {availableClients.map((client) => (
+                      {availableClients
+                        .filter(client => 
+                          client.name.toLowerCase().includes(clientSearchQuery.toLowerCase()) ||
+                          client.email.toLowerCase().includes(clientSearchQuery.toLowerCase())
+                        )
+                        .map((client) => (
                         <TouchableOpacity
                           key={client.id}
                           style={[
@@ -1319,7 +1683,11 @@ function ScheduleOverview() {
                           )}
                         </TouchableOpacity>
                       ))}
-                      {availableClients.length === 0 && !loadingClients && (
+                      {availableClients
+                        .filter(client => 
+                          client.name.toLowerCase().includes(clientSearchQuery.toLowerCase()) ||
+                          client.email.toLowerCase().includes(clientSearchQuery.toLowerCase())
+                        ).length === 0 && !loadingClients && (
                         <View style={styles.emptyClientsState}>
                           <WebCompatibleIcon name="people-outline" size={32} color={Colors.light.textMuted} />
                           <Body style={styles.emptyClientsText}>No clients assigned to you</Body>
@@ -1837,6 +2205,9 @@ const styles = StyleSheet.create({
   },
   input: {
     marginBottom: spacing.sm,
+  },
+  searchInput: {
+    marginBottom: spacing.md,
   },
   pickerLabel: {
     marginBottom: spacing.xs,

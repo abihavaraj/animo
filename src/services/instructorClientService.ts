@@ -833,6 +833,64 @@ class InstructorClientService {
     }
   }
 
+  // Get current instructor assignment for a client
+  async getClientCurrentInstructor(clientId: string): Promise<ApiResponse<{id: string, name: string, assignment_id: string} | null>> {
+    try {
+      devLog('🔍 [instructorClientService] Getting current instructor for client:', clientId);
+      
+      // First get the assignment
+      const { data: assignment, error: assignmentError } = await supabase
+        .from('instructor_client_assignments')
+        .select('id, instructor_id')
+        .eq('client_id', clientId)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      if (assignmentError) {
+        devError('❌ [instructorClientService] Error getting assignment:', assignmentError);
+        return { success: false, error: assignmentError.message };
+      }
+      
+      if (!assignment) {
+        devLog('ℹ️ [instructorClientService] No active instructor assignment found');
+        return { success: true, data: null };
+      }
+      
+      // Then get the instructor name
+      const { data: instructor, error: instructorError } = await supabase
+        .from('users')
+        .select('name')
+        .eq('id', assignment.instructor_id)
+        .single();
+      
+      if (instructorError) {
+        devError('❌ [instructorClientService] Error getting instructor name:', instructorError);
+        // Still return the assignment but with unknown name
+        const result = {
+          id: assignment.instructor_id,
+          name: 'Unknown Instructor',
+          assignment_id: assignment.id
+        };
+        return { success: true, data: result };
+      }
+      
+      const result = {
+        id: assignment.instructor_id,
+        name: instructor?.name || 'Unknown Instructor',
+        assignment_id: assignment.id
+      };
+      
+      devLog('✅ [instructorClientService] Current instructor found:', result);
+      return { success: true, data: result };
+      
+    } catch (error) {
+      devError('❌ [instructorClientService] Exception in getClientCurrentInstructor:', error);
+      return { success: false, error: 'Failed to get current instructor' };
+    }
+  }
+
   // Get all clients for reception to assign to instructors
   async getAllClientsForAssignment(): Promise<ApiResponse<{id: string, name: string, email: string}[]>> {
     try {

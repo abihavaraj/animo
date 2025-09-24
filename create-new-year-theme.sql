@@ -1,0 +1,47 @@
+-- Create New Year 2025 theme in the database
+INSERT INTO themes (
+  id,
+  name,
+  display_name,
+  description,
+  colors,
+  is_active,
+  created_by,
+  created_at,
+  updated_at
+) VALUES (
+  gen_random_uuid(),
+  'new_year',
+  '🎊 New Year',
+  'Celebratory New Year theme with winter wonderland design, perfect for welcoming any new year.',
+  '{
+    "primary": "#FFFFFF",
+    "secondary": "#F5F5F5",
+    "accent": "#FF6B6B",
+    "background": "#1a1a1a",
+    "surface": "#2d2d2d",
+    "surfaceVariant": "#3d3d3d",
+    "surfaceElevated": "#4d4d4d",
+    "text": "#FFFFFF",
+    "textSecondary": "#FF6B6B",
+    "textMuted": "#E0E0E0",
+    "textOnAccent": "#1a1a1a",
+    "border": "#FFFFFF",
+    "borderLight": "#F5F5F5",
+    "divider": "#555555",
+    "error": "#FF6B6B",
+    "warning": "#FFD93D",
+    "success": "#4CAF50",
+    "info": "#4DABF7",
+    "snow": "#FFFFFF",
+    "star": "#FFD700",
+    "gold": "#FFD700",
+    "silver": "#C0C0C0",
+    "celebration": "#FF6B6B",
+    "blessing": "#4CAF50"
+  }'::jsonb,
+  true,
+  (SELECT id FROM users LIMIT 1),
+  NOW(),
+  NOW()
+);

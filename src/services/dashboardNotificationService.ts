@@ -1,4 +1,3 @@
-import { supabase } from '../config/supabase.config';
 import { ApiResponse } from './api';
 
 export interface DashboardNotification {

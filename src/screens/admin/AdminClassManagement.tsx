@@ -332,6 +332,39 @@ function AdminClassManagement() {
         const response = await classService.updateClass(editingClass.id, updateData);
         
         if (response.success && response.data) {
+          // Check for changes that require notifications
+          const instructorChanged = String(editingClass.instructor_id) !== formData.instructorId;
+          const timeChanged = editingClass.time !== formData.time;
+          
+          // Send notifications for significant changes
+          try {
+            if (instructorChanged) {
+              const oldInstructorName = editingClass.instructor_name || 'Previous Instructor';
+              const newInstructorName = formData.instructorName || 'New Instructor';
+              
+              await notificationService.sendInstructorChangeNotifications(
+                editingClass.id,
+                formData.name,
+                formData.date,
+                oldInstructorName,
+                newInstructorName
+              );
+            }
+            
+            if (timeChanged) {
+              await notificationService.sendClassTimeChangeNotifications(
+                editingClass.id,
+                formData.name,
+                formData.date,
+                editingClass.time,
+                formData.time
+              );
+            }
+          } catch (notificationError) {
+            console.error('Notification error:', notificationError);
+            // Don't block the main operation for notification errors
+          }
+          
           Alert.alert('Success', `Class updated successfully${formData.room ? ` in ${formData.room}` : ''}`);
           await loadClasses(); // Reload classes from backend
         } else {
@@ -412,6 +445,15 @@ function AdminClassManagement() {
             try {
               const response = await classService.deleteClass(classId);
               if (response.success) {
+                // Cancel any scheduled reminder notifications for this class
+                try {
+                  await notificationService.cancelClassNotifications(Number(classId));
+                  console.log('✅ Class reminder notifications cancelled for deleted class');
+                } catch (notificationError) {
+                  console.error('❌ Failed to cancel class notifications:', notificationError);
+                  // Don't block the deletion for notification errors
+                }
+                
                 Alert.alert('Success', 'Class deleted successfully');
                 await loadClasses(); // Reload classes from backend
               } else {
@@ -442,13 +484,13 @@ function AdminClassManagement() {
             try {
               const response = await classService.cancelClass(classId);
               if (response.success && response.data && classToCancel) {
-                // Send cancellation notification to enrolled students
+                // Send translated cancellation notification to enrolled students
                 try {
-                  const cancellationMessage = notificationService.formatClassCancellationMessage(classToCancel);
-                  await notificationService.sendClassNotification(
+                  await notificationService.sendClassCancellationNotifications(
                     classId,
-                    'cancellation',
-                    cancellationMessage
+                    classToCancel.name,
+                    classToCancel.date,
+                    classToCancel.time
                   );
                   
                   // Cancel any scheduled reminder notifications

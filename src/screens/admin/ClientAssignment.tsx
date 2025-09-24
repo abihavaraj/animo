@@ -1,20 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import {
-    Alert,
-    ScrollView,
-    StyleSheet,
-    View,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  View,
 } from 'react-native';
 import {
-    Chip,
-    Dialog,
-    List,
-    Button as PaperButton,
-    Card as PaperCard,
-    Paragraph,
-    Portal,
-    Searchbar,
-    Title,
+  Chip,
+  Dialog,
+  List,
+  Button as PaperButton,
+  Card as PaperCard,
+  Paragraph,
+  Portal,
+  Searchbar,
+  Title,
 } from 'react-native-paper';
 import { useSelector } from 'react-redux';
 import { Colors } from '../../../constants/Colors';

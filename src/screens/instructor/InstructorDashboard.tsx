@@ -4,7 +4,7 @@ import { Colors } from '@/constants/Colors';
 import { spacing } from '@/constants/Spacing';
 import { useNavigation } from '@react-navigation/native';
 import React, { useEffect, useState } from 'react';
-import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Button as PaperButton, Card as PaperCard } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 import WebCompatibleIcon from '../../components/WebCompatibleIcon';
@@ -29,9 +29,16 @@ function InstructorDashboard() {
     averageAttendance: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [allNotifications, setAllNotifications] = useState<any[]>([]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [showingMore, setShowingMore] = useState(false);
+  const [notificationsPage, setNotificationsPage] = useState(1);
+  const [hasMoreNotifications, setHasMoreNotifications] = useState(false);
 
   useEffect(() => {
     loadInstructorData();
+    loadNotifications();
     
     // Initialize notification services for instructors (IPA build support)
     const initializeNotifications = async () => {
@@ -62,7 +69,121 @@ function InstructorDashboard() {
     }
   }, [fullClasses, user?.id]);
 
+  const loadNotifications = async (reset: boolean = true) => {
+    try {
+      if (!user?.id) return;
+      
+      const response = await notificationService.getUserNotifications(user.id.toString());
+      if (response.success && response.data) {
+        const notificationsList = response.data as any[];
+        const unreadCount = notificationsList.filter(n => !n.is_read).length;
+        
+        setAllNotifications(notificationsList);
+        setUnreadNotificationCount(unreadCount);
+        
+        if (reset) {
+          setNotifications(notificationsList.slice(0, 5)); // Show latest 5 notifications
+          setNotificationsPage(1);
+          setShowingMore(false);
+          setHasMoreNotifications(notificationsList.length > 5);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading notifications:', error);
+    }
+  };
 
+  const loadMoreNotifications = () => {
+    const nextPage = notificationsPage + 1;
+    const startIndex = 0;
+    const endIndex = nextPage * 5;
+    
+    setNotifications(allNotifications.slice(startIndex, endIndex));
+    setNotificationsPage(nextPage);
+    setHasMoreNotifications(allNotifications.length > endIndex);
+    setShowingMore(true);
+  };
+
+  const handleNotificationTap = async (notification: any) => {
+    try {
+      // Mark as read first
+      await markNotificationAsRead(notification.id);
+      
+      // Check for class_id in different possible locations
+      let classId = notification.class_id || 
+                   notification.metadata?.class_id || 
+                   notification.metadata?.classId;
+      
+      if (classId) {
+        console.log('🎯 Navigating to class from notification:', classId);
+        // @ts-ignore - navigation type issue
+        navigation.navigate('Schedule', { 
+          classId: classId.toString(),
+          openClassDetails: true 
+        });
+      } else {
+        console.log('ℹ️ Notification has no class_id - no navigation');
+        console.log('🔍 Notification structure:', notification);
+      }
+    } catch (error) {
+      console.error('Error handling notification tap:', error);
+    }
+  };
+
+  const markNotificationAsRead = async (notificationId: number) => {
+    try {
+      // Mark as read via Supabase
+      const { error } = await require('../../config/supabase.config').supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('id', notificationId)
+        .eq('user_id', user?.id);
+
+      if (!error) {
+        // Update local state
+        const updatedNotifications = notifications.map(n => 
+          n.id === notificationId ? { ...n, is_read: true } : n
+        );
+        const updatedAllNotifications = allNotifications.map(n => 
+          n.id === notificationId ? { ...n, is_read: true } : n
+        );
+        
+        setNotifications(updatedNotifications);
+        setAllNotifications(updatedAllNotifications);
+        
+        // Update unread count
+        const newUnreadCount = updatedAllNotifications.filter(n => !n.is_read).length;
+        setUnreadNotificationCount(newUnreadCount);
+      }
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
+  };
+
+  const markAllNotificationsAsRead = async () => {
+    try {
+      if (!user?.id) return;
+      
+      // Mark all unread notifications as read in database
+      const { error } = await require('../../config/supabase.config').supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('user_id', user.id)
+        .eq('is_read', false);
+
+      if (!error) {
+        // Update local state - mark all as read
+        const updatedNotifications = notifications.map(n => ({ ...n, is_read: true }));
+        const updatedAllNotifications = allNotifications.map(n => ({ ...n, is_read: true }));
+        
+        setNotifications(updatedNotifications);
+        setAllNotifications(updatedAllNotifications);
+        setUnreadNotificationCount(0);
+      }
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
+    }
+  };
 
   const loadInstructorData = async () => {
     try {
@@ -146,6 +267,7 @@ function InstructorDashboard() {
   const onRefresh = () => {
     setRefreshing(true);
     loadInstructorData();
+    loadNotifications();
   };
 
   const handleViewSchedule = () => {
@@ -510,6 +632,89 @@ function InstructorDashboard() {
           </PaperCard.Content>
         </PaperCard>
 
+        {/* Notifications Panel */}
+        <PaperCard style={styles.card}>
+          <PaperCard.Content style={styles.cardContent}>
+            <View style={styles.sectionHeader}>
+              <H2 style={styles.cardTitle}>Recent Notifications</H2>
+              <View style={styles.notificationActions}>
+                {unreadNotificationCount > 0 && (
+                  <View style={styles.notificationBadge}>
+                    <Caption style={styles.badgeText}>{unreadNotificationCount}</Caption>
+                  </View>
+                )}
+                {unreadNotificationCount > 0 && (
+                  <PaperButton
+                    mode="text"
+                    compact
+                    labelStyle={styles.markAllReadLabel}
+                    onPress={markAllNotificationsAsRead}
+                  >
+                    Mark all read
+                  </PaperButton>
+                )}
+              </View>
+            </View>
+            
+            {notifications.length > 0 ? (
+              <ScrollView style={styles.notificationsScroll} nestedScrollEnabled>
+                {notifications.map((notification, index) => (
+                  <TouchableOpacity 
+                    key={notification.id || index} 
+                    style={[
+                      styles.notificationItem,
+                      !notification.is_read && styles.unreadNotificationItem
+                    ]}
+                    onPress={() => handleNotificationTap(notification)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.notificationHeader}>
+                      <WebCompatibleIcon 
+                        name={notification.is_read ? "notifications" : "notifications-active"} 
+                        size={16} 
+                        color={notification.is_read ? Colors.light.textMuted : Colors.light.primary} 
+                      />
+                      <Caption style={[
+                        styles.notificationTime,
+                        { color: notification.is_read ? Colors.light.textMuted : Colors.light.textSecondary }
+                      ]}>
+                        {new Date(notification.created_at).toLocaleDateString()}
+                      </Caption>
+                      {!notification.is_read && (
+                        <View style={styles.unreadDot} />
+                      )}
+                    </View>
+                    <Body style={[
+                      styles.notificationMessage,
+                      { fontWeight: notification.is_read ? 'normal' : '600' }
+                    ]}>
+                      {notification.message}
+                    </Body>
+                  </TouchableOpacity>
+                ))}
+                
+                {hasMoreNotifications && (
+                  <PaperButton 
+                    mode="outlined" 
+                    style={styles.loadMoreNotificationsButton}
+                    labelStyle={styles.loadMoreLabel}
+                    onPress={loadMoreNotifications}
+                    icon={() => <WebCompatibleIcon name="keyboard-arrow-down" size={16} color={Colors.light.primary} />}
+                  >
+                    Load More
+                  </PaperButton>
+                )}
+              </ScrollView>
+            ) : (
+              <View style={styles.emptyState}>
+                <WebCompatibleIcon name="notifications-none" size={48} color={Colors.light.textSecondary} />
+                <Body style={styles.emptyText}>No notifications</Body>
+                <Caption style={styles.emptySubtext}>You'll receive notifications about your classes here</Caption>
+              </View>
+            )}
+          </PaperCard.Content>
+        </PaperCard>
+
         {/* Quick Navigation */}
         <PaperCard style={styles.card}>
           <PaperCard.Content style={styles.cardContent}>
@@ -842,6 +1047,54 @@ const styles = StyleSheet.create({
   seeMoreLabel: {
     color: Colors.light.primary,
     fontSize: 14,
+  },
+  notificationBadge: {
+    backgroundColor: Colors.light.error,
+    borderRadius: 10,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
+    minWidth: 20,
+    alignItems: 'center',
+  },
+  badgeText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  notificationItem: {
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.light.border,
+  },
+  notificationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  notificationActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  markAllReadLabel: {
+    fontSize: 12,
+    color: Colors.light.primary,
+  },
+  notificationsScroll: {
+    maxHeight: 300,
+  },
+  unreadNotificationItem: {
+    backgroundColor: Colors.light.surface + '40', // Light blue tint for unread
+  },
+  loadMoreNotificationsButton: {
+    marginTop: spacing.sm,
+    borderColor: Colors.light.primary,
+    borderRadius: 8,
+  },
+  loadMoreLabel: {
+    fontSize: 14,
+    color: Colors.light.primary,
   },
 });
 

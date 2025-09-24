@@ -2,14 +2,14 @@ import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import {
-    ActivityIndicator,
-    Button,
-    Card,
-    Chip,
-    Paragraph,
-    Searchbar,
-    Surface,
-    Title
+  ActivityIndicator,
+  Button,
+  Card,
+  Chip,
+  Paragraph,
+  Searchbar,
+  Surface,
+  Title
 } from 'react-native-paper';
 import { useSelector } from 'react-redux';
 import { apiService } from '../../services/api';

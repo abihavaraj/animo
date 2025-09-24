@@ -3,6 +3,7 @@ import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity
 import { useSelector } from 'react-redux';
 import { SubscriptionConflictDialog } from '../../components/SubscriptionConflictDialog';
 import WebCompatibleIcon from '../../components/WebCompatibleIcon';
+import { activityService } from '../../services/activityService';
 import { instructorClientService } from '../../services/instructorClientService';
 import { SubscriptionPlan, subscriptionService } from '../../services/subscriptionService';
 import { BackendUser, userService } from '../../services/userService';
@@ -27,11 +28,12 @@ const REFERRAL_SOURCES = [
 
 interface PCUserManagementProps {
   navigation?: any;
-  onViewProfile?: (userId: string, userName: string) => void;
+  onViewProfile?: (userId: string, userName: string, userRole?: string) => void;
+  hideAdminUsers?: boolean; // New prop to hide admin users for reception staff
 }
 
 // PC-Optimized User Management Component
-function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) {
+function PCUserManagement({ navigation, onViewProfile, hideAdminUsers = false }: PCUserManagementProps) {
   const { user: currentUser } = useSelector((state: RootState) => state.auth);
   const [users, setUsers] = useState<BackendUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -67,6 +69,9 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
   const [instructors, setInstructors] = useState<BackendUser[]>([]);
   const [selectedInstructorId, setSelectedInstructorId] = useState<string | null>(null);
   const [assignmentNotes, setAssignmentNotes] = useState('');
+  
+  // Track which clients have instructor assignments
+  const [clientInstructorAssignments, setClientInstructorAssignments] = useState<Map<string, {id: string, name: string}>>(new Map());
 
   // Form state
   const [formData, setFormData] = useState({
@@ -80,10 +85,22 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
     referralSource: ''
   });
 
+  // Helper function to check if a user is a prospect client
+  const isProspectClient = (user: BackendUser) => {
+    return user.role === 'client' && user.referral_source === 'Prospect Client';
+  };
+
   useEffect(() => {
     loadUsers();
     loadSubscriptionPlans();
   }, []);
+
+  // Load instructor assignments after users are loaded
+  useEffect(() => {
+    if (users.length > 0) {
+      loadClientInstructorAssignments();
+    }
+  }, [users]);
 
   const loadUsers = async () => {
     try {
@@ -124,13 +141,58 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
     }
   };
 
+  const loadClientInstructorAssignments = async () => {
+    try {
+      const { instructorClientService } = require('../../services/instructorClientService');
+      const assignments = new Map<string, {id: string, name: string}>();
+      
+      // Get only client users
+      const clientUsers = users.filter(user => user.role === 'client');
+      
+      // Check assignments for each client
+      await Promise.all(clientUsers.map(async (client) => {
+        try {
+          const response = await instructorClientService.getClientCurrentInstructor(client.id.toString());
+          if (response.success && response.data) {
+            assignments.set(client.id.toString(), {
+              id: response.data.id,
+              name: response.data.name
+            });
+          }
+        } catch (error) {
+          console.error(`Failed to get assignment for client ${client.id}:`, error);
+        }
+      }));
+      
+      setClientInstructorAssignments(assignments);
+    } catch (error) {
+      console.error('Failed to load client instructor assignments:', error);
+    }
+  };
+
   // Filtered and sorted users
   const processedUsers = useMemo(() => {
     let filtered = users.filter(user => {
+      // Hide admin users if hideAdminUsers prop is true
+      if (hideAdminUsers && user.role === 'admin') {
+        return false;
+      }
+      
       const matchesSearch = user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            (user.phone && user.phone.includes(searchQuery));
-      const matchesRole = filterRole === 'all' || user.role === filterRole;
+      
+      // Handle prospect filtering separately since prospects are clients with special referral source
+      let matchesRole;
+      if (filterRole === 'prospect') {
+        matchesRole = isProspectClient(user);
+        if (matchesRole) {
+          console.log('✅ Found prospect:', user.name, user.referral_source);
+        }
+      } else {
+        matchesRole = filterRole === 'all' || user.role === filterRole;
+      }
+      
       const matchesStatus = filterStatus === 'all' || user.status === filterStatus;
       return matchesSearch && matchesRole && matchesStatus;
     });
@@ -289,6 +351,24 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
             }
           }
           
+          // Log activity for user update
+          if (currentUser && editingUser) {
+            await activityService.logActivity({
+              staff_id: currentUser.id,
+              staff_name: currentUser.name,
+              staff_role: currentUser.role as 'reception' | 'instructor' | 'admin',
+              activity_type: 'profile_updated',
+              activity_description: `Updated ${editingUser.role} profile`,
+              client_id: String(editingUser.id),
+              client_name: editingUser.name,
+              metadata: {
+                updatedFields: Object.keys(updateData),
+                role: editingUser.role,
+                passwordChanged: !!formData.password
+              }
+            });
+          }
+
           const warningText = warnings.length > 0 ? ` (${warnings.join(', ')})` : '';
           const successMessage = `User ${formData.name} has been updated${formData.password ? ' with new password' : ''}${warningText}`;
           
@@ -316,6 +396,23 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
         const response = await userService.createUser(userData);
         
         if (response.success) {
+          // Log activity for user creation
+          if (currentUser) {
+            await activityService.logActivity({
+              staff_id: currentUser.id,
+              staff_name: currentUser.name,
+              staff_role: currentUser.role as 'reception' | 'instructor' | 'admin',
+              activity_type: 'client_created',
+              activity_description: `Created new ${formData.role} account`,
+              client_id: response.data?.id,
+              client_name: formData.name,
+              metadata: {
+                role: formData.role,
+                referralSource: finalReferralSource
+              }
+            });
+          }
+          
           Alert.alert('Success', `User ${formData.name} has been created successfully`);
           await loadUsers();
         } else {
@@ -333,32 +430,45 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
   };
 
   const handleViewProfile = (user: BackendUser) => {
-    console.log('🔍 handleViewProfile called for user:', user.id, user.name, user.role);
-    console.log('🔍 Navigation object exists:', !!navigation);
     
+    // Check if this is a staff member (reception/instructor) for enhanced profile view
+    const isStaffMember = user.role === 'reception' || user.role === 'instructor';
+
     if (onViewProfile) {
       console.log('🔍 Using onViewProfile callback');
-      onViewProfile(String(user.id), user.name);
+      onViewProfile(String(user.id), user.name, user.role);
     } else if (navigation && navigation.navigate) {
-      console.log('🔍 Using navigation.navigate');
       try {
         const params = {
           userId: String(user.id),
           userName: user.name,
+          userRole: user.role, // Pass role for enhanced logic
+          isStaffProfile: isStaffMember, // Flag for staff profile handling
         };
         
-        console.log('🔍 Navigating to ClientProfile with params:', params);
+        // Use ReceptionClientProfile for all profiles with role-specific enhancements
         navigation.navigate('ClientProfile', params);
-        console.log('✅ Navigation call completed');
       } catch (error) {
         console.error('❌ Navigation failed:', error);
         Alert.alert('Navigation Error', 'Failed to navigate to user profile');
       }
     } else {
       console.log('⚠️ No navigation method available, showing profile summary');
+      
+      // Enhanced summary for staff members
+      const summaryTitle = isStaffMember 
+        ? `${user.name} - ${user.role.charAt(0).toUpperCase() + user.role.slice(1)} Profile`
+        : `${user.name} - Client Profile`;
+      
+      const summaryText = `📧 Email: ${user.email}\n👤 Role: ${user.role}\n📊 Status: ${user.status}${
+        user.credit_balance !== undefined ? `\n💳 Credits: ${user.credit_balance}` : ''
+      }${user.phone ? `\n📞 Phone: ${user.phone}` : ''}${
+        user.referral_source ? `\n🔗 Referral: ${user.referral_source}` : ''
+      }${isStaffMember ? '\n\n🏢 Staff member - View full profile for activity tracking' : ''}`;
+      
       Alert.alert(
-        `${user.name} - Profile Summary`, 
-        `📧 Email: ${user.email}\n👤 Role: ${user.role}\n📊 Status: ${user.status}${user.credit_balance !== undefined ? `\n💳 Credits: ${user.credit_balance}` : ''}${user.phone ? `\n📞 Phone: ${user.phone}` : ''}${user.referral_source ? `\n🔗 Referral: ${user.referral_source}` : ''}`,
+        summaryTitle, 
+        summaryText,
         [
           { text: 'Close', style: 'cancel' },
           { text: 'Edit User', onPress: () => handleEditUser(user) }
@@ -413,6 +523,27 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
         );
         
         if (response && response.success) {
+          // Log activity for subscription assignment
+          if (currentUser && assigningSubscriptionUser && selectedPlanId) {
+            const selectedPlan = subscriptionPlans.find(plan => plan.id === selectedPlanId);
+            await activityService.logActivity({
+              staff_id: currentUser.id,
+              staff_name: currentUser.name,
+              staff_role: currentUser.role as 'reception' | 'instructor' | 'admin',
+              activity_type: 'subscription_added',
+              activity_description: `Assigned subscription: ${selectedPlan?.name || 'Unknown Plan'}`,
+              client_id: String(assigningSubscriptionUser.id),
+              client_name: assigningSubscriptionUser.name,
+              metadata: {
+                planName: selectedPlan?.name,
+                planId: selectedPlanId,
+                monthlyPrice: selectedPlan?.monthlyPrice,
+                monthlyClasses: selectedPlan?.monthlyClasses,
+                notes: subscriptionNotes
+              }
+            });
+          }
+
           Alert.alert('Success', 'Subscription plan assigned successfully!');
           setShowSubscriptionModal(false);
           setAssigningSubscriptionUser(null);
@@ -480,6 +611,36 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
           successMessage += ` Payment recorded: ${paymentAmount.toLocaleString()} ALL.`;
         }
         
+        // Log activity for conflict resolution subscription assignment
+        if (currentUser && conflictData) {
+          const activityDescription = operationType === 'extended' ? 
+            `Extended subscription: ${conflictData.newPlan.name}` :
+            operationType === 'replaced' ?
+            `Replaced subscription with: ${conflictData.newPlan.name}` :
+            operationType === 'queued' ?
+            `Queued subscription: ${conflictData.newPlan.name}` :
+            `Assigned subscription: ${conflictData.newPlan.name}`;
+
+          await activityService.logActivity({
+            staff_id: currentUser.id,
+            staff_name: currentUser.name,
+            staff_role: currentUser.role as 'reception' | 'instructor' | 'admin',
+            activity_type: 'subscription_added',
+            activity_description: activityDescription,
+            client_id: String(userId),
+            client_name: conflictData.user.name,
+            metadata: {
+              planName: conflictData.newPlan.name,
+              planId: planId,
+              operationType: operationType,
+              paymentAmount: paymentAmount,
+              classesAdded: classesAdded,
+              conflictResolution: option,
+              notes: assignmentNotes
+            }
+          });
+        }
+
         Alert.alert('Success', successMessage);
         setShowSubscriptionModal(false);
         setShowConflictDialog(false);
@@ -537,12 +698,33 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
       );
 
       if (response.success) {
+        // Log activity for instructor assignment
+        if (currentUser && assigningInstructorUser && selectedInstructorId) {
+          const assignedInstructor = instructors.find(instructor => instructor.id === selectedInstructorId);
+          await activityService.logActivity({
+            staff_id: currentUser.id,
+            staff_name: currentUser.name,
+            staff_role: currentUser.role as 'reception' | 'instructor' | 'admin',
+            activity_type: 'instructor_assigned',
+            activity_description: `Assigned client to instructor: ${assignedInstructor?.name || 'Unknown'}`,
+            client_id: String(assigningInstructorUser.id),
+            client_name: assigningInstructorUser.name,
+            metadata: {
+              instructorName: assignedInstructor?.name,
+              instructorId: selectedInstructorId,
+              assignmentType: 'primary',
+              notes: assignmentNotes
+            }
+          });
+        }
+
         Alert.alert('Success', 'Client assigned to instructor successfully!');
         setShowInstructorAssignmentModal(false);
         setAssigningInstructorUser(null);
         setSelectedInstructorId(null);
         setAssignmentNotes('');
         await loadUsers(); // Refresh the user list
+        await loadClientInstructorAssignments(); // Refresh assignments
       } else {
         Alert.alert('Error', response.error || 'Failed to assign client to instructor');
       }
@@ -583,10 +765,50 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
     try {
       setSaving(true);
       
-      // For now, we'll need to get the instructor assignment first
-      // This is a simplified approach - in a real implementation, you might want to 
-      // store the instructor assignment info or get it from the user object
-      Alert.alert('Info', 'Unassign functionality needs instructor assignment details. Please use the instructor\'s My Clients screen to unassign clients.');
+      // First get the current instructor assignment
+      const { instructorClientService } = require('../../services/instructorClientService');
+      const currentInstructorResponse = await instructorClientService.getClientCurrentInstructor(user.id.toString());
+      
+      if (!currentInstructorResponse.success || !currentInstructorResponse.data) {
+        Alert.alert('Info', 'This client is not currently assigned to any instructor.');
+        return;
+      }
+      
+      const currentInstructor = currentInstructorResponse.data;
+      
+      // Unassign the client from the instructor
+      const unassignResponse = await instructorClientService.unassignClientFromInstructor(
+        user.id.toString(),
+        currentInstructor.id,
+        currentUser?.id?.toString() || 'reception',
+        'Unassigned via reception user management'
+      );
+      
+      if (unassignResponse.success) {
+        // Log activity for instructor unassignment
+        if (currentUser) {
+          await activityService.logActivity({
+            staff_id: currentUser.id,
+            staff_name: currentUser.name,
+            staff_role: currentUser.role as 'reception' | 'instructor' | 'admin',
+            activity_type: 'instructor_unassigned',
+            activity_description: `Unassigned client from instructor: ${currentInstructor.name}`,
+            client_id: String(user.id),
+            client_name: user.name,
+            metadata: {
+              instructorName: currentInstructor.name,
+              instructorId: currentInstructor.id,
+              reason: 'Unassigned via reception user management'
+            }
+          });
+        }
+
+        Alert.alert('Success', `${user.name} has been unassigned from instructor ${currentInstructor.name}`);
+        await loadUsers(); // Refresh the user list
+        await loadClientInstructorAssignments(); // Refresh assignments
+      } else {
+        Alert.alert('Error', unassignResponse.error || 'Failed to unassign client from instructor');
+      }
       
     } catch (error) {
       console.error('Error unassigning client from instructor:', error);
@@ -856,6 +1078,66 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
     }
   };
 
+  const handleConvertProspectToClient = async (user: BackendUser) => {
+    console.log('🔄 Convert prospect clicked for user:', user.name, user.id);
+    console.log('🔍 Is prospect client:', isProspectClient(user));
+    
+    if (!isProspectClient(user)) {
+      if (typeof window !== 'undefined') {
+        window.alert('Error: This user is not a prospect client');
+      } else {
+        Alert.alert('Error', 'This user is not a prospect client');
+      }
+      return;
+    }
+
+    const confirmed = typeof window !== 'undefined' 
+      ? window.confirm(`Are you sure you want to convert "${user.name}" from prospect to regular client? This will remove the prospect label.`)
+      : await new Promise((resolve) => {
+          Alert.alert(
+            'Convert Prospect to Client',
+            `Are you sure you want to convert "${user.name}" from prospect to regular client? This will remove the prospect label.`,
+            [
+              { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+              { text: 'Convert', onPress: () => resolve(true) }
+            ]
+          );
+        });
+
+    if (!confirmed) return;
+
+    try {
+      const response = await userService.updateUser(String(user.id), {
+        referral_source: 'Converted from Prospect'
+      });
+
+      if (response.success) {
+        const successMessage = `${user.name} has been converted to a regular client`;
+        if (typeof window !== 'undefined') {
+          window.alert('Success: ' + successMessage);
+        } else {
+          Alert.alert('Success', successMessage);
+        }
+        await loadUsers();
+      } else {
+        const errorMessage = response.error || 'Failed to convert prospect';
+        if (typeof window !== 'undefined') {
+          window.alert('Error: ' + errorMessage);
+        } else {
+          Alert.alert('Error', errorMessage);
+        }
+      }
+    } catch (error) {
+      console.error('Error converting prospect:', error);
+      const errorMessage = 'Failed to convert prospect';
+      if (typeof window !== 'undefined') {
+        window.alert('Error: ' + errorMessage);
+      } else {
+        Alert.alert('Error', errorMessage);
+      }
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active': return '#7DCEA0'; // Studio success
@@ -927,7 +1209,7 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
           <div style={webStyles.filterGroup}>
             <label style={webStyles.filterLabel}>Role:</label>
             <div style={webStyles.filterButtons}>
-              {['all', 'client', 'instructor', 'reception', 'admin'].map(role => (
+              {['all', 'client', 'instructor', 'reception', ...(hideAdminUsers ? [] : ['admin']), 'prospect'].map(role => (
                 <button
                   key={role}
                   style={{
@@ -1046,12 +1328,23 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
                 </div>
                 
                 <div style={webStyles.tableCell}>
-                  <span style={{
-                    ...webStyles.roleTag,
-                    backgroundColor: getRoleColor(user.role)
-                  }}>
-                    <span style={webStyles.roleTagText}>{user.role}</span>
-                  </span>
+                  <div style={webStyles.roleTagContainer}>
+                    <span style={{
+                      ...webStyles.roleTag,
+                      backgroundColor: getRoleColor(user.role)
+                    }}>
+                      <span style={webStyles.roleTagText}>{user.role}</span>
+                    </span>
+                    {isProspectClient(user) && (
+                      <span style={{
+                        ...webStyles.roleTag,
+                        backgroundColor: '#FF6B6B',
+                        marginLeft: 8
+                      }}>
+                        <span style={webStyles.roleTagText}>PROSPECT</span>
+                      </span>
+                    )}
+                  </div>
                 </div>
                 
                 <div style={webStyles.tableCell}>
@@ -1087,6 +1380,24 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
                       <button style={webStyles.actionButton} onClick={() => handleAssignToInstructor(user)}>
                         <WebCompatibleIcon name="person-add" size={18} color="#9B8A7D" />
                       </button>
+                      {clientInstructorAssignments.has(user.id.toString()) && (
+                        <button 
+                          style={{...webStyles.actionButton, backgroundColor: '#FF8A65'}} 
+                          onClick={() => handleUnassignFromInstructor(user)}
+                          title={`Unassign from ${clientInstructorAssignments.get(user.id.toString())?.name}`}
+                        >
+                          <WebCompatibleIcon name="person-remove" size={18} color="white" />
+                        </button>
+                      )}
+                      {isProspectClient(user) && (
+                        <button 
+                          style={{...webStyles.actionButton, backgroundColor: '#FF6B6B'}} 
+                          onClick={() => handleConvertProspectToClient(user)}
+                          title="Convert prospect to regular client"
+                        >
+                          <WebCompatibleIcon name="arrow-forward" size={18} color="white" />
+                        </button>
+                      )}
                     </>
                   )}
                   
@@ -1225,7 +1536,7 @@ function PCUserManagement({ navigation, onViewProfile }: PCUserManagementProps) 
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Role *</Text>
                 <View style={styles.roleSelector}>
-                  {(['client', 'instructor', 'reception', 'admin'] as UserRole[]).map(role => (
+                  {(['client', 'instructor', 'reception', ...(hideAdminUsers ? [] : ['admin'])] as UserRole[]).map(role => (
                     <TouchableOpacity
                       key={role}
                       style={[
@@ -2484,6 +2795,11 @@ const webStyles = {
     fontWeight: '600',
     color: '#FFFFFF',
     textTransform: 'capitalize' as const,
+  },
+  roleTagContainer: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
   },
   roleTagText: {
     color: '#FFFFFF',

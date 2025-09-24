@@ -1,5 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import {
   ActivityIndicator,
@@ -17,12 +18,17 @@ import {
   Title
 } from 'react-native-paper';
 import { useThemeColor } from '../../../hooks/useThemeColor';
+import EidMubarakThemeManager from '../../components/EidMubarakThemeManager';
+import LanguageSelector from '../../components/LanguageSelector';
+import ThemeDebugger from '../../components/ThemeDebugger';
 import { dataCleanupService } from '../../services/dataCleanupService';
 import { userService } from '../../services/userService';
 import { useAppDispatch } from '../../store';
 import { logoutUser } from '../../store/authSlice';
 
 function SystemSettings() {
+  const { t } = useTranslation();
+  
   // Theme colors
   const backgroundColor = useThemeColor({}, 'background');
   const surfaceColor = useThemeColor({}, 'surface');
@@ -184,7 +190,7 @@ function SystemSettings() {
   };
 
   const handleSaveStudioSettings = () => {
-    Alert.alert('Success', 'Studio settings updated successfully!');
+    Alert.alert(t('messages.success'), t('settings.settingsSaved'));
   };
 
   const handleAutomaticCleanup = async () => {
@@ -378,18 +384,18 @@ function SystemSettings() {
           <Card.Content>
             <View style={styles.sectionHeader}>
               <MaterialIcons name="business" size={24} color={accentColor} />
-              <Title style={[styles.sectionTitle, { color: textColor }]}>Studio Information</Title>
+              <Title style={[styles.sectionTitle, { color: textColor }]}>{t('settings.studioInformation')}</Title>
             </View>
 
             <TextInput
-              label="Studio Name"
+              label={t('settings.studioName')}
               value={studioSettings.studioName}
               onChangeText={(text) => setStudioSettings({...studioSettings, studioName: text})}
               mode="outlined"
               style={styles.input}
             />
             <TextInput
-              label="Email"
+              label={t('profile.email')}
               value={studioSettings.email}
               onChangeText={(text) => setStudioSettings({...studioSettings, email: text})}
               mode="outlined"
@@ -397,7 +403,7 @@ function SystemSettings() {
               style={styles.input}
             />
             <TextInput
-              label="Phone"
+              label={t('profile.phone')}
               value={studioSettings.phone}
               onChangeText={(text) => setStudioSettings({...studioSettings, phone: text})}
               mode="outlined"
@@ -405,7 +411,7 @@ function SystemSettings() {
               style={styles.input}
             />
             <TextInput
-              label="Address"
+              label={t('profile.address')}
               value={studioSettings.address}
               onChangeText={(text) => setStudioSettings({...studioSettings, address: text})}
               mode="outlined"
@@ -414,12 +420,17 @@ function SystemSettings() {
               style={styles.input}
             />
 
+            {/* Language Selection */}
+            <View style={styles.languageSection}>
+              <LanguageSelector showAsButton={false} />
+            </View>
+
             <Button
               mode="contained"
               onPress={handleSaveStudioSettings}
               style={[styles.saveButton, { backgroundColor: accentColor }]}
             >
-              Save Settings
+              {t('settings.saveSettings')}
             </Button>
           </Card.Content>
         </Card>
@@ -820,9 +831,9 @@ function SystemSettings() {
   return (
     <View style={[styles.container, { backgroundColor }]}>
       <View style={[styles.header, { backgroundColor: surfaceColor, borderBottomWidth: 1, borderBottomColor: textMutedColor }]}>
-        <Title style={[styles.headerTitle, { color: textColor }]}>Settings & Data Management</Title>
+        <Title style={[styles.headerTitle, { color: textColor }]}>{t('settings.systemSettings')}</Title>
         <Paragraph style={[styles.headerSubtitle, { color: textSecondaryColor }]}>
-          {activeTab === 'studio' ? 'Configure studio information' : 'Manage and cleanup database records'}
+          {activeTab === 'studio' ? t('settings.studioSettings') : t('settings.dataManagement')}
         </Paragraph>
       </View>
 
@@ -834,20 +845,34 @@ function SystemSettings() {
           buttons={[
             {
               value: 'studio',
-              label: 'Studio Settings',
+              label: t('settings.studioSettings'),
               icon: 'business',
             },
             {
               value: 'data',
-              label: 'Data Management',
+              label: t('settings.dataManagement'),
               icon: 'database',
+            },
+            {
+              value: 'themes',
+              label: 'Eid Mubarak Themes',
+              icon: 'palette',
             },
           ]}
           style={styles.segmentedButtons}
         />
       </View>
 
-      {activeTab === 'studio' ? renderStudioSettings() : renderDataManagement()}
+      {activeTab === 'studio' ? renderStudioSettings() : 
+       activeTab === 'data' ? renderDataManagement() :
+       activeTab === 'themes' ? (
+         <ScrollView style={styles.content}>
+           <EidMubarakThemeManager />
+         </ScrollView>
+       ) : renderStudioSettings()}
+
+      {/* Theme Debugger - only show in development */}
+      {__DEV__ && <ThemeDebugger />}
 
       {/* Bulk Cleanup Modal */}
       <Portal>
@@ -1244,6 +1269,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 20,
+  },
+  languageSection: {
+    marginVertical: 20,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
   },
 });
 

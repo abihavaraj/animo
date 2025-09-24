@@ -2,14 +2,15 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
 import React, { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
-  Alert,
-  Dimensions,
-  FlatList,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  View
+    Alert,
+    Dimensions,
+    FlatList,
+    RefreshControl,
+    StyleSheet,
+    Text,
+    View
 } from 'react-native';
 import { useSelector } from 'react-redux';
 import { supabase } from '../../config/supabase.config';
@@ -32,6 +33,7 @@ interface Notification {
 }
 
 export default function NotificationsView() {
+  const { t } = useTranslation();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -155,19 +157,32 @@ export default function NotificationsView() {
   const getNotificationTitle = (type: string) => {
     switch (type) {
       case 'subscription_expiring':
-        return 'Subscription Expiring';
+        return t('notifications.subscriptionExpiringTitle');
       case 'subscription_changed':
-        return 'Subscription Updated';
+        return t('notifications.subscriptionChangedTitle');
       case 'reminder':
-        return 'Class Reminder';
+      case 'class_reminder':
+        return t('notifications.classReminderTitle');
       case 'cancellation':
-        return 'Class Cancelled';
+      case 'class_cancelled':
+      case 'class_cancelled_by_studio':
+        return t('notifications.classCancelledByStudioTitle');
       case 'update':
-        return 'Class Update';
+      case 'class_update':
+        return t('notifications.classUpdateTitle');
       case 'waitlist_promotion':
-        return 'Waitlist Update';
+      case 'waitlist_promoted':
+        return t('notifications.waitlistPromotedTitle');
+      case 'waitlist_moved_up':
+        return t('notifications.waitlistMovedUpTitle');
+      case 'instructor_change':
+        return t('notifications.instructorChangeTitle');
+      case 'class_time_change':
+        return t('notifications.classTimeChangeTitle');
+      case 'class_full':
+        return t('notifications.classFullTitle');
       default:
-        return 'Notification';
+        return t('notifications.generalNotificationTitle');
     }
   };
 
@@ -218,9 +233,9 @@ export default function NotificationsView() {
   const EmptyState = () => (
     <View style={styles.emptyState}>
       <MaterialIcons name="notifications-none" size={80} color="#ccc" />
-      <Text style={styles.emptyTitle}>No Notifications</Text>
+      <Text style={styles.emptyTitle}>{t('notifications.noNotifications')}</Text>
       <Text style={styles.emptyMessage}>
-        You&apos;ll see notifications about your classes and subscription here
+        {t('notifications.noNotificationsMessage')}
       </Text>
     </View>
   );
@@ -228,7 +243,7 @@ export default function NotificationsView() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <Text>Loading notifications...</Text>
+        <Text>{t('notifications.loading')}</Text>
       </View>
     );
   }
@@ -236,9 +251,9 @@ export default function NotificationsView() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.screenTitle}>Notifications</Text>
+        <Text style={styles.screenTitle}>{t('notifications.title')}</Text>
         <Text style={styles.subtitle}>
-          Stay updated with your classes and subscription
+          {t('notifications.subtitle')}
         </Text>
       </View>
 

@@ -5,26 +5,26 @@ import { spacing } from '@/constants/Spacing';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useEffect, useState } from 'react';
 import {
-    Alert,
-    Image,
-    Keyboard,
-    Modal,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    TextInput,
-    TouchableOpacity,
-    View
+  Alert,
+  Image,
+  Keyboard,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { Avatar, Chip, Button as PaperButton, Card as PaperCard } from 'react-native-paper';
 import { useSelector } from 'react-redux';
 import WebCompatibleIcon from '../../components/WebCompatibleIcon';
 import {
-    ClientMedicalUpdate,
-    ClientProgressAssessment,
-    ClientProgressPhoto,
-    InstructorClientAssignment,
-    instructorClientService,
+  ClientMedicalUpdate,
+  ClientProgressAssessment,
+  ClientProgressPhoto,
+  InstructorClientAssignment,
+  instructorClientService,
 } from '../../services/instructorClientService';
 import { RootState } from '../../store';
 

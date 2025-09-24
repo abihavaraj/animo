@@ -1,4 +1,5 @@
-import { supabase } from '../config/supabase.config';
+import { supabase, supabaseAdmin } from '../config/supabase.config';
+import NotificationTranslationService, { NotificationData } from './notificationTranslationService';
 
 // Define ApiResponse locally to avoid import issues
 interface ApiResponse<T> {
@@ -76,6 +77,13 @@ class NotificationService {
 
       if (insertError) {
         console.error(`❌ [ensureNotificationSettings] Failed to create settings for ${userId}:`, insertError);
+        
+        // If it's an RLS error, return default settings anyway to allow notifications
+        if (insertError.code === '42501') {
+          console.log(`📝 [ensureNotificationSettings] RLS blocked settings creation for ${userId}, using defaults`);
+          return defaultSettings;
+        }
+        
         return null;
       }
 
@@ -128,6 +136,55 @@ class NotificationService {
     }
   }
 
+  // Create a translated notification
+  async createTranslatedNotification(
+    userId: string,
+    type: NotificationData['type'],
+    data: NotificationData,
+    scheduledFor?: Date,
+    useCurrentLanguage: boolean = false
+  ): Promise<ApiResponse<any>> {
+    try {
+      // Get translated content
+      const translatedContent = await NotificationTranslationService.createTranslatedNotification(
+        userId, 
+        type, 
+        data, 
+        scheduledFor,
+        useCurrentLanguage
+      );
+
+      // Insert notification into database
+      const { data: notification, error } = await supabase
+        .from('notifications')
+        .insert({
+          user_id: userId,
+          type: type,
+          title: translatedContent.title,
+          message: translatedContent.body,
+          scheduled_for: scheduledFor ? scheduledFor.toISOString() : new Date().toISOString(),
+          metadata: { 
+            language: translatedContent.userLanguage,
+            original_data: data,
+            translation_type: type
+          },
+          is_read: false
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error creating translated notification:', error);
+        return { success: false, error: error.message };
+      }
+
+      return { success: true, data: notification };
+    } catch (error) {
+      console.error('Error in createTranslatedNotification:', error);
+      return { success: false, error: 'Failed to create notification' };
+    }
+  }
+
   // Schedule notifications for a class
   async scheduleClassNotifications(
     classData: BackendClass, 
@@ -154,7 +211,7 @@ class NotificationService {
         user_id: booking.user_id,
         type: 'class_reminder',
         title: `Class Reminder: ${classData.name}`,
-        message: `Your ${classData.name} class with ${classData.instructor_name} starts in ${reminderMinutes} minutes!`,
+        message: `Your ${classData.name} class with ${classData.instructor_name || 'your instructor'} starts in ${reminderMinutes} minutes!`,
         scheduled_for: notificationTime.toISOString(),
         metadata: {
           class_id: classData.id,
@@ -185,7 +242,7 @@ class NotificationService {
   // Send immediate notification
   async sendClassNotification(
     classId: number | string,
-    type: 'cancellation' | 'update' | 'waitlist_promotion',
+    type: 'cancellation' | 'update' | 'waitlist_promotion' | 'waitlist_position_update',
     message: string,
     targetUsers?: (number | string)[]
   ): Promise<ApiResponse<any>> {
@@ -232,17 +289,32 @@ class NotificationService {
       }
 
       if (enabledUsers.length === 0) {
-        console.log(`❌ [notificationService] No users will receive notifications (all disabled settings)`);
+        // No users have notifications enabled
         return { success: true, data: [] };
       }
       
-      console.log(`📢 [notificationService] Creating notifications for ${enabledUsers.length} user(s)`);
+      // Creating notifications for enabled users
 
       // Create notification for each user with notifications enabled
+      const getNotificationTitle = (type: string) => {
+        switch (type) {
+          case 'waitlist_promotion':
+            return '🎉 Waitlist Promotion';
+          case 'waitlist_position_update':
+            return '🎯 Waitlist Position Update';
+          case 'update':
+            return 'Class Update';
+          case 'cancellation':
+            return 'Class Cancellation';
+          default:
+            return 'Class Notification';
+        }
+      };
+
       const notifications = enabledUsers.map(userId => ({
         user_id: userId, // Already ensured to be string above
         type: `class_${type}`,
-        title: type === 'update' ? 'Class Assignment' : 'Class Cancellation',
+        title: getNotificationTitle(type),
         message,
         scheduled_for: new Date().toISOString(),
         metadata: {
@@ -286,9 +358,7 @@ class NotificationService {
       }
       
       if (failedNotifications.length > 0) {
-        console.log(`⚠️ [notificationService] Failed to create ${failedNotifications.length}/${notifications.length} notifications (RLS restrictions)`);
-        console.log(`📝 [notificationService] Failed notifications:`, 
-          failedNotifications.map(f => `${f.notification.title}: ${f.notification.message}`));
+        // Some notifications failed due to RLS restrictions
       }
       
       // Return success if at least some notifications were created, or if main action completed
@@ -305,18 +375,320 @@ class NotificationService {
     }
   }
 
-  // Send push notification to a specific user
+  // Send class cancellation notifications to all enrolled users
+  async sendClassCancellationNotifications(
+    classId: string,
+    className: string,
+    date: string,
+    time: string
+  ): Promise<ApiResponse<any>> {
+    try {
+      // Get all enrolled users for this class
+      const { data: bookings } = await supabase
+        .from('bookings')
+        .select('user_id')
+        .eq('class_id', classId)
+        .eq('status', 'confirmed');
+
+      if (!bookings || bookings.length === 0) {
+        return { success: true, data: { message: 'No enrolled users to notify' } };
+      }
+
+      // Create translated notifications for each user
+      const notifications = [];
+      for (const booking of bookings) {
+        const notificationResult = await this.createTranslatedNotification(
+          booking.user_id,
+          'class_cancelled_by_studio',
+          {
+            type: 'class_cancelled_by_studio',
+            className: className,
+            date: date,
+            time: time
+          }
+        );
+        
+        if (notificationResult.success) {
+          notifications.push(notificationResult.data);
+        }
+      }
+
+      console.log(`📢 [sendClassCancellationNotifications] Created ${notifications.length} cancellation notifications`);
+      return { success: true, data: { notificationCount: notifications.length } };
+    } catch (error) {
+      console.error('Error sending class cancellation notifications:', error);
+      return { success: false, error: 'Failed to send cancellation notifications' };
+    }
+  }
+
+  // Send instructor change notifications to all enrolled users
+  async sendInstructorChangeNotifications(
+    classId: string,
+    className: string,
+    date: string,
+    oldInstructor: string,
+    newInstructor: string
+  ): Promise<ApiResponse<any>> {
+    try {
+      // Get all enrolled users for this class
+      const { data: bookings } = await supabase
+        .from('bookings')
+        .select('user_id')
+        .eq('class_id', classId)
+        .eq('status', 'confirmed');
+
+      if (!bookings || bookings.length === 0) {
+        return { success: true, data: { message: 'No enrolled users to notify' } };
+      }
+
+      // Create translated notifications for each user
+      const notifications = [];
+      for (const booking of bookings) {
+        const notificationResult = await this.createTranslatedNotification(
+          booking.user_id,
+          'instructor_change',
+          {
+            type: 'instructor_change',
+            className: className,
+            date: date,
+            oldInstructor: oldInstructor,
+            newInstructor: newInstructor
+          }
+        );
+        
+        // Also send push notification to user's mobile device
+        if (notificationResult.success && notificationResult.data) {
+          await this.sendPushNotificationToUser(
+            booking.user_id,
+            notificationResult.data.title,
+            notificationResult.data.message
+          );
+          notifications.push(notificationResult.data);
+        }
+      }
+
+      console.log(`📢 [sendInstructorChangeNotifications] Created ${notifications.length} instructor change notifications`);
+      return { success: true, data: { notificationCount: notifications.length } };
+    } catch (error) {
+      console.error('Error sending instructor change notifications:', error);
+      return { success: false, error: 'Failed to send instructor change notifications' };
+    }
+  }
+
+  // Send class time change notifications to all enrolled users
+  async sendClassTimeChangeNotifications(
+    classId: string,
+    className: string,
+    date: string,
+    oldTime: string,
+    newTime: string
+  ): Promise<ApiResponse<any>> {
+    try {
+      // Get all enrolled users for this class
+      const { data: bookings } = await supabase
+        .from('bookings')
+        .select('user_id')
+        .eq('class_id', classId)
+        .eq('status', 'confirmed');
+
+      if (!bookings || bookings.length === 0) {
+        return { success: true, data: { message: 'No enrolled users to notify' } };
+      }
+
+      // Create translated notifications for each user
+      const notifications = [];
+      for (const booking of bookings) {
+        const notificationResult = await this.createTranslatedNotification(
+          booking.user_id,
+          'class_time_change',
+          {
+            type: 'class_time_change',
+            className: className,
+            date: date,
+            oldTime: oldTime,
+            newTime: newTime
+          }
+        );
+        
+        // Also send push notification to user's mobile device
+        if (notificationResult.success && notificationResult.data) {
+          await this.sendPushNotificationToUser(
+            booking.user_id,
+            notificationResult.data.title,
+            notificationResult.data.message
+          );
+          notifications.push(notificationResult.data);
+        }
+      }
+
+      console.log(`📢 [sendClassTimeChangeNotifications] Created ${notifications.length} time change notifications`);
+      return { success: true, data: { notificationCount: notifications.length } };
+    } catch (error) {
+      console.error('Error sending class time change notifications:', error);
+      return { success: false, error: 'Failed to send time change notifications' };
+    }
+  }
+
+  // Send subscription expiry notifications
+  async sendSubscriptionExpiryNotifications(): Promise<ApiResponse<any>> {
+    try {
+      // Get subscriptions expiring in the next 5 days (changed from 7)
+      const fiveDaysFromNow = new Date();
+      fiveDaysFromNow.setDate(fiveDaysFromNow.getDate() + 5);
+      
+      const { data: expiringSubscriptions, error } = await supabase
+        .from('user_subscriptions')
+        .select(`
+          user_id,
+          end_date,
+          subscription_plans (name)
+        `)
+        .eq('status', 'active')
+        .lte('end_date', fiveDaysFromNow.toISOString())
+        .gt('end_date', new Date().toISOString()); // Not yet expired
+
+      if (error) {
+        console.error('Error fetching expiring subscriptions:', error);
+        return { success: false, error: error.message };
+      }
+
+      if (!expiringSubscriptions || expiringSubscriptions.length === 0) {
+        return { success: true, data: { message: 'No expiring subscriptions' } };
+      }
+
+      // Create notifications for each expiring subscription
+      const notifications = [];
+      for (const subscription of expiringSubscriptions) {
+        const expiryDate = new Date(subscription.end_date).toLocaleDateString();
+        const planName = (subscription.subscription_plans as any)?.name || 'Subscription';
+        
+        const notificationResult = await this.createTranslatedNotification(
+          subscription.user_id,
+          'subscription_expiring',
+          {
+            type: 'subscription_expiring',
+            planName: planName,
+            expiryDate: expiryDate
+          }
+        );
+        
+        // Also send push notification to user's mobile device
+        if (notificationResult.success && notificationResult.data) {
+          await this.sendPushNotificationToUser(
+            subscription.user_id,
+            notificationResult.data.title,
+            notificationResult.data.message
+          );
+          notifications.push(notificationResult.data);
+        }
+      }
+
+      console.log(`📢 [sendSubscriptionExpiryNotifications] Created ${notifications.length} expiry notifications`);
+      return { success: true, data: { notificationCount: notifications.length } };
+    } catch (error) {
+      console.error('Error sending subscription expiry notifications:', error);
+      return { success: false, error: 'Failed to send expiry notifications' };
+    }
+  }
+
+  // Method to be called daily by admin/reception to check for expiring subscriptions
+  async checkAndSendExpiringSubscriptionNotifications(): Promise<ApiResponse<any>> {
+    console.log('🕐 [DAILY CHECK] Running subscription expiry check...');
+    return await this.sendSubscriptionExpiryNotifications();
+  }
+
+  // Send subscription expired notifications
+  async sendSubscriptionExpiredNotifications(): Promise<ApiResponse<any>> {
+    try {
+      // Get subscriptions that expired today
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      
+      const { data: expiredSubscriptions, error } = await supabase
+        .from('user_subscriptions')
+        .select(`
+          user_id,
+          end_date,
+          subscription_plans (name)
+        `)
+        .eq('status', 'active') // May need to update this to handle expired status
+        .gte('end_date', yesterday.toISOString())
+        .lt('end_date', today.toISOString());
+
+      if (error) {
+        console.error('Error fetching expired subscriptions:', error);
+        return { success: false, error: error.message };
+      }
+
+      if (!expiredSubscriptions || expiredSubscriptions.length === 0) {
+        return { success: true, data: { message: 'No expired subscriptions' } };
+      }
+
+      // Create notifications for each expired subscription
+      const notifications = [];
+      for (const subscription of expiredSubscriptions) {
+        const planName = (subscription.subscription_plans as any)?.name || 'Subscription';
+        
+        const notificationResult = await this.createTranslatedNotification(
+          subscription.user_id,
+          'subscription_expired',
+          {
+            type: 'subscription_expired',
+            planName: planName
+          }
+        );
+        
+        // Also send push notification to user's mobile device
+        if (notificationResult.success && notificationResult.data) {
+          await this.sendPushNotificationToUser(
+            subscription.user_id,
+            notificationResult.data.title,
+            notificationResult.data.message
+          );
+          notifications.push(notificationResult.data);
+        }
+      }
+
+      console.log(`📢 [sendSubscriptionExpiredNotifications] Created ${notifications.length} expired notifications`);
+      return { success: true, data: { notificationCount: notifications.length } };
+    } catch (error) {
+      console.error('Error sending subscription expired notifications:', error);
+      return { success: false, error: 'Failed to send expired notifications' };
+    }
+  }
+
+  // Send push notification to a specific user (original GitHub users.push_token approach)
   async sendPushNotificationToUser(userId: string, title: string, message: string): Promise<void> {
     try {
-      // Get user's push token from the database
+      console.log(`🔍 [sendPushNotificationToUser] DEBUG - Looking for user push_token for: ${userId}`);
+      
+      // Get user's push token from the database (original GitHub approach)
       const { data: user, error } = await supabase
         .from('users')
         .select('push_token')
         .eq('id', userId)
         .single();
+        
+      console.log(`🔍 [sendPushNotificationToUser] DEBUG - User query result:`, { error, user });
 
-      if (error || !user?.push_token) {
-        console.log(`⚠️ [notificationService] No push token found for user ${userId}`);
+      if (error) {
+        console.error(`❌ [sendPushNotificationToUser] Database error for user ${userId}:`, error);
+        
+        // If it's an RLS error, try without restrictions (system context)
+        if (error.code === '42501') {
+          console.log(`🔧 [sendPushNotificationToUser] RLS blocked query for user ${userId}, trying system query`);
+          // For now, we'll skip sending push notifications to users with RLS issues
+          // This should be fixed with proper RLS policies
+          return;
+        }
+        return;
+      }
+
+      if (!user?.push_token) {
+        console.log(`⚠️ [notificationService] No push token found for user ${userId} - user exists but no token`);
+        console.log(`🔍 [sendPushNotificationToUser] User data:`, user);
+        console.log(`💡 [sendPushNotificationToUser] Notification will still be delivered via database and shown in notification panel`);
         
         // Development fallback: Log notification details for debugging
         if (__DEV__) {
@@ -326,23 +698,9 @@ class NotificationService {
         return;
       }
 
-      // Enhanced platform detection for better cross-platform support
-      const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
-      const isReactNative = typeof navigator !== 'undefined' && navigator.product === 'ReactNative';
-      const isExpoGo = typeof window === 'undefined' && typeof global !== 'undefined';
-      
-      console.log(`🔍 [notificationService] Platform detection - Web: ${isWeb}, RN: ${isReactNative}, Expo: ${isExpoGo}`);
-      
-      if (isWeb) {
-        // On web, we can't send push notifications directly due to CORS restrictions
-        // The notification is already stored in Supabase for cron job processing
-        console.log(`🌐 [notificationService] Web platform detected - notification stored in Supabase for user ${userId}`);
-        console.log(`📱 [notificationService] Push notification will be sent via cron job`);
-        console.log(`📱 [notificationService] Message: ${title} - ${message}`);
-        return;
-      }
+      console.log(`📱 [notificationService] Found push token for user ${userId}: ${user.push_token.substring(0, 20)}...`);
 
-      // Send push notification using Expo's API (native platforms only)
+      // Send push notification using Expo's API
       console.log(`📱 [notificationService] Sending push notification to user ${userId}`);
       
       const pushMessage = {
@@ -362,6 +720,88 @@ class NotificationService {
       // Enhanced error handling for production
       console.log(`📱 [notificationService] Sending push message:`, pushMessage);
       
+      // Check if we're on web platform and handle CORS issues
+      const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
+      
+      if (isWeb) {
+        console.log(`📱 [notificationService] Web platform detected - attempting push notification with no-cors mode`);
+        
+        try {
+          // Use no-cors mode to bypass CORS restrictions (fire-and-forget)
+          const response = await fetch('https://exp.host/--/api/v2/push/send', {
+            method: 'POST',
+            mode: 'no-cors', // This bypasses CORS but we can't read the response
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(pushMessage),
+          });
+          
+          console.log(`📱 [notificationService] Push notification sent via no-cors mode (response opaque)`);
+          console.log(`📱 [notificationService] Database notification was also stored for reliability`);
+          return;
+        } catch (error) {
+          console.error(`❌ [notificationService] Even no-cors mode failed:`, error);
+          console.log(`📱 [notificationService] Push notification failed, but database notification was stored`);
+          return;
+        }
+      }
+      
+      // Native platform - use direct Expo API
+      const response = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify(pushMessage),
+      });
+      
+      const result = await response.json();
+      console.log(`📱 [notificationService] Push notification response:`, result);
+      
+      if (result.data && result.data[0] && result.data[0].status === 'ok') {
+        console.log(`🎉 [notificationService] Push notification sent successfully to user ${userId}`);
+      } else if (result.data && result.data[0] && result.data[0].status === 'error') {
+        console.error(`❌ [notificationService] Push notification error:`, result.data[0].message);
+      }
+    } catch (error) {
+      console.error(`❌ [notificationService] Error sending push notification to user ${userId}:`, error);
+    }
+  }
+
+  // Send push notification to a specific token
+  private async sendPushNotificationToToken(pushToken: string, title: string, message: string, userId?: string, deviceType?: string): Promise<void> {
+    try {
+
+      // Enhanced platform detection for better cross-platform support
+      const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
+      const isReactNative = typeof navigator !== 'undefined' && navigator.product === 'ReactNative';
+      const isExpoGo = typeof window === 'undefined' && typeof global !== 'undefined';
+      
+      console.log(`🔍 [notificationService] Platform detection - Web: ${isWeb}, RN: ${isReactNative}, Expo: ${isExpoGo}`);
+      
+      // Note: Web platform will be handled with CORS bypass later in the method
+
+      // Send push notification using Expo's API (native platforms only)
+      console.log(`📱 [notificationService] Sending push notification to user ${userId} on ${deviceType}`);
+      
+      const pushMessage = {
+        to: pushToken,
+        title: title,
+        body: message,
+        sound: 'default',
+        badge: 1,
+        priority: 'high',
+        data: {
+          userId: userId,
+          deviceType: deviceType,
+          type: 'class_notification',
+          timestamp: new Date().toISOString()
+        }
+      };
+
+      // For native platforms, use normal fetch
       const response = await fetch('https://exp.host/--/api/v2/push/send', {
         method: 'POST',
         headers: {
@@ -374,22 +814,27 @@ class NotificationService {
       if (response.ok) {
         const result = await response.json();
   
-        console.log(`📱 [notificationService] Response:`, result);
+        console.log(`📱 [notificationService] Response for ${deviceType}:`, result);
         
         // Log success for production debugging
         if (result.data?.status === 'ok') {
-          console.log(`🎉 [notificationService] Push notification delivered successfully`);
+          console.log(`🎉 [notificationService] Push notification delivered successfully to ${deviceType}`);
         } else if (result.data?.status === 'error') {
-          console.error(`❌ [notificationService] Push notification error:`, result.data?.message);
+          console.error(`❌ [notificationService] Push notification error for ${deviceType}:`, result.data?.message);
+          
+          // Mark token as inactive if it's invalid
+          if (result.data?.message?.includes('Invalid') || result.data?.message?.includes('DeviceNotRegistered')) {
+            await this.markTokenInactive(pushToken);
+          }
         }
         
         // Log any warnings from Expo's push service
         if (result.data && result.data[0] && result.data[0].status === 'error') {
-          console.warn(`⚠️ [notificationService] Push notification warning:`, result.data[0].message);
+          console.warn(`⚠️ [notificationService] Push notification warning for ${deviceType}:`, result.data[0].message);
         }
       } else {
         const errorText = await response.text();
-        console.error(`❌ [notificationService] Failed to send push notification (HTTP ${response.status}):`, errorText);
+        console.error(`❌ [notificationService] Failed to send push notification to ${deviceType} (HTTP ${response.status}):`, errorText);
         
         // For production builds, don't throw errors that could crash the app
         if (__DEV__) {
@@ -397,7 +842,20 @@ class NotificationService {
         }
       }
     } catch (error) {
-      console.error(`❌ [notificationService] Error sending push notification to user ${userId}:`, error);
+      console.error(`❌ [notificationService] Error sending push notification to ${deviceType}:`, error);
+    }
+  }
+
+  // Mark a push token as inactive when it fails
+  private async markTokenInactive(token: string): Promise<void> {
+    try {
+      await supabaseAdmin
+        .from('push_tokens')
+        .update({ is_active: false })
+        .eq('token', token);
+      console.log(`🗑️ [notificationService] Marked inactive token: ${token.substring(0, 10)}...`);
+    } catch (error) {
+      console.error('❌ [notificationService] Failed to mark token inactive:', error);
     }
   }
 
@@ -534,21 +992,48 @@ class NotificationService {
   // Cancel scheduled notifications for a class
   async cancelClassNotifications(classId: number): Promise<ApiResponse<any>> {
     try {
-      const { error } = await supabase
-        .from('notifications')
-        .update({ 
-          status: 'cancelled',
-          updated_at: new Date().toISOString()
-        })
-        .eq('class_id', classId)
-        .eq('status', 'scheduled');
+      console.log(`🚫 [cancelClassNotifications] Cancelling notifications for class ${classId}`);
       
-      if (error) {
-        return { success: false, error: error.message };
+      // First, find notifications that have this class_id in metadata
+      const { data: notificationsToCancel, error: findError } = await supabase
+        .from('notifications')
+        .select('id, metadata, type, user_id')
+        .eq('type', 'class_reminder')
+        .filter('metadata->class_id', 'eq', classId.toString());
+      
+      if (findError) {
+        console.error(`❌ [cancelClassNotifications] Error finding notifications:`, findError);
+        return { success: false, error: findError.message };
       }
       
-      return { success: true };
+      if (!notificationsToCancel || notificationsToCancel.length === 0) {
+        console.log(`ℹ️ [cancelClassNotifications] No reminder notifications found for class ${classId}`);
+        return { success: true, data: { cancelled: 0 } };
+      }
+      
+      console.log(`📋 [cancelClassNotifications] Found ${notificationsToCancel.length} notifications to cancel`);
+      
+      // Update notifications to cancelled status
+      const notificationIds = notificationsToCancel.map(n => n.id);
+      const { error: updateError } = await supabase
+        .from('notifications')
+        .update({ 
+          title: 'Class Cancelled',
+          message: 'This class reminder has been cancelled because the class was cancelled.',
+          type: 'class_cancelled',
+          updated_at: new Date().toISOString()
+        })
+        .in('id', notificationIds);
+      
+      if (updateError) {
+        console.error(`❌ [cancelClassNotifications] Error updating notifications:`, updateError);
+        return { success: false, error: updateError.message };
+      }
+      
+      console.log(`✅ [cancelClassNotifications] Successfully cancelled ${notificationIds.length} notifications for class ${classId}`);
+      return { success: true, data: { cancelled: notificationIds.length } };
     } catch (error) {
+      console.error(`❌ [cancelClassNotifications] Unexpected error:`, error);
       return { success: false, error: 'Failed to cancel notifications' };
     }
   }
@@ -692,8 +1177,22 @@ class NotificationService {
         return { success: false, error: error.message };
       }
       
+      // Filter out future scheduled notifications that haven't been sent yet
+      const now = new Date();
+      const filteredData = (data || []).filter(notification => {
+        // If it's a scheduled notification (has scheduled_for), only show if:
+        // 1. The scheduled time has passed (should have been sent)
+        // 2. OR it doesn't have a scheduled_for field (immediate notification)
+        if (notification.scheduled_for) {
+          const scheduledTime = new Date(notification.scheduled_for);
+          return scheduledTime <= now;
+        }
+        // Show all non-scheduled notifications
+        return true;
+      });
+      
 
-      return { success: true, data: data || [] };
+      return { success: true, data: filteredData };
     } catch (error) {
       console.error(`❌ [notificationService] Exception in getUserNotifications:`, error);
       return { success: false, error: 'Failed to get user notifications' };
@@ -777,7 +1276,7 @@ class NotificationService {
 
   // Helper method to format notification messages
   formatClassReminderMessage(classData: BackendClass, minutes: number): string {
-    return `🧘‍♀️ Class Reminder: "${classData.name}" with ${classData.instructor_name} starts in ${minutes} minutes at ${this.formatTime(classData.time)}. See you there!`;
+    return `🧘‍♀️ Class Reminder: "${classData.name}" with ${classData.instructor_name || 'your instructor'} starts in ${minutes} minutes at ${this.formatTime(classData.time)}. See you there!`;
   }
 
   formatClassCancellationMessage(classData: BackendClass): string {
@@ -1047,6 +1546,67 @@ class NotificationService {
     } catch (error) {
       console.error('❌ [NOTIFICATION] Failed to send instructor cancellation notification:', error);
       throw error;
+    }
+  }
+
+  // Send welcome notification if user has subscription but hasn't received welcome yet
+  async sendWelcomeNotificationIfNeeded(userId: string, userName: string): Promise<void> {
+    try {
+      // Check if user has an active subscription
+      const { data: subscriptions, error: subError } = await supabase
+        .from('user_subscriptions')
+        .select('id, status, created_at')
+        .eq('user_id', userId)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (subError || !subscriptions || subscriptions.length === 0) {
+        // No active subscription, no welcome needed
+        return;
+      }
+
+      // Check if welcome notification already sent
+      const { data: existingWelcome, error: welcomeError } = await supabase
+        .from('notifications')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('type', 'welcome')
+        .limit(1);
+
+      if (welcomeError) {
+        console.error('Error checking existing welcome notification:', welcomeError);
+        return;
+      }
+
+      if (existingWelcome && existingWelcome.length > 0) {
+        // Welcome already sent
+        console.log(`📋 Welcome notification already sent to user ${userId}`);
+        return;
+      }
+
+      // Send welcome notification
+      console.log(`🎉 Sending welcome notification to ${userName} (${userId})`);
+      const notificationResult = await this.createTranslatedNotification(
+        userId,
+        'welcome',
+        {
+          type: 'welcome',
+          userName: userName
+        }
+      );
+
+      if (notificationResult.success && notificationResult.data) {
+        await this.sendPushNotificationToUser(
+          userId,
+          notificationResult.data.title,
+          notificationResult.data.message
+        );
+        console.log(`✅ Welcome notification sent to ${userName}`);
+      }
+
+    } catch (error) {
+      console.error('Error in sendWelcomeNotificationIfNeeded:', error);
     }
   }
 }

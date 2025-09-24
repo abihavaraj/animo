@@ -2,13 +2,13 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Alert, Dimensions, Platform, Text, TouchableOpacity, View } from 'react-native';
 import { Dialog, Button as PaperButton, Portal } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AdminClassManagement from '../screens/admin/AdminClassManagement';
 import AdminDashboard from '../screens/admin/AdminDashboard';
 import AssignmentHistory from '../screens/admin/AssignmentHistory';
-import NotificationTestScreen from '../screens/admin/NotificationTestScreen';
 import PCClassManagement from '../screens/admin/PCClassManagement';
 import PCSubscriptionPlans from '../screens/admin/PCSubscriptionPlans';
 import PCUserManagement from '../screens/admin/PCUserManagement';
@@ -42,7 +42,6 @@ function AdminSidebar({ activeScreen, onNavigate, stats }: any) {
 
   const loadInitialNotifications = async () => {
     try {
-      console.log('🔔 Setting up initial notifications...');
       // Since we don't have a backend notifications endpoint, use placeholder data
       setNotifications([]);
     } catch (error) {
@@ -53,7 +52,6 @@ function AdminSidebar({ activeScreen, onNavigate, stats }: any) {
 
   const handleNotificationPress = async () => {
     try {
-      console.log('🔔 Notification button pressed...');
       // Show notification modal without API call
       setNotificationModalVisible(true);
     } catch (error) {
@@ -63,7 +61,6 @@ function AdminSidebar({ activeScreen, onNavigate, stats }: any) {
   };
 
   const handleSettingsPress = () => {
-    console.log('🔧 Settings button pressed!');
     setSettingsModalVisible(true);
   };
 
@@ -90,16 +87,13 @@ function AdminSidebar({ activeScreen, onNavigate, stats }: any) {
   };
 
   const handleLogoutConfirm = async () => {
-    console.log('🔧 Admin logout confirmed - dispatching logoutUser...');
     setLogoutDialogVisible(false);
     
     try {
       const result = await dispatch(logoutUser());
-      console.log('✅ Admin logout dispatch completed:', result);
       
       // Additional cleanup if needed
       if (logoutUser.fulfilled.match(result)) {
-        console.log('✅ Admin logout successful - user should be redirected to login');
       } else {
         console.error('❌ Admin logout failed:', result);
         // Show error using web-compatible method
@@ -252,7 +246,6 @@ function AdminPCLayout({ navigation }: any) {
   }, []);
 
   const handleNavigate = (screenKey: string) => {
-    console.log('🏢 Admin navigating to:', screenKey);
     setActiveScreen(screenKey);
   };
 
@@ -266,8 +259,6 @@ function AdminPCLayout({ navigation }: any) {
         return <PCSubscriptionPlans />;
       case 'Reports':
         return <ReportsAnalytics />;
-      case 'Notifications':
-        return <NotificationTestScreen />;
       case 'Settings':
         return <SystemSettings />;
       case 'Dashboard':
@@ -309,6 +300,7 @@ function AdminPCLayout({ navigation }: any) {
 }
 
 function AdminTabs() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   
   // Calculate safe tab bar height for Android edge-to-edge
@@ -369,13 +361,36 @@ function AdminTabs() {
         headerShown: false,
       })}
     >
-      <Tab.Screen name="Dashboard" component={AdminDashboard} />
-      <Tab.Screen name="Users" component={UserManagement} />
-      <Tab.Screen name="Classes" component={AdminClassManagement} />
-      <Tab.Screen name="Plans" component={SubscriptionPlans} />
-      <Tab.Screen name="Reports" component={ReportsAnalytics} />
-      <Tab.Screen name="Notifications" component={NotificationTestScreen} />
-      <Tab.Screen name="Settings" component={SystemSettings} />
+      <Tab.Screen 
+        name="Dashboard" 
+        component={AdminDashboard}
+        options={{ tabBarLabel: t('navigation.dashboard') }}
+      />
+      <Tab.Screen 
+        name="Users" 
+        component={UserManagement}
+        options={{ tabBarLabel: 'Users' }}
+      />
+      <Tab.Screen 
+        name="Classes" 
+        component={AdminClassManagement}
+        options={{ tabBarLabel: t('navigation.classes') }}
+      />
+      <Tab.Screen 
+        name="Plans" 
+        component={SubscriptionPlans}
+        options={{ tabBarLabel: 'Plans' }}
+      />
+      <Tab.Screen 
+        name="Reports" 
+        component={ReportsAnalytics}
+        options={{ tabBarLabel: 'Reports' }}
+      />
+      <Tab.Screen 
+        name="Settings" 
+        component={SystemSettings}
+        options={{ tabBarLabel: t('common.settings') }}
+      />
     </Tab.Navigator>
   );
 }
@@ -383,12 +398,10 @@ function AdminTabs() {
 function AdminNavigator() {
   // Initialize auto cleanup service when admin navigator loads
   useEffect(() => {
-    console.log('🔧 Admin Navigator: Starting auto cleanup service...');
     autoCleanupService.start();
     
     // Cleanup on unmount
     return () => {
-      console.log('🔧 Admin Navigator: Stopping auto cleanup service...');
       autoCleanupService.stop();
     };
   }, []);

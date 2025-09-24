@@ -1,20 +1,21 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useEffect, useState } from 'react';
-import { Alert, Dimensions, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Chip, Button as PaperButton, Card as PaperCard, ProgressBar, SegmentedButtons } from 'react-native-paper';
-import { useDispatch } from 'react-redux';
-import { Body, Caption, H1, H2, H3 } from '../../../components/ui/Typography';
+import { Alert, Dimensions, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Button, Divider, Modal, Card as PaperCard, Portal } from 'react-native-paper';
+import { useSelector } from 'react-redux';
 import { spacing } from '../../../constants/Spacing';
 import { useThemeColor } from '../../../hooks/useThemeColor';
-import { dashboardService, DashboardStats, DateRange, QuickAction } from '../../services/dashboardService';
-import { realTimeDashboardService } from '../../services/realTimeDashboardService';
-import { AppDispatch } from '../../store';
+import { activityService, ActivityStats, StaffActivity } from '../../services/activityService';
+import { dashboardService, DashboardStats } from '../../services/dashboardService';
+import { RootState } from '../../store';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isLargeScreen = screenWidth > 1024;
 
 function AdminDashboard({ onNavigate }: { onNavigate?: (screenKey: string) => void } = {}) {
+  const { user: currentUser } = useSelector((state: RootState) => state.auth);
+  
   // Theme colors
   const backgroundColor = useThemeColor({}, 'background');
   const surfaceColor = useThemeColor({}, 'surface');
@@ -22,235 +23,142 @@ function AdminDashboard({ onNavigate }: { onNavigate?: (screenKey: string) => vo
   const textSecondaryColor = useThemeColor({}, 'textSecondary');
   const textMutedColor = useThemeColor({}, 'textMuted');
   const primaryColor = useThemeColor({}, 'primary');
-  const accentColor = useThemeColor({}, 'accent');
   const successColor = useThemeColor({}, 'success');
   const warningColor = useThemeColor({}, 'warning');
   const errorColor = useThemeColor({}, 'error');
 
-  const dispatch = useDispatch<AppDispatch>();
   const navigation = useNavigation();
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
-  const [quickActions, setQuickActions] = useState<QuickAction[]>([]);
-  const [dateFilter, setDateFilter] = useState<'week' | 'month' | 'year' | 'all'>('month');
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
-
-  // Real-time dashboard state
-  const [liveMetrics, setLiveMetrics] = useState<any>(null);
-  const [lastLiveUpdate, setLastLiveUpdate] = useState<Date>(new Date());
+  const [recentActivities, setRecentActivities] = useState<StaffActivity[]>([]);
+  const [filteredActivities, setFilteredActivities] = useState<StaffActivity[]>([]);
+  const [activityStats, setActivityStats] = useState<ActivityStats | null>(null);
+  const [activitiesLoading, setActivitiesLoading] = useState(true);
+  const [selectedActivity, setSelectedActivity] = useState<StaffActivity | null>(null);
+  const [showActivityDetails, setShowActivityDetails] = useState(false);
+  
+  // Activity filters and search
+  const [activitySearchQuery, setActivitySearchQuery] = useState('');
+  const [activityFilter, setActivityFilter] = useState('all'); // all, today, week, reception, instructor, admin
+  const [activityTypeFilter, setActivityTypeFilter] = useState('all'); // all, subscription, class, user, other
+  const [expandedTimeGroups, setExpandedTimeGroups] = useState<Set<string>>(new Set(['today']));
 
   useEffect(() => {
     loadDashboardData();
-
-    // Initialize real-time dashboard
-    realTimeDashboardService.startPolling((metrics) => {
-      setLiveMetrics(metrics);
-      setLastLiveUpdate(new Date());
-    }, 30000); // 30 second intervals
-
-    // Cleanup on unmount
-    return () => {
-      realTimeDashboardService.stopPolling();
-    };
+    loadActivityData();
   }, []);
 
-  useEffect(() => {
-    if (dateFilter !== 'all') {
-      updateDateRange(dateFilter);
-    } else {
-      setDateRange(undefined);
-      loadDashboardData();
-    }
-  }, [dateFilter]);
-
-  const updateDateRange = (filter: 'week' | 'month' | 'year') => {
-    // Get current date in local timezone to avoid UTC conversion issues
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
-    const date = now.getDate();
-    
-    let startYear: number, startMonth: number, startDate: number;
-    let endYear: number, endMonth: number, endDate: number;
-    
-    switch (filter) {
-      case 'week':
-        // Calculate 7 days ago
-        const weekAgo = new Date(year, month, date - 7);
-        startYear = weekAgo.getFullYear();
-        startMonth = weekAgo.getMonth();
-        startDate = weekAgo.getDate();
-        endYear = year;
-        endMonth = month;
-        endDate = date;
-        break;
-      case 'month':
-        // Start from the first day of the current month
-        startYear = year;
-        startMonth = month;
-        startDate = 1;
-        // End at the current date (today)
-        endYear = year;
-        endMonth = month;
-        endDate = date;
-        break;
-      case 'year':
-        // Start from January 1st of current year
-        startYear = year;
-        startMonth = 0; // January
-        startDate = 1;
-        // End at the current date (today)
-        endYear = year;
-        endMonth = month;
-        endDate = date;
-        break;
-      default:
-        return;
-    }
-    
-    // Format dates directly as strings to avoid timezone conversion issues
-    const newDateRange = {
-      start: `${startYear}-${(startMonth + 1).toString().padStart(2, '0')}-${startDate.toString().padStart(2, '0')}`,
-      end: `${endYear}-${(endMonth + 1).toString().padStart(2, '0')}-${endDate.toString().padStart(2, '0')}`
-    };
-    
-    console.log('📅 AdminDashboard - Updated date range for filter:', filter, {
-      ...newDateRange,
-      debug: {
-        today: `${year}-${(month + 1).toString().padStart(2, '0')}-${date.toString().padStart(2, '0')}`,
-        filter,
-        startComponents: `${startYear}-${(startMonth + 1).toString().padStart(2, '0')}-${startDate.toString().padStart(2, '0')}`,
-        endComponents: `${endYear}-${(endMonth + 1).toString().padStart(2, '0')}-${endDate.toString().padStart(2, '0')}`
-      }
-    });
-    setDateRange(newDateRange);
-    loadDashboardData(newDateRange);
-  };
-
-  const loadDashboardData = async (customDateRange?: DateRange) => {
+  const loadDashboardData = async () => {
     try {
       setLoading(true);
-      console.log('📊 Loading dashboard data...');
-      
-      const response = await dashboardService.getDashboardStats(customDateRange || dateRange);
-      
-      if (response.success && response.data) {
+      const response = await dashboardService.getDashboardStats();
+      if (response && response.data) {
         setDashboardStats(response.data);
-        const actions = dashboardService.getQuickActions(response.data);
-        setQuickActions(actions);
-        console.log('✅ Dashboard data loaded successfully');
-      } else {
-        console.error('Failed to load dashboard data:', response.error);
-        Alert.alert('Error', 'Failed to load dashboard data. Please try again.');
       }
     } catch (error) {
-      console.error('Failed to load dashboard data:', error);
+      console.error('❌ Error loading dashboard data:', error);
       Alert.alert('Error', 'Failed to load dashboard data. Please try again.');
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   };
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    loadDashboardData();
-  };
-
-  const handleQuickAction = (action: QuickAction) => {
-    console.log('🔗 Navigating to:', action.route, action.params);
-    
+  const loadActivityData = async () => {
     try {
-      // For PC layout, use callback navigation
-      if (isLargeScreen && onNavigate) {
-        switch (action.route) {
-          case 'ClassManagement':
-            onNavigate('Classes');
-            break;
-          case 'UserManagement':
-            onNavigate('Users');
-            break;
-          case 'SubscriptionPlans':
-            onNavigate('Plans');
-            break;
-          case 'RevenueAnalytics':
-            onNavigate('Settings'); // Reports screen removed, redirect to Settings
-            break;
-          case 'Notifications':
-            onNavigate('Notifications');
-            break;
-          default:
-            console.log('Unknown route:', action.route);
-        }
-      } else {
-        // For mobile layout, use tab navigation
-        switch (action.route) {
-          case 'ClassManagement':
-            (navigation as any).navigate('Classes');
-            break;
-          case 'UserManagement':
-            (navigation as any).navigate('Users');
-            break;
-          case 'SubscriptionPlans':
-            (navigation as any).navigate('Plans');
-            break;
-          case 'RevenueAnalytics':
-            (navigation as any).navigate('Settings'); // Reports screen removed, redirect to Settings
-            break;
-          case 'Notifications':
-            (navigation as any).navigate('Notifications');
-            break;
-          default:
-            console.log('Unknown route:', action.route);
-        }
-      }
+      setActivitiesLoading(true);
+      const [activities, stats] = await Promise.all([
+        activityService.getRecentActivities(50), // Load more activities for better filtering
+        activityService.getActivityStats()
+      ]);
+      
+      setRecentActivities(activities);
+      setActivityStats(stats);
+      // Initially show all activities
+      setFilteredActivities(activities);
     } catch (error) {
-      console.error('Navigation error:', error);
-      Alert.alert('Error', 'Unable to navigate. Please try again.');
+      console.error('❌ Error loading activity data:', error);
+    } finally {
+      setActivitiesLoading(false);
     }
   };
 
-  const handleStatCardPress = (type: string, data?: any) => {
-    console.log('📊 Stat card pressed:', type, data);
-    
-    if (isLargeScreen && onNavigate) {
-      // PC layout navigation
-      switch (type) {
-        case 'clients':
-        case 'instructors':
-          onNavigate('Users');
-          break;
-        case 'classes':
-          onNavigate('Classes');
-          break;
-        case 'revenue':
-          onNavigate('Reports');
-          break;
-        case 'subscriptions':
-          onNavigate('Plans');
-          break;
-        default:
-          console.log('Unknown stat type:', type);
+  // Filter and search activities
+  const filterActivities = () => {
+    let filtered = [...recentActivities];
+
+    // Apply search filter
+    if (activitySearchQuery.trim()) {
+      const searchLower = activitySearchQuery.toLowerCase();
+      filtered = filtered.filter(activity => 
+        activity.activity_description.toLowerCase().includes(searchLower) ||
+        activity.staff_name.toLowerCase().includes(searchLower) ||
+        activity.client_name?.toLowerCase().includes(searchLower)
+      );
+    }
+
+    // Apply time filter
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    if (activityFilter === 'today') {
+      filtered = filtered.filter(activity => 
+        new Date(activity.created_at || '') >= today
+      );
+    } else if (activityFilter === 'week') {
+      filtered = filtered.filter(activity => 
+        new Date(activity.created_at || '') >= weekAgo
+      );
+    }
+
+    // Apply staff role filter
+    if (activityFilter === 'reception' || activityFilter === 'instructor' || activityFilter === 'admin') {
+      filtered = filtered.filter(activity => activity.staff_role === activityFilter);
+    }
+
+    // Apply activity type filter
+    if (activityTypeFilter !== 'all') {
+      if (activityTypeFilter === 'subscription') {
+        filtered = filtered.filter(activity => 
+          activity.activity_type.includes('subscription') || 
+          activity.activity_type.includes('classes_')
+        );
+      } else if (activityTypeFilter === 'class') {
+        filtered = filtered.filter(activity => 
+          activity.activity_type.includes('class') && 
+          !activity.activity_type.includes('classes_')
+        );
+      } else if (activityTypeFilter === 'user') {
+        filtered = filtered.filter(activity => 
+          activity.activity_type.includes('client') || 
+          activity.activity_type.includes('profile')
+        );
       }
+    }
+
+    setFilteredActivities(filtered);
+  };
+
+  // Filter activities when search/filter changes
+  useEffect(() => {
+    filterActivities();
+  }, [recentActivities, activitySearchQuery, activityFilter, activityTypeFilter]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([loadDashboardData(), loadActivityData()]);
+    setRefreshing(false);
+  };
+
+  const handleNavigation = (screenKey: string, params?: any) => {
+    if (isLargeScreen && onNavigate) {
+      onNavigate(screenKey);
     } else {
-      // Mobile tab navigation
-      switch (type) {
-        case 'clients':
-        case 'instructors':
-          (navigation as any).navigate('Users', { filter: type });
-          break;
-        case 'classes':
-          (navigation as any).navigate('Classes');
-          break;
-        case 'revenue':
-          (navigation as any).navigate('Reports', { tab: 'revenue' });
-          break;
-        case 'subscriptions':
-          (navigation as any).navigate('Plans');
-          break;
-        default:
-          console.log('Unknown stat type:', type);
+      try {
+        (navigation as any).navigate(screenKey, params);
+      } catch (error) {
+        console.error('Navigation error:', error);
       }
     }
   };
@@ -264,665 +172,891 @@ function AdminDashboard({ onNavigate }: { onNavigate?: (screenKey: string) => vo
     }).format(amount);
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric'
+  const getTodayFormatted = () => {
+    return new Date().toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
     });
+  };
+
+  const formatActivityTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays}d ago`;
+    
+    return date.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric' 
+    });
+  };
+
+  const getActivityIcon = (activityType: string) => {
+    switch (activityType) {
+      case 'subscription_added':
+      case 'package_added':
+        return 'add-circle';
+      case 'subscription_cancelled':
+      case 'subscription_terminated':
+      case 'package_removed':
+        return 'cancel';
+      case 'classes_added':
+        return 'add';
+      case 'classes_removed':
+        return 'remove';
+      case 'note_added':
+        return 'note-add';
+      case 'profile_updated':
+        return 'edit';
+      case 'client_created':
+        return 'person-add';
+      case 'instructor_assigned':
+      case 'instructor_unassigned':
+        return 'assignment';
+      case 'booking_created':
+        return 'event';
+      case 'booking_cancelled':
+        return 'event-busy';
+      case 'payment_processed':
+      case 'credit_added':
+        return 'payment';
+      default:
+        return 'info';
+    }
+  };
+
+  const getActivityColor = (activityType: string) => {
+    switch (activityType) {
+      case 'subscription_added':
+      case 'package_added':
+      case 'classes_added':
+      case 'client_created':
+      case 'booking_created':
+      case 'payment_processed':
+      case 'credit_added':
+        return successColor;
+      case 'subscription_cancelled':
+      case 'subscription_terminated':
+      case 'package_removed':
+      case 'classes_removed':
+      case 'booking_cancelled':
+        return errorColor;
+      case 'note_added':
+      case 'profile_updated':
+      case 'instructor_assigned':
+      case 'instructor_unassigned':
+        return warningColor;
+      default:
+        return primaryColor;
+    }
+  };
+
+  const handleActivityClick = (activity: StaffActivity) => {
+    setSelectedActivity(activity);
+    setShowActivityDetails(true);
+  };
+
+  // Group activities by time periods
+  const groupActivitiesByTime = (activities: StaffActivity[]) => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const groups: { [key: string]: StaffActivity[] } = {
+      today: [],
+      yesterday: [],
+      thisWeek: [],
+      older: []
+    };
+
+    activities.forEach(activity => {
+      const activityDate = new Date(activity.created_at || '');
+      
+      if (activityDate >= today) {
+        groups.today.push(activity);
+      } else if (activityDate >= yesterday) {
+        groups.yesterday.push(activity);
+      } else if (activityDate >= weekAgo) {
+        groups.thisWeek.push(activity);
+      } else {
+        groups.older.push(activity);
+      }
+    });
+
+    return groups;
+  };
+
+  const toggleTimeGroup = (groupKey: string) => {
+    const newExpanded = new Set(expandedTimeGroups);
+    if (newExpanded.has(groupKey)) {
+      newExpanded.delete(groupKey);
+    } else {
+      newExpanded.add(groupKey);
+    }
+    setExpandedTimeGroups(newExpanded);
+  };
+
+  const getActivityCategoryIcon = (activityType: string) => {
+    if (activityType.includes('subscription')) return 'card-membership';
+    if (activityType.includes('class')) return 'event';
+    if (activityType.includes('client') || activityType.includes('profile')) return 'person';
+    if (activityType.includes('payment')) return 'payment';
+    return 'work';
+  };
+
+  const getActivityCategoryColor = (activityType: string) => {
+    if (activityType.includes('subscription')) return '#2196F3';
+    if (activityType.includes('class')) return '#4CAF50';
+    if (activityType.includes('client') || activityType.includes('profile')) return '#FF9800';
+    if (activityType.includes('payment')) return '#9C27B0';
+    return '#607D8B';
+  };
+
+  const formatCurrencyALL = (amount: number) => {
+    return new Intl.NumberFormat('sq-AL', {
+      style: 'currency',
+      currency: 'ALL',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  };
+
+  const renderActivityDetails = () => {
+    if (!selectedActivity) return null;
+
+    const metadata = selectedActivity.metadata || {};
+    
+    return (
+      <Portal>
+        <Modal
+          visible={showActivityDetails}
+          onDismiss={() => setShowActivityDetails(false)}
+          contentContainerStyle={[styles.activityModal, { backgroundColor: surfaceColor }]}
+        >
+          <ScrollView>
+            {/* Header */}
+            <View style={styles.activityModalHeader}>
+              <View style={[styles.activityIconContainer, { 
+                backgroundColor: getActivityColor(selectedActivity.activity_type) + '20' 
+              }]}>
+                <MaterialIcons 
+                  name={getActivityIcon(selectedActivity.activity_type) as any} 
+                  size={24} 
+                  color={getActivityColor(selectedActivity.activity_type)} 
+                />
+              </View>
+              <View style={styles.activityModalHeaderText}>
+                <Text style={[styles.activityModalTitle, { color: textColor }]}>
+                  {selectedActivity.activity_description}
+                </Text>
+                <Text style={[styles.activityModalSubtitle, { color: textSecondaryColor }]}>
+                  {formatActivityTime(selectedActivity.created_at || '')} • {selectedActivity.staff_name}
+                </Text>
+              </View>
+            </View>
+
+            <Divider style={{ marginVertical: spacing.md }} />
+
+            {/* Staff Information */}
+            <View style={styles.activityDetailSection}>
+              <Text style={[styles.activityDetailTitle, { color: textColor }]}>👤 Staff Member</Text>
+              <View style={styles.activityDetailItem}>
+                <Text style={[styles.activityDetailLabel, { color: textSecondaryColor }]}>Name:</Text>
+                <Text style={[styles.activityDetailValue, { color: textColor }]}>{selectedActivity.staff_name}</Text>
+              </View>
+              <View style={styles.activityDetailItem}>
+                <Text style={[styles.activityDetailLabel, { color: textSecondaryColor }]}>Role:</Text>
+                <Text style={[styles.activityDetailValue, { color: textColor }]}>{selectedActivity.staff_role}</Text>
+              </View>
+            </View>
+
+            {/* Client Information */}
+            {selectedActivity.client_name && (
+              <>
+                <Divider style={{ marginVertical: spacing.md }} />
+                <View style={styles.activityDetailSection}>
+                  <Text style={[styles.activityDetailTitle, { color: textColor }]}>🎯 Target Client</Text>
+                  <View style={styles.activityDetailItem}>
+                    <Text style={[styles.activityDetailLabel, { color: textSecondaryColor }]}>Client:</Text>
+                    <Text style={[styles.activityDetailValue, { color: textColor }]}>{selectedActivity.client_name}</Text>
+                  </View>
+                </View>
+              </>
+            )}
+
+            {/* Activity Details */}
+            <Divider style={{ marginVertical: spacing.md }} />
+            <View style={styles.activityDetailSection}>
+              <Text style={[styles.activityDetailTitle, { color: textColor }]}>📋 Activity Details</Text>
+              
+              {/* Subscription Details */}
+              {metadata.planName && (
+                <>
+                  <View style={styles.activityDetailItem}>
+                    <Text style={[styles.activityDetailLabel, { color: textSecondaryColor }]}>Plan:</Text>
+                    <Text style={[styles.activityDetailValue, { color: textColor }]}>{metadata.planName}</Text>
+                  </View>
+                  {metadata.monthlyPrice && metadata.monthlyPrice > 0 && (
+                    <View style={styles.activityDetailItem}>
+                      <Text style={[styles.activityDetailLabel, { color: textSecondaryColor }]}>Price:</Text>
+                      <Text style={[styles.activityDetailValue, { color: textColor }]}>
+                        {formatCurrencyALL(metadata.monthlyPrice)}/month
+                      </Text>
+                    </View>
+                  )}
+                  {metadata.monthlyClasses && metadata.monthlyClasses > 0 && (
+                    <View style={styles.activityDetailItem}>
+                      <Text style={[styles.activityDetailLabel, { color: textSecondaryColor }]}>Classes:</Text>
+                      <Text style={[styles.activityDetailValue, { color: textColor }]}>
+                        {metadata.monthlyClasses} classes/month
+                      </Text>
+                    </View>
+                  )}
+                </>
+              )}
+
+              {/* Operation Type for Conflict Resolution */}
+              {metadata.operationType && (
+                <View style={styles.activityDetailItem}>
+                  <Text style={[styles.activityDetailLabel, { color: textSecondaryColor }]}>Operation:</Text>
+                  <Text style={[styles.activityDetailValue, { color: textColor }]}>
+                    {metadata.operationType.charAt(0).toUpperCase() + metadata.operationType.slice(1)}
+                  </Text>
+                </View>
+              )}
+
+              {/* Payment Information */}
+              {metadata.paymentAmount && metadata.paymentAmount > 0 && (
+                <View style={styles.activityDetailItem}>
+                  <Text style={[styles.activityDetailLabel, { color: textSecondaryColor }]}>Payment:</Text>
+                  <Text style={[styles.activityDetailValue, { color: successColor }]}>
+                    {formatCurrencyALL(metadata.paymentAmount)}
+                  </Text>
+                </View>
+              )}
+
+              {/* Classes Added */}
+              {metadata.classesAdded && (
+                <View style={styles.activityDetailItem}>
+                  <Text style={[styles.activityDetailLabel, { color: textSecondaryColor }]}>Classes Added:</Text>
+                  <Text style={[styles.activityDetailValue, { color: textColor }]}>
+                    +{metadata.classesAdded} classes
+                  </Text>
+                </View>
+              )}
+
+              {/* Instructor Information */}
+              {metadata.instructorName && (
+                <View style={styles.activityDetailItem}>
+                  <Text style={[styles.activityDetailLabel, { color: textSecondaryColor }]}>Instructor:</Text>
+                  <Text style={[styles.activityDetailValue, { color: textColor }]}>{metadata.instructorName}</Text>
+                </View>
+              )}
+
+              {/* Notes */}
+              {metadata.notes && (
+                <View style={styles.activityDetailItem}>
+                  <Text style={[styles.activityDetailLabel, { color: textSecondaryColor }]}>Notes:</Text>
+                  <Text style={[styles.activityDetailValue, { color: textColor }]}>{metadata.notes}</Text>
+                </View>
+              )}
+
+              {/* Conflict Resolution Details */}
+              {metadata.conflictResolution && (
+                <View style={styles.activityDetailItem}>
+                  <Text style={[styles.activityDetailLabel, { color: textSecondaryColor }]}>Conflict Resolution:</Text>
+                  <Text style={[styles.activityDetailValue, { color: textColor }]}>
+                    {metadata.conflictResolution.charAt(0).toUpperCase() + metadata.conflictResolution.slice(1)}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Impact Summary */}
+            {(metadata.operationType || metadata.classesAdded || metadata.paymentAmount) && (
+              <>
+                <Divider style={{ marginVertical: spacing.md }} />
+                <View style={styles.activityDetailSection}>
+                  <Text style={[styles.activityDetailTitle, { color: textColor }]}>📊 Impact Summary</Text>
+                  <View style={[styles.impactSummary, { backgroundColor: primaryColor + '10' }]}>
+                    <Text style={[styles.impactText, { color: textColor }]}>
+                      {selectedActivity.activity_type === 'subscription_added' && metadata.operationType === 'extended'
+                        ? `Client's subscription was extended with ${metadata.classesAdded || 0} additional classes.`
+                        : selectedActivity.activity_type === 'subscription_added' && metadata.operationType === 'replaced'
+                        ? `Client's previous subscription was replaced with the new plan.`
+                        : selectedActivity.activity_type === 'subscription_added' && metadata.operationType === 'queued'
+                        ? `New subscription was queued to start after current subscription ends.`
+                        : selectedActivity.activity_type === 'subscription_added'
+                        ? `New subscription plan assigned to client.`
+                        : selectedActivity.activity_type === 'instructor_assigned'
+                        ? `Client is now assigned to instructor ${metadata.instructorName}.`
+                        : selectedActivity.activity_type === 'instructor_unassigned'
+                        ? `Client is no longer assigned to instructor ${metadata.instructorName}.`
+                        : selectedActivity.activity_type === 'client_created'
+                        ? `New ${metadata.role} account created in the system.`
+                        : 'Activity completed successfully.'
+                      }
+                      {metadata.paymentAmount && metadata.paymentAmount > 0 && 
+                        ` Payment of ${formatCurrencyALL(metadata.paymentAmount)} was processed.`
+                      }
+                    </Text>
+                  </View>
+                </View>
+              </>
+            )}
+          </ScrollView>
+
+          {/* Close Button */}
+          <View style={styles.activityModalActions}>
+            <Button 
+              mode="contained" 
+              onPress={() => setShowActivityDetails(false)}
+              style={{ backgroundColor: primaryColor }}
+            >
+              Close
+            </Button>
+          </View>
+        </Modal>
+      </Portal>
+    );
   };
 
   // Mobile layout warning - Admin portal is PC-optimized
   if (!isLargeScreen) {
     return (
       <View style={styles.mobileContainer}>
-        <Text style={styles.mobileWarning}>
+        <Text style={[styles.mobileWarning, { color: textColor }]}>
           📱 Admin Portal is optimized for PC use. 
-          Please use a larger screen (desktop/laptop) for the full experience.
+          Please use a larger screen for the full experience.
         </Text>
-        <ScrollView 
-          style={styles.mobileContent}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-        >
-          {loading ? (
-            <View style={styles.loadingContainer}>
-              <Text style={[styles.loadingText, { color: textColor }]}>Loading dashboard...</Text>
-            </View>
-          ) : dashboardStats ? (
-            <>
-              {/* Mobile Overview */}
-              <PaperCard style={[styles.mobileCard, { backgroundColor: surfaceColor }]}>
-                <PaperCard.Content>
-                  <H2 style={{...styles.cardTitle, color: textColor}}>Studio Overview</H2>
-                  <View style={styles.mobileMetricsGrid}>
-                    <TouchableOpacity 
-                      style={[styles.mobileMetricItem, { backgroundColor: surfaceColor }]}
-                      onPress={() => handleStatCardPress('clients')}
-                    >
-                      <MaterialIcons name="people" size={20} color={accentColor} />
-                      <Body style={{...styles.mobileMetricNumber, color: textColor}}>
-                        {dashboardStats.overview.totalClients}
-                      </Body>
-                      <Caption style={{...styles.mobileMetricLabel, color: textSecondaryColor}}>
-                        Total Clients
-                      </Caption>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity 
-                      style={[styles.mobileMetricItem, { backgroundColor: surfaceColor }]}
-                      onPress={() => handleStatCardPress('classes')}
-                    >
-                      <MaterialIcons name="event" size={20} color={accentColor} />
-                      <Body style={{...styles.mobileMetricNumber, color: textColor}}>
-                        {dashboardStats.overview.classesThisWeek}
-                      </Body>
-                      <Caption style={{...styles.mobileMetricLabel, color: textSecondaryColor}}>
-                        Classes This Week
-                      </Caption>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity 
-                      style={[styles.mobileMetricItem, { backgroundColor: surfaceColor }]}
-                      onPress={() => handleStatCardPress('revenue')}
-                    >
-                      <MaterialIcons name="attach-money" size={20} color={accentColor} />
-                      <Body style={{...styles.mobileMetricNumber, color: textColor}}>
-                        {formatCurrency(dashboardStats.financial.revenueThisMonth)}
-                      </Body>
-                      <Caption style={{...styles.mobileMetricLabel, color: textSecondaryColor}}>
-                        Monthly Revenue
-                      </Caption>
-                    </TouchableOpacity>
-                  </View>
-                </PaperCard.Content>
-              </PaperCard>
-
-              {/* Mobile Quick Actions */}
-              <PaperCard style={[styles.mobileCard, { backgroundColor: surfaceColor }]}>
-                <PaperCard.Content>
-                  <H2 style={{...styles.cardTitle, color: textColor}}>Quick Actions</H2>
-                  <View style={styles.mobileActionButtons}>
-                    {quickActions.slice(0, 4).map(action => (
-                      <PaperButton 
-                        key={action.id}
-                        mode={action.id === 'manage_classes' ? "contained" : "outlined"}
-                        style={action.id === 'manage_classes' ? styles.mobilePrimaryAction : styles.mobileSecondaryAction}
-                        labelStyle={styles.mobileActionLabel}
-                        onPress={() => handleQuickAction(action)}
-                      >
-                        {action.title}
-                      </PaperButton>
-                    ))}
-                  </View>
-                </PaperCard.Content>
-              </PaperCard>
-            </>
-          ) : (
-            <View style={styles.errorContainer}>
-              <Text style={[styles.errorText, { color: errorColor }]}>
-                Failed to load dashboard data. Please refresh.
-              </Text>
-            </View>
-          )}
-        </ScrollView>
       </View>
     );
   }
 
-  // Desktop layout - Comprehensive Admin Dashboard
+  // Main Desktop Dashboard
   return (
     <View style={[styles.container, { backgroundColor }]}>
-      {/* Enhanced Header with Date Filters */}
-      <View style={[styles.header, { backgroundColor: surfaceColor, borderBottomColor: textMutedColor }]}>
-        <View style={styles.headerTop}>
-          <View style={styles.headerInfo}>
-            <H1 style={{...styles.headerTitle, color: textColor}}>ANIMO Studio</H1>
-            <Caption style={{...styles.headerSubtitle, color: textSecondaryColor}}>
-              Administrator Dashboard • {new Date().toLocaleDateString('en-US', { 
-                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
-              })}
-            </Caption>
+      {/* Header */}
+      <View style={[styles.header, { backgroundColor: surfaceColor }]}>
+        <View style={styles.headerContent}>
+          <View>
+            <Text style={[styles.studioName, { color: textColor }]}>ANIMO Studio</Text>
+            <Text style={[styles.todayText, { color: textSecondaryColor }]}>
+              {getTodayFormatted()}
+            </Text>
           </View>
-          
-          {/* Date Filter Controls */}
-          <View style={styles.dateFilters}>
-            <SegmentedButtons
-              value={dateFilter}
-              onValueChange={(value) => setDateFilter(value as any)}
-              buttons={[
-                { value: 'week', label: 'Week' },
-                { value: 'month', label: 'Month' },
-                { value: 'year', label: 'Year' },
-                { value: 'all', label: 'All Time' }
-              ]}
-              style={styles.segmentedButtons}
-            />
-          </View>
+          <TouchableOpacity 
+            style={[styles.refreshButton, { backgroundColor: primaryColor }]}
+            onPress={onRefresh}
+          >
+            <MaterialIcons name="refresh" size={20} color="white" />
+            <Text style={styles.refreshText}>Refresh</Text>
+          </TouchableOpacity>
         </View>
-
-        {/* System Alerts */}
-        {dashboardStats?.notifications?.systemAlerts && dashboardStats.notifications.systemAlerts > 0 && (
-          <View style={[styles.alertBanner, { backgroundColor: errorColor + '20' }]}>
-            <MaterialIcons name="warning" size={16} color={errorColor} />
-            <Caption style={{...styles.alertText, color: errorColor}}>
-              {dashboardStats.notifications.systemAlerts} system alerts require attention
-            </Caption>
-            <TouchableOpacity onPress={() => handleQuickAction({ 
-              id: 'notifications', title: 'View Alerts', description: '', icon: 'notifications', color: errorColor, route: 'Notifications' 
-            })}>
-              <Caption style={{...styles.alertAction, color: errorColor}}>View →</Caption>
-            </TouchableOpacity>
-          </View>
-        )}
       </View>
 
       <ScrollView 
         style={styles.content}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        showsVerticalScrollIndicator={false}
       >
         {loading ? (
           <View style={styles.loadingContainer}>
-            <Text style={[styles.loadingText, { color: textColor }]}>Loading comprehensive dashboard...</Text>
+            <Text style={[styles.loadingText, { color: textColor }]}>Loading dashboard...</Text>
           </View>
         ) : dashboardStats ? (
           <>
-            {/* Key Performance Indicators Grid */}
-            <View style={styles.kpiGrid}>
-              <TouchableOpacity 
-                style={[styles.kpiCard, { backgroundColor: surfaceColor }]}
-                onPress={() => handleStatCardPress('clients')}
-              >
-                <View style={styles.kpiHeader}>
-                  <MaterialIcons name="people" size={28} color={primaryColor} />
-                  <View style={styles.kpiTrend}>
-                    <MaterialIcons name="trending-up" size={16} color={successColor} />
-                    <Caption style={{...styles.kpiTrendText, color: successColor}}>
-                      +{dashboardStats.clients.newClientsThisMonth}
-                    </Caption>
-                  </View>
-                </View>
-                <H2 style={{...styles.kpiNumber, color: textColor}}>
-                  {dashboardStats.overview.totalClients}
-                </H2>
-                <Caption style={{...styles.kpiLabel, color: textSecondaryColor}}>Total Clients</Caption>
-                <Caption style={{...styles.kpiSubLabel, color: textMutedColor}}>
-                  {dashboardStats.overview.activeClients} active this month
-                </Caption>
-              </TouchableOpacity>
+            {/* Today's Overview */}
+            <PaperCard style={[styles.todayCard, { backgroundColor: surfaceColor }]}>
+              <PaperCard.Content>
+                <Text style={[styles.sectionTitle, { color: textColor }]}>📊 Today's Overview</Text>
+                
+                <View style={styles.todayGrid}>
+                  <TouchableOpacity 
+                    style={[styles.todayItem, { borderLeftColor: primaryColor }]}
+                    onPress={() => handleNavigation('Classes')}
+                  >
+                    <MaterialIcons name="event" size={28} color={primaryColor} />
+                    <View style={styles.todayItemContent}>
+                    <Text style={[styles.todayNumber, { color: textColor }]}>
+                      {dashboardStats.classes?.classesThisWeek || dashboardStats.overview?.classesThisWeek || 0}
+                    </Text>
+                      <Text style={[styles.todayLabel, { color: textSecondaryColor }]}>Classes Today</Text>
+                    </View>
+                  </TouchableOpacity>
 
-              <TouchableOpacity 
-                style={[styles.kpiCard, { backgroundColor: surfaceColor }]}
-                onPress={() => handleStatCardPress('revenue')}
-              >
-                <View style={styles.kpiHeader}>
-                  <MaterialIcons name="attach-money" size={28} color={successColor} />
-                  <View style={styles.kpiTrend}>
-                    <MaterialIcons 
-                      name={dashboardStats.financial.monthlyGrowth >= 0 ? "trending-up" : "trending-down"} 
-                      size={16} 
-                      color={dashboardStats.financial.monthlyGrowth >= 0 ? successColor : errorColor} 
-                    />
-                    <Caption style={{
-                      ...styles.kpiTrendText, 
-                      color: dashboardStats.financial.monthlyGrowth >= 0 ? successColor : errorColor
-                    }}>
-                      {dashboardStats.financial.monthlyGrowth > 0 ? '+' : ''}{dashboardStats.financial.monthlyGrowth}%
-                    </Caption>
-                  </View>
-                </View>
-                <H2 style={{...styles.kpiNumber, color: textColor}}>
-                  {formatCurrency(dashboardStats.financial.revenueThisMonth)}
-                </H2>
-                <Caption style={{...styles.kpiLabel, color: textSecondaryColor}}>Monthly Revenue</Caption>
-                <Caption style={{...styles.kpiSubLabel, color: textMutedColor}}>
-                  {formatCurrency(dashboardStats.financial.revenueThisWeek)} this week
-                </Caption>
-              </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.todayItem, { borderLeftColor: successColor }]}
+                    onPress={() => handleNavigation('Reports')}
+                  >
+                    <MaterialIcons name="attach-money" size={28} color={successColor} />
+                    <View style={styles.todayItemContent}>
+                      <Text style={[styles.todayNumber, { color: textColor }]}>
+                        {formatCurrency(dashboardStats.financial?.revenueToday || dashboardStats.financial?.revenueThisWeek || 0)}
+                      </Text>
+                      <Text style={[styles.todayLabel, { color: textSecondaryColor }]}>Today's Revenue</Text>
+                    </View>
+                  </TouchableOpacity>
 
-              <TouchableOpacity 
-                style={[styles.kpiCard, { backgroundColor: surfaceColor }]}
-                onPress={() => handleStatCardPress('classes')}
-              >
-                <View style={styles.kpiHeader}>
-                  <MaterialIcons name="event" size={28} color={accentColor} />
-                  <View style={styles.kpiTrend}>
-                    <MaterialIcons name="schedule" size={16} color={warningColor} />
-                    <Caption style={{...styles.kpiTrendText, color: warningColor}}>
-                      {dashboardStats.classes.upcomingClasses} upcoming
-                    </Caption>
-                  </View>
-                </View>
-                <H2 style={{...styles.kpiNumber, color: textColor}}>
-                  {dashboardStats.overview.classesThisWeek}
-                </H2>
-                <Caption style={{...styles.kpiLabel, color: textSecondaryColor}}>Classes This Week</Caption>
-                <Caption style={{...styles.kpiSubLabel, color: textMutedColor}}>
-                  {dashboardStats.classes.averageAttendance}% average attendance
-                </Caption>
-              </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.todayItem, { borderLeftColor: warningColor }]}
+                    onPress={() => handleNavigation('Users')}
+                  >
+                    <MaterialIcons name="people" size={28} color={warningColor} />
+                    <View style={styles.todayItemContent}>
+                      <Text style={[styles.todayNumber, { color: textColor }]}>
+                        {dashboardStats.clients?.newClientsThisWeek || dashboardStats.overview?.activeClients || 0}
+                      </Text>
+                      <Text style={[styles.todayLabel, { color: textSecondaryColor }]}>Clients Today</Text>
+                    </View>
+                  </TouchableOpacity>
 
-              <TouchableOpacity 
-                style={[styles.kpiCard, { backgroundColor: surfaceColor }]}
-                onPress={() => handleStatCardPress('subscriptions')}
-              >
-                <View style={styles.kpiHeader}>
-                  <MaterialIcons name="card-membership" size={28} color={warningColor} />
-                  <View style={styles.kpiTrend}>
-                    <MaterialIcons name="notifications" size={16} color={errorColor} />
-                    <Caption style={{...styles.kpiTrendText, color: errorColor}}>
-                      {dashboardStats.notifications.expiringSubscriptions} expiring
-                    </Caption>
-                  </View>
+                  <TouchableOpacity 
+                    style={[styles.todayItem, { borderLeftColor: errorColor }]}
+                    onPress={() => handleNavigation('Reports')}
+                  >
+                    <MaterialIcons name="warning" size={28} color={errorColor} />
+                    <View style={styles.todayItemContent}>
+                      <Text style={[styles.todayNumber, { color: textColor }]}>
+                        {(dashboardStats.notifications?.expiringSubscriptions || 0) + (dashboardStats.notifications?.systemAlerts || 0)}
+                      </Text>
+                      <Text style={[styles.todayLabel, { color: textSecondaryColor }]}>Urgent Items</Text>
+                    </View>
+                  </TouchableOpacity>
                 </View>
-                <H2 style={{...styles.kpiNumber, color: textColor}}>
-                  {dashboardStats.financial.activeSubscriptions}
-                </H2>
-                <Caption style={{...styles.kpiLabel, color: textSecondaryColor}}>Active Subscriptions</Caption>
-                <Caption style={{...styles.kpiSubLabel, color: textMutedColor}}>
-                  {formatCurrency(dashboardStats.financial.subscriptionRevenue)} monthly
-                </Caption>
-              </TouchableOpacity>
-            </View>
+              </PaperCard.Content>
+            </PaperCard>
 
-            {/* Real-Time Activity Section */}
-            {liveMetrics && (
-              <PaperCard style={[styles.analyticsCard, { backgroundColor: surfaceColor }]}>
+            {/* Key Metrics */}
+            <View style={styles.metricsRow}>
+              <PaperCard style={[styles.metricCard, { backgroundColor: surfaceColor }]}>
                 <PaperCard.Content>
-                  <View style={styles.cardHeader}>
-                    <View style={styles.liveHeader}>
-                      <H3 style={{...styles.cardTitle, color: textColor}}>Live Activity</H3>
-                      <View style={styles.liveIndicator}>
-                        <View style={[styles.liveDot, { backgroundColor: successColor }]} />
-                        <Caption style={{...styles.liveText, color: textMutedColor}}>
-                          Updated {lastLiveUpdate.toLocaleTimeString()}
-                        </Caption>
-                      </View>
-                    </View>
-                    <TouchableOpacity>
-                      <Caption style={{...styles.viewMoreButton, color: primaryColor}}>View All →</Caption>
-                    </TouchableOpacity>
+                  <View style={styles.metricHeader}>
+                    <MaterialIcons name="people" size={24} color={primaryColor} />
+                    <Text style={[styles.metricTitle, { color: textColor }]}>Clients</Text>
                   </View>
-
-                  {/* Live Metrics Row */}
-                  <View style={styles.liveMetricsRow}>
-                    <View style={styles.liveMetric}>
-                      <MaterialIcons name="people" size={20} color={primaryColor} />
-                      <View style={styles.liveMetricContent}>
-                        <Body style={{...styles.liveMetricNumber, color: textColor}}>
-                          {liveMetrics.activeUsers}
-                        </Body>
-                        <Caption style={{...styles.liveMetricLabel, color: textSecondaryColor}}>
-                          Active Users
-                        </Caption>
-                      </View>
-                    </View>
-
-                    <View style={styles.liveMetric}>
-                      <MaterialIcons name="attach-money" size={20} color={successColor} />
-                      <View style={styles.liveMetricContent}>
-                        <Body style={{...styles.liveMetricNumber, color: textColor}}>
-                          {formatCurrency(liveMetrics.liveRevenue.totalToday)}
-                        </Body>
-                        <Caption style={{...styles.liveMetricLabel, color: textSecondaryColor}}>
-                          Today's Revenue
-                        </Caption>
-                      </View>
-                    </View>
-
-                    <View style={styles.liveMetric}>
-                      <MaterialIcons name="event" size={20} color={accentColor} />
-                      <View style={styles.liveMetricContent}>
-                        <Body style={{...styles.liveMetricNumber, color: textColor}}>
-                          {liveMetrics.classesToday}
-                        </Body>
-                        <Caption style={{...styles.liveMetricLabel, color: textSecondaryColor}}>
-                          Classes Today
-                        </Caption>
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* Class Capacity & Alerts */}
-                  <View style={styles.liveDetailsRow}>
-                    {/* Current Class Capacity */}
-                    {liveMetrics.currentClassCapacity && liveMetrics.currentClassCapacity.length > 0 && (
-                      <View style={styles.liveDetailSection}>
-                        <Caption style={{...styles.liveSectionTitle, color: textSecondaryColor}}>
-                          Class Capacity
-                        </Caption>
-                        {liveMetrics.currentClassCapacity.slice(0, 2).map((classInfo: any) => (
-                          <View key={classInfo.classId} style={styles.classCapacityItem}>
-                            <View style={styles.classInfo}>
-                              <Text style={{...styles.className, color: textColor}}>
-                                {classInfo.className}
-                              </Text>
-                              <Text style={{...styles.classDetails, color: textMutedColor}}>
-                                {classInfo.instructorName} • {classInfo.startTime}
-                              </Text>
-                            </View>
-                            <View style={styles.capacityDisplay}>
-                              <Text style={{...styles.capacityText, color: textSecondaryColor}}>
-                                {classInfo.currentCapacity}/{classInfo.maxCapacity}
-                              </Text>
-                              <ProgressBar
-                                progress={
-                                  classInfo.maxCapacity > 0
-                                    ? classInfo.currentCapacity / classInfo.maxCapacity
-                                    : 0
-                                }
-                                color={
-                                  classInfo.currentCapacity >= classInfo.maxCapacity
-                                    ? errorColor
-                                    : classInfo.currentCapacity / classInfo.maxCapacity > 0.8
-                                    ? warningColor
-                                    : successColor
-                                }
-                                style={styles.capacityBar}
-                              />
-                            </View>
-                          </View>
-                        ))}
-                      </View>
-                    )}
-
-                    {/* System Alerts */}
-                    {liveMetrics.systemAlerts && liveMetrics.systemAlerts.length > 0 && (
-                      <View style={styles.liveDetailSection}>
-                        <Caption style={{...styles.liveSectionTitle, color: textSecondaryColor}}>
-                          Alerts
-                        </Caption>
-                        {liveMetrics.systemAlerts.slice(0, 2).map((alert: any) => (
-                          <View key={alert.id} style={styles.alertItem}>
-                            <MaterialIcons
-                              name={alert.type === 'error' ? 'error' : alert.type === 'warning' ? 'warning' : 'info'}
-                              size={16}
-                              color={alert.type === 'error' ? errorColor : alert.type === 'warning' ? warningColor : primaryColor}
-                            />
-                            <Text style={{...styles.alertMessage, color: textColor}} numberOfLines={2}>
-                              {alert.message}
-                            </Text>
-                          </View>
-                        ))}
-                      </View>
-                    )}
-                  </View>
+                  <Text style={[styles.metricValue, { color: textColor }]}>
+                    {dashboardStats.overview?.totalClients || 0}
+                  </Text>
+                  <Text style={[styles.metricSubtext, { color: textSecondaryColor }]}>
+                    {dashboardStats.overview?.activeClients || 0} active • +{dashboardStats.clients?.newClientsThisMonth || 0} this month
+                  </Text>
+                  <TouchableOpacity 
+                    style={styles.metricButton}
+                    onPress={() => handleNavigation('Users')}
+                  >
+                    <Text style={[styles.metricButtonText, { color: primaryColor }]}>View All →</Text>
+                  </TouchableOpacity>
                 </PaperCard.Content>
               </PaperCard>
-            )}
 
-            {/* Financial Analytics Section */}
-            <PaperCard style={[styles.analyticsCard, { backgroundColor: surfaceColor }]}>
-              <PaperCard.Content>
-                <View style={styles.cardHeader}>
-                  <H3 style={{...styles.cardTitle, color: textColor}}>Financial Analytics</H3>
-                  <TouchableOpacity onPress={() => handleStatCardPress('revenue')}>
-                    <Caption style={{...styles.viewMoreButton, color: primaryColor}}>View Details →</Caption>
+              <PaperCard style={[styles.metricCard, { backgroundColor: surfaceColor }]}>
+                <PaperCard.Content>
+                  <View style={styles.metricHeader}>
+                    <MaterialIcons name="trending-up" size={24} color={successColor} />
+                    <Text style={[styles.metricTitle, { color: textColor }]}>Revenue</Text>
+                  </View>
+                  <Text style={[styles.metricValue, { color: textColor }]}>
+                    {formatCurrency(dashboardStats.financial?.revenueThisMonth || 0)}
+                  </Text>
+                  <Text style={[styles.metricSubtext, { color: textSecondaryColor }]}>
+                    This month • {(dashboardStats.financial?.monthlyGrowth || 0) > 0 ? '+' : ''}{dashboardStats.financial?.monthlyGrowth || 0}% growth
+                  </Text>
+                  <TouchableOpacity 
+                    style={styles.metricButton}
+                    onPress={() => handleNavigation('Reports')}
+                  >
+                    <Text style={[styles.metricButtonText, { color: successColor }]}>View Reports →</Text>
                   </TouchableOpacity>
-                </View>
+                </PaperCard.Content>
+              </PaperCard>
+
+              <PaperCard style={[styles.metricCard, { backgroundColor: surfaceColor }]}>
+                <PaperCard.Content>
+                  <View style={styles.metricHeader}>
+                    <MaterialIcons name="event" size={24} color={warningColor} />
+                    <Text style={[styles.metricTitle, { color: textColor }]}>Classes</Text>
+                  </View>
+                  <Text style={[styles.metricValue, { color: textColor }]}>
+                    {dashboardStats.overview?.classesThisWeek || 0}
+                  </Text>
+                  <Text style={[styles.metricSubtext, { color: textSecondaryColor }]}>
+                    This week • {dashboardStats.classes?.averageAttendance || 0}% avg attendance
+                  </Text>
+                  <TouchableOpacity 
+                    style={styles.metricButton}
+                    onPress={() => handleNavigation('Classes')}
+                  >
+                    <Text style={[styles.metricButtonText, { color: warningColor }]}>Manage →</Text>
+                  </TouchableOpacity>
+                </PaperCard.Content>
+              </PaperCard>
+            </View>
+
+            {/* Quick Actions */}
+            <PaperCard style={[styles.actionsCard, { backgroundColor: surfaceColor }]}>
+              <PaperCard.Content>
+                <Text style={[styles.sectionTitle, { color: textColor }]}>⚡ Quick Actions</Text>
                 
-                <View style={styles.financialGrid}>
-                  <View style={styles.financialMetric}>
-                    <Body style={{...styles.financialAmount, color: textColor}}>
-                      {formatCurrency(dashboardStats.financial.totalRevenue)}
-                    </Body>
-                    <Caption style={{...styles.financialLabel, color: textSecondaryColor}}>Total Revenue</Caption>
-                  </View>
-                  <View style={styles.financialMetric}>
-                    <Body style={{...styles.financialAmount, color: textColor}}>
-                      {formatCurrency(dashboardStats.financial.averageMonthlyRevenue)}
-                    </Body>
-                    <Caption style={{...styles.financialLabel, color: textSecondaryColor}}>Avg. Monthly</Caption>
-                  </View>
-                  <View style={styles.financialMetric}>
-                    <Body style={{...styles.financialAmount, color: textColor}}>
-                      {dashboardStats.financial.oneTimePayments}
-                    </Body>
-                    <Caption style={{...styles.financialLabel, color: textSecondaryColor}}>One-time Payments</Caption>
-                  </View>
-                </View>
+                <View style={styles.actionsGrid}>
+                  <TouchableOpacity 
+                    style={[styles.actionItem, { backgroundColor: primaryColor + '10' }]}
+                    onPress={() => handleNavigation('Users', { action: 'add' })}
+                  >
+                    <MaterialIcons name="person-add" size={32} color={primaryColor} />
+                    <Text style={[styles.actionText, { color: primaryColor }]}>Add New Client</Text>
+                  </TouchableOpacity>
 
-                {/* Top Plans */}
-                <View style={styles.topPlansSection}>
-                  <Caption style={{...styles.sectionSubheading, color: textSecondaryColor}}>Top Subscription Plans</Caption>
-                  {dashboardStats.financial.topPlans.slice(0, 3).map((plan, index) => (
-                    <View key={index} style={styles.planItem}>
-                      <View style={styles.planInfo}>
-                        <Body style={{...styles.planName, color: textColor}}>{plan.planName}</Body>
-                        <Caption style={{...styles.planStats, color: textMutedColor}}>
-                          {plan.count} subscribers • {formatCurrency(plan.revenue)} revenue
-                        </Caption>
-                      </View>
-                      <Chip 
-                        style={[styles.planChip, { backgroundColor: primaryColor + '20' }]}
-                        textStyle={{...styles.planChipText, color: primaryColor}}
-                      >
-                        #{index + 1}
-                      </Chip>
-                    </View>
-                  ))}
-                </View>
-              </PaperCard.Content>
-            </PaperCard>
+                  <TouchableOpacity 
+                    style={[styles.actionItem, { backgroundColor: successColor + '10' }]}
+                    onPress={() => handleNavigation('Classes', { action: 'add' })}
+                  >
+                    <MaterialIcons name="add-circle" size={32} color={successColor} />
+                    <Text style={[styles.actionText, { color: successColor }]}>Create Class</Text>
+                  </TouchableOpacity>
 
-            {/* Class Analytics Section */}
-            <PaperCard style={[styles.analyticsCard, { backgroundColor: surfaceColor }]}>
-              <PaperCard.Content>
-                <View style={styles.cardHeader}>
-                  <H3 style={{...styles.cardTitle, color: textColor}}>Class Analytics</H3>
-                  <TouchableOpacity onPress={() => handleStatCardPress('classes')}>
-                    <Caption style={{...styles.viewMoreButton, color: primaryColor}}>Manage Classes →</Caption>
+                  <TouchableOpacity 
+                    style={[styles.actionItem, { backgroundColor: warningColor + '10' }]}
+                    onPress={() => handleNavigation('Reports')}
+                  >
+                    <MaterialIcons name="analytics" size={32} color={warningColor} />
+                    <Text style={[styles.actionText, { color: warningColor }]}>View Analytics</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    style={[styles.actionItem, { backgroundColor: errorColor + '10' }]}
+                    onPress={() => handleNavigation('Plans')}
+                  >
+                    <MaterialIcons name="card-membership" size={32} color={errorColor} />
+                    <Text style={[styles.actionText, { color: errorColor }]}>Manage Plans</Text>
                   </TouchableOpacity>
                 </View>
-
-                <View style={styles.classStatsGrid}>
-                  <View style={styles.classStatItem}>
-                    <MaterialIcons name="trending-up" size={20} color={successColor} />
-                    <Body style={{...styles.classStatNumber, color: textColor}}>
-                      {dashboardStats.classes.averageAttendance}%
-                    </Body>
-                    <Caption style={{...styles.classStatLabel, color: textSecondaryColor}}>Average Attendance</Caption>
-                  </View>
-                  <View style={styles.classStatItem}>
-                    <MaterialIcons name="star" size={20} color={warningColor} />
-                    <Body style={{...styles.classStatNumber, color: textColor}}>
-                      {dashboardStats.classes.mostPopularClass}
-                    </Body>
-                    <Caption style={{...styles.classStatLabel, color: textSecondaryColor}}>Most Popular</Caption>
-                  </View>
-                  <View style={styles.classStatItem}>
-                    <MaterialIcons name="fitness-center" size={20} color={accentColor} />
-                    <Body style={{...styles.classStatNumber, color: textColor}}>
-                      {dashboardStats.classes.equipmentUsage.reformer}
-                    </Body>
-                    <Caption style={{...styles.classStatLabel, color: textSecondaryColor}}>Reformer Classes</Caption>
-                  </View>
-                </View>
-
-                {/* Instructor Performance */}
-                <View style={styles.instructorSection}>
-                  <Caption style={{...styles.sectionSubheading, color: textSecondaryColor}}>Instructor Performance</Caption>
-                  {dashboardStats.classes.instructorStats.slice(0, 3).map((instructor, index) => (
-                    <View key={index} style={styles.instructorItem}>
-                      <View style={styles.instructorInfo}>
-                        <Body style={{...styles.instructorName, color: textColor}}>{instructor.instructorName}</Body>
-                        <Caption style={{...styles.instructorStats, color: textMutedColor}}>
-                          {instructor.totalClasses} classes • {instructor.averageAttendance}% attendance
-                        </Caption>
-                      </View>
-                      <View style={styles.instructorRating}>
-                        <MaterialIcons name="star" size={16} color={warningColor} />
-                        <Caption style={{...styles.ratingText, color: textColor}}>{instructor.rating}</Caption>
-                      </View>
-                    </View>
-                  ))}
-                </View>
               </PaperCard.Content>
             </PaperCard>
 
-            {/* Client Analytics Section */}
-            <PaperCard style={[styles.analyticsCard, { backgroundColor: surfaceColor }]}>
+            {/* Enhanced Recent Activity */}
+            <PaperCard style={[styles.activityCard, { backgroundColor: surfaceColor }]}>
               <PaperCard.Content>
-                <View style={styles.cardHeader}>
-                  <H3 style={{...styles.cardTitle, color: textColor}}>Client Analytics</H3>
-                  <TouchableOpacity onPress={() => handleStatCardPress('clients')}>
-                    <Caption style={{...styles.viewMoreButton, color: primaryColor}}>Manage Clients →</Caption>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.clientStatsGrid}>
-                  <View style={styles.clientStatItem}>
-                    <MaterialIcons name="person-add" size={20} color={successColor} />
-                    <Body style={{...styles.clientStatNumber, color: textColor}}>
-                      +{dashboardStats.clients.newClientsThisMonth}
-                    </Body>
-                    <Caption style={{...styles.clientStatLabel, color: textSecondaryColor}}>New This Month</Caption>
-                  </View>
-                  <View style={styles.clientStatItem}>
-                    <MaterialIcons name="loyalty" size={20} color={primaryColor} />
-                    <Body style={{...styles.clientStatNumber, color: textColor}}>
-                      {dashboardStats.clients.clientRetentionRate}%
-                    </Body>
-                    <Caption style={{...styles.clientStatLabel, color: textSecondaryColor}}>Retention Rate</Caption>
-                  </View>
-                  <View style={styles.clientStatItem}>
-                    <MaterialIcons name="fitness-center" size={20} color={accentColor} />
-                    <Body style={{...styles.clientStatNumber, color: textColor}}>
-                      {dashboardStats.clients.averageClassesPerClient}
-                    </Body>
-                    <Caption style={{...styles.clientStatLabel, color: textSecondaryColor}}>Avg. Classes/Client</Caption>
-                  </View>
-                </View>
-
-                {/* Subscription Status Breakdown */}
-                <View style={styles.subscriptionBreakdown}>
-                  <Caption style={{...styles.sectionSubheading, color: textSecondaryColor}}>Subscription Status</Caption>
-                  <View style={styles.subscriptionStats}>
-                    <View style={styles.subscriptionStat}>
-                      <View style={[styles.statusDot, { backgroundColor: successColor }]} />
-                      <Caption style={{...styles.statusText, color: textColor}}>
-                        Active: {dashboardStats.clients.subscriptionStatus.active}
-                      </Caption>
-                    </View>
-                    <View style={styles.subscriptionStat}>
-                      <View style={[styles.statusDot, { backgroundColor: warningColor }]} />
-                      <Caption style={{...styles.statusText, color: textColor}}>
-                        Expired: {dashboardStats.clients.subscriptionStatus.expired}
-                      </Caption>
-                    </View>
-                    <View style={styles.subscriptionStat}>
-                      <View style={[styles.statusDot, { backgroundColor: errorColor }]} />
-                      <Caption style={{...styles.statusText, color: textColor}}>
-                        Cancelled: {dashboardStats.clients.subscriptionStatus.cancelled}
-                      </Caption>
-                    </View>
-                  </View>
-                </View>
-              </PaperCard.Content>
-            </PaperCard>
-
-            {/* Quick Actions Grid */}
-            <View style={styles.quickActionsGrid}>
-              {quickActions.map(action => (
-                <TouchableOpacity 
-                  key={action.id}
-                  style={[styles.quickActionCard, { backgroundColor: surfaceColor }]}
-                  onPress={() => handleQuickAction(action)}
-                >
-                  <View style={[styles.quickActionIcon, { backgroundColor: action.color + '20' }]}>
-                    <MaterialIcons name={action.icon as any} size={24} color={action.color} />
-                  </View>
-                  <H3 style={{...styles.quickActionTitle, color: textColor}}>{action.title}</H3>
-                  <Caption style={{...styles.quickActionDescription, color: textSecondaryColor}}>
-                    {action.description}
-                  </Caption>
-                  {action.count !== undefined && (
-                    <View style={styles.quickActionCount}>
-                      <Chip 
-                        style={[styles.countChip, { backgroundColor: action.color + '20' }]}
-                        textStyle={{...styles.countChipText, color: action.color}}
-                      >
-                        {typeof action.count === 'number' && action.id === 'view_revenue' ? 
-                          formatCurrency(action.count) : action.count}
-                      </Chip>
+                <View style={styles.activityHeader}>
+                  <Text style={[styles.sectionTitle, { color: textColor }]}>📊 Recent Activity</Text>
+                  
+                  {/* Enhanced Stats Row */}
+                  {activityStats && (
+                    <View style={styles.activityStatsRow}>
+                      <View style={styles.activityStat}>
+                        <Text style={[styles.activityStatNumber, { color: primaryColor }]}>
+                          {activityStats.todayActivities}
+                        </Text>
+                        <Text style={[styles.activityStatLabel, { color: textSecondaryColor }]}>Today</Text>
+                      </View>
+                      <View style={styles.activityStat}>
+                        <Text style={[styles.activityStatNumber, { color: successColor }]}>
+                          {activityStats.weekActivities}
+                        </Text>
+                        <Text style={[styles.activityStatLabel, { color: textSecondaryColor }]}>This Week</Text>
+                      </View>
+                      <View style={styles.activityStat}>
+                        <Text style={[styles.activityStatNumber, { color: warningColor }]}>
+                          {activityStats.topStaffMember.name}
+                        </Text>
+                        <Text style={[styles.activityStatLabel, { color: textSecondaryColor }]}>Top Performer</Text>
+                      </View>
+                      <View style={styles.activityStat}>
+                        <Text style={[styles.activityStatNumber, { color: '#2196F3' }]}>
+                          {filteredActivities.length}
+                        </Text>
+                        <Text style={[styles.activityStatLabel, { color: textSecondaryColor }]}>Showing</Text>
+                      </View>
                     </View>
                   )}
-                </TouchableOpacity>
-              ))}
-            </View>
+
+                  {/* Search and Filters */}
+                  <View style={styles.activityControls}>
+                    <View style={styles.activitySearchContainer}>
+                      <MaterialIcons name="search" size={20} color={textMutedColor} />
+                      <TextInput
+                        style={[styles.activitySearchInput, { 
+                          color: textColor,
+                          backgroundColor: 'transparent',
+                          borderWidth: 1,
+                          borderColor: textMutedColor + '40',
+                          borderRadius: 8,
+                          paddingHorizontal: 12,
+                          paddingVertical: 8,
+                          marginLeft: 8,
+                          fontSize: 14,
+                          flex: 1
+                        }]}
+                        placeholder="Search activities, staff, or clients..."
+                        placeholderTextColor={textMutedColor}
+                        value={activitySearchQuery}
+                        onChangeText={setActivitySearchQuery}
+                      />
+                    </View>
+                    
+                    <View style={styles.activityFilters}>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScrollView}>
+                        {[
+                          { key: 'all', label: 'All', icon: 'list' },
+                          { key: 'today', label: 'Today', icon: 'today' },
+                          { key: 'week', label: 'This Week', icon: 'date-range' },
+                          { key: 'reception', label: 'Reception', icon: 'people' },
+                          { key: 'instructor', label: 'Instructors', icon: 'school' },
+                          { key: 'admin', label: 'Admin', icon: 'admin-panel-settings' }
+                        ].map((filter) => (
+                          <TouchableOpacity
+                            key={filter.key}
+                            style={[
+                              styles.filterChip,
+                              {
+                                backgroundColor: activityFilter === filter.key ? primaryColor : 'transparent',
+                                borderColor: activityFilter === filter.key ? primaryColor : textMutedColor + '40',
+                                borderWidth: 1
+                              }
+                            ]}
+                            onPress={() => setActivityFilter(filter.key)}
+                          >
+                            <MaterialIcons 
+                              name={filter.icon as any} 
+                              size={16} 
+                              color={activityFilter === filter.key ? 'white' : textMutedColor} 
+                            />
+                            <Text style={[
+                              styles.filterChipText,
+                              { color: activityFilter === filter.key ? 'white' : textColor }
+                            ]}>
+                              {filter.label}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                      
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.filterScrollView, { marginTop: 8 }]}>
+                        {[
+                          { key: 'all', label: 'All Types', icon: 'category' },
+                          { key: 'subscription', label: 'Subscriptions', icon: 'card-membership' },
+                          { key: 'class', label: 'Classes', icon: 'event' },
+                          { key: 'user', label: 'Users', icon: 'person' }
+                        ].map((filter) => (
+                          <TouchableOpacity
+                            key={filter.key}
+                            style={[
+                              styles.filterChip,
+                              {
+                                backgroundColor: activityTypeFilter === filter.key ? successColor : 'transparent',
+                                borderColor: activityTypeFilter === filter.key ? successColor : textMutedColor + '40',
+                                borderWidth: 1
+                              }
+                            ]}
+                            onPress={() => setActivityTypeFilter(filter.key)}
+                          >
+                            <MaterialIcons 
+                              name={filter.icon as any} 
+                              size={16} 
+                              color={activityTypeFilter === filter.key ? 'white' : textMutedColor} 
+                            />
+                            <Text style={[
+                              styles.filterChipText,
+                              { color: activityTypeFilter === filter.key ? 'white' : textColor }
+                            ]}>
+                              {filter.label}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  </View>
+                </View>
+                
+                {activitiesLoading ? (
+                  <View style={styles.activityLoadingContainer}>
+                    <Text style={[styles.activityLoadingText, { color: textSecondaryColor }]}>Loading activities...</Text>
+                  </View>
+                ) : filteredActivities.length > 0 ? (
+                  <View style={styles.activitiesList}>
+                    {(() => {
+                      const groupedActivities = groupActivitiesByTime(filteredActivities);
+                      const groups = [
+                        { key: 'today', label: '📅 Today', activities: groupedActivities.today },
+                        { key: 'yesterday', label: '📆 Yesterday', activities: groupedActivities.yesterday },
+                        { key: 'thisWeek', label: '📊 This Week', activities: groupedActivities.thisWeek },
+                        { key: 'older', label: '📋 Older', activities: groupedActivities.older }
+                      ].filter(group => group.activities.length > 0);
+
+                      return groups.map((group) => (
+                        <View key={group.key} style={styles.activityTimeGroup}>
+                          <TouchableOpacity 
+                            style={styles.activityTimeGroupHeader}
+                            onPress={() => toggleTimeGroup(group.key)}
+                          >
+                            <Text style={[styles.activityTimeGroupLabel, { color: textColor }]}>
+                              {group.label} ({group.activities.length})
+                            </Text>
+                            <MaterialIcons 
+                              name={expandedTimeGroups.has(group.key) ? 'expand-less' : 'expand-more'} 
+                              size={24} 
+                              color={textMutedColor} 
+                            />
+                          </TouchableOpacity>
+                          
+                          {expandedTimeGroups.has(group.key) && (
+                            <View style={styles.activityTimeGroupContent}>
+                              {group.activities.map((activity, index) => (
+                                <TouchableOpacity 
+                                  key={`${group.key}-activity-${index}`} 
+                                  style={styles.activityItem}
+                                  onPress={() => handleActivityClick(activity)}
+                                  activeOpacity={0.7}
+                                >
+                                  <View style={[styles.activityIconContainer, { 
+                                    backgroundColor: getActivityCategoryColor(activity.activity_type) + '20' 
+                                  }]}>
+                                    <MaterialIcons 
+                                      name={getActivityCategoryIcon(activity.activity_type) as any} 
+                                      size={18} 
+                                      color={getActivityCategoryColor(activity.activity_type)} 
+                                    />
+                                  </View>
+                                  <View style={styles.activityContent}>
+                                    <View style={styles.activityMainInfo}>
+                                      <Text style={[styles.activityDescription, { color: textColor }]}>
+                                        {activity.activity_description}
+                                      </Text>
+                                      <Text style={[styles.activityTime, { color: textMutedColor }]}>
+                                        {formatActivityTime(activity.created_at || '')}
+                                      </Text>
+                                    </View>
+                                    <View style={styles.activityMetaInfo}>
+                                      <View style={styles.activityStaffInfo}>
+                                        <Text style={[styles.activityStaffName, { color: textSecondaryColor }]}>
+                                          {activity.staff_name}
+                                        </Text>
+                                        <View style={[styles.activityRoleBadge, { 
+                                          backgroundColor: activity.staff_role === 'reception' ? primaryColor + '20' : 
+                                                         activity.staff_role === 'instructor' ? successColor + '20' : 
+                                                         warningColor + '20' 
+                                        }]}>
+                                          <Text style={[styles.activityRoleText, { 
+                                            color: activity.staff_role === 'reception' ? primaryColor : 
+                                                   activity.staff_role === 'instructor' ? successColor : 
+                                                   warningColor 
+                                          }]}>
+                                            {activity.staff_role}
+                                          </Text>
+                                        </View>
+                                      </View>
+                                      {activity.client_name && (
+                                        <Text style={[styles.activityClientName, { color: textSecondaryColor }]}>
+                                          Client: {activity.client_name}
+                                        </Text>
+                                      )}
+                                    </View>
+                                  </View>
+                                  <View style={styles.activityClickIndicator}>
+                                    <MaterialIcons name="chevron-right" size={20} color={textMutedColor} />
+                                  </View>
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          )}
+                        </View>
+                      ));
+                    })()}
+                  </View>
+                ) : (
+                  <View style={styles.noActivitiesContainer}>
+                    <MaterialIcons name="history" size={48} color={textMutedColor} />
+                    <Text style={[styles.noActivitiesText, { color: textMutedColor }]}>No recent activities</Text>
+                    <Text style={[styles.noActivitiesSubtext, { color: textMutedColor }]}>
+                      Staff actions will appear here as they perform tasks
+                    </Text>
+                  </View>
+                )}
+              </PaperCard.Content>
+            </PaperCard>
+
           </>
         ) : (
           <View style={styles.errorContainer}>
-            <MaterialIcons name="error-outline" size={48} color={errorColor} />
-            <Text style={[styles.errorText, { color: errorColor }]}>
-              Failed to load dashboard data
-            </Text>
-            <PaperButton mode="outlined" onPress={() => loadDashboardData()}>
-              Retry
-            </PaperButton>
+            <Text style={[styles.errorText, { color: errorColor }]}>Failed to load dashboard data</Text>
           </View>
         )}
       </ScrollView>
+
+      {/* Activity Details Modal */}
+      {renderActivityDetails()}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // Main Container
   container: {
     flex: 1,
   },
-  
-  // Header Styles
-  header: {
-    padding: spacing.lg,
-    paddingTop: 60,
-    borderBottomWidth: 1,
-  },
-  headerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: spacing.md,
-  },
-  headerInfo: {
-    flex: 1,
-  },
-  headerTitle: {
-    marginBottom: spacing.xs,
-  },
-  headerSubtitle: {
-    marginBottom: spacing.sm,
-  },
-  dateFilters: {
-    minWidth: 280,
-  },
-  segmentedButtons: {
-    backgroundColor: 'transparent',
-  },
-  alertBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.sm,
-    borderRadius: 8,
-    marginTop: spacing.sm,
-  },
-  alertText: {
-    flex: 1,
-    marginLeft: spacing.sm,
-  },
-  alertAction: {
-    fontWeight: '600',
-  },
-
-  // Content Styles
   content: {
     flex: 1,
     padding: spacing.lg,
   },
-  
-  // Loading and Error States
+
+  // Mobile Warning
+  mobileContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  mobileWarning: {
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+
+  // Header
+  header: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  studioName: {
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  todayText: {
+    fontSize: 14,
+    marginTop: 4,
+  },
+  refreshButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 8,
+  },
+  refreshText: {
+    color: 'white',
+    marginLeft: spacing.xs,
+    fontWeight: '600',
+  },
+
+  // Loading & Error
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -931,7 +1065,6 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 16,
-    fontWeight: '500',
   },
   errorContainer: {
     flex: 1,
@@ -941,449 +1074,347 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 16,
-    fontWeight: '500',
-    marginVertical: spacing.md,
-    textAlign: 'center',
   },
 
-  // KPI Grid
-  kpiGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  kpiCard: {
-    flex: 1,
-    minWidth: 250,
-    padding: spacing.lg,
-    borderRadius: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-  },
-  kpiHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  // Section Title
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
     marginBottom: spacing.md,
   },
-  kpiTrend: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  kpiTrendText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  kpiNumber: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: spacing.xs,
-  },
-  kpiLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  kpiSubLabel: {
-    fontSize: 12,
-  },
 
-  // Analytics Cards
-  analyticsCard: {
+  // Today's Overview
+  todayCard: {
     marginBottom: spacing.lg,
     borderRadius: 12,
     elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
   },
-  cardHeader: {
+  todayGrid: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  viewMoreButton: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-
-  // Financial Analytics
-  financialGrid: {
-    flexDirection: 'row',
-    gap: spacing.lg,
-    marginBottom: spacing.lg,
-  },
-  financialMetric: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  financialAmount: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: spacing.xs,
-  },
-  financialLabel: {
-    fontSize: 12,
-    textAlign: 'center',
-  },
-  
-  // Top Plans
-  topPlansSection: {
-    marginTop: spacing.md,
-  },
-  sectionSubheading: {
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    marginBottom: spacing.sm,
-  },
-  planItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  planInfo: {
-    flex: 1,
-  },
-  planName: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  planStats: {
-    fontSize: 12,
-  },
-  planChip: {
-    height: 24,
-  },
-  planChipText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-
-  // Class Analytics
-  classStatsGrid: {
-    flexDirection: 'row',
-    gap: spacing.lg,
-    marginBottom: spacing.lg,
-  },
-  classStatItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  classStatNumber: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginVertical: spacing.xs,
-  },
-  classStatLabel: {
-    fontSize: 12,
-    textAlign: 'center',
-  },
-
-  // Instructor Section
-  instructorSection: {
-    marginTop: spacing.md,
-  },
-  instructorItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  instructorInfo: {
-    flex: 1,
-  },
-  instructorName: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  instructorStats: {
-    fontSize: 12,
-  },
-  instructorRating: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  ratingText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-
-  // Client Analytics
-  clientStatsGrid: {
-    flexDirection: 'row',
-    gap: spacing.lg,
-    marginBottom: spacing.lg,
-  },
-  clientStatItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  clientStatNumber: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginVertical: spacing.xs,
-  },
-  clientStatLabel: {
-    fontSize: 12,
-    textAlign: 'center',
-  },
-
-  // Subscription Breakdown
-  subscriptionBreakdown: {
-    marginTop: spacing.md,
-  },
-  subscriptionStats: {
-    flexDirection: 'row',
-    gap: spacing.lg,
-  },
-  subscriptionStat: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-
-  // Quick Actions Grid
-  quickActionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: spacing.md,
-    marginTop: spacing.md,
   },
-  quickActionCard: {
+  todayItem: {
     flex: 1,
-    minWidth: 200,
-    padding: spacing.lg,
-    borderRadius: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    alignItems: 'center',
-  },
-  quickActionIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  quickActionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: spacing.xs,
-  },
-  quickActionDescription: {
-    fontSize: 12,
-    textAlign: 'center',
-    marginBottom: spacing.sm,
-  },
-  quickActionCount: {
-    marginTop: spacing.xs,
-  },
-  countChip: {
-    height: 24,
-  },
-  countChipText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-
-  // Mobile Layout Styles
-  mobileContainer: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  mobileWarning: {
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
-    padding: spacing.lg,
-    backgroundColor: '#fff3cd',
-    color: '#856404',
-    margin: spacing.md,
-    borderRadius: 8,
-  },
-  mobileContent: {
-    flex: 1,
-    padding: spacing.md,
-  },
-  mobileCard: {
-    marginBottom: spacing.md,
-    borderRadius: 8,
-    elevation: 2,
-  },
-  mobileMetricsGrid: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  mobileMetricItem: {
-    flex: 1,
-    minWidth: '45%',
     alignItems: 'center',
     padding: spacing.md,
-    borderRadius: 8,
-    elevation: 1,
-  },
-  mobileMetricNumber: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginVertical: spacing.xs,
-  },
-  mobileMetricLabel: {
-    fontSize: 12,
-    textAlign: 'center',
-  },
-  mobileActionButtons: {
-    gap: spacing.sm,
-  },
-  mobilePrimaryAction: {
-    marginBottom: spacing.xs,
-    borderRadius: 8,
-  },
-  mobileSecondaryAction: {
-    marginBottom: spacing.xs,
-    borderRadius: 8,
-  },
-  mobileActionLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-
-  // Live Dashboard Styles
-  liveHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  liveIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: spacing.sm,
-  },
-  liveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: spacing.xs,
-  },
-  liveText: {
-    fontSize: 11,
-  },
-  liveMetricsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  liveMetric: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.sm,
     backgroundColor: '#f8fafc',
     borderRadius: 8,
-    marginHorizontal: spacing.xs,
+    borderLeftWidth: 4,
   },
-  liveMetricContent: {
+  todayItemContent: {
     marginLeft: spacing.sm,
     flex: 1,
   },
-  liveMetricNumber: {
+  todayNumber: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  todayLabel: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+
+  // Metrics Row
+  metricsRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  metricCard: {
+    flex: 1,
+    borderRadius: 12,
+    elevation: 2,
+  },
+  metricHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  metricTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: spacing.sm,
+  },
+  metricValue: {
+    fontSize: 28,
+    fontWeight: '700',
+    marginBottom: spacing.xs,
+  },
+  metricSubtext: {
+    fontSize: 13,
+    marginBottom: spacing.md,
+  },
+  metricButton: {
+    alignSelf: 'flex-start',
+  },
+  metricButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
+  // Quick Actions
+  actionsCard: {
+    marginBottom: spacing.lg,
+    borderRadius: 12,
+    elevation: 2,
+  },
+  actionsGrid: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  actionItem: {
+    flex: 1,
+    alignItems: 'center',
+    padding: spacing.lg,
+    borderRadius: 8,
+  },
+  actionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: spacing.sm,
+    textAlign: 'center',
+  },
+
+  // Recent Activity Styles
+  activityCard: {
+    marginBottom: spacing.lg,
+    borderRadius: 12,
+    elevation: 2,
+  },
+  activityHeader: {
+    marginBottom: spacing.md,
+  },
+  activityStatsRow: {
+    flexDirection: 'row',
+    gap: spacing.lg,
+    marginTop: spacing.sm,
+  },
+  activityStat: {
+    alignItems: 'center',
+  },
+  activityStatNumber: {
     fontSize: 18,
     fontWeight: '700',
   },
-  liveMetricLabel: {
+  activityStatLabel: {
     fontSize: 12,
+    marginTop: 2,
   },
-  liveDetailsRow: {
+  activityLoadingContainer: {
+    padding: spacing.lg,
+    alignItems: 'center',
+  },
+  activityLoadingText: {
+    fontSize: 14,
+  },
+  activitiesList: {
+    gap: spacing.sm,
+  },
+  activityItem: {
     flexDirection: 'row',
-    gap: spacing.lg,
+    alignItems: 'flex-start',
+    padding: spacing.md,
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#e0e0e0',
   },
-  liveDetailSection: {
+  activityIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.sm,
+  },
+  activityContent: {
     flex: 1,
   },
-  liveSectionTitle: {
+  activityMainInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: spacing.xs,
+  },
+  activityDescription: {
+    fontSize: 14,
+    fontWeight: '500',
+    flex: 1,
+    marginRight: spacing.sm,
+  },
+  activityTime: {
     fontSize: 12,
+    fontWeight: '400',
+  },
+  activityMetaInfo: {
+    gap: spacing.xs,
+  },
+  activityStaffInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  activityStaffName: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  activityRoleBadge: {
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  activityRoleText: {
+    fontSize: 10,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  activityClientName: {
+    fontSize: 12,
+    fontStyle: 'italic',
+  },
+  noActivitiesContainer: {
+    alignItems: 'center',
+    padding: spacing.xl,
+  },
+  noActivitiesText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: spacing.sm,
+  },
+  noActivitiesSubtext: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: spacing.xs,
+  },
+
+  // Activity Details Modal Styles
+  activityModal: {
+    margin: isLargeScreen ? spacing.xl * 2 : spacing.lg,
+    maxHeight: isLargeScreen ? '85%' : '80%',
+    maxWidth: isLargeScreen ? 800 : '100%',
+    alignSelf: 'center',
+    borderRadius: 12,
+    padding: isLargeScreen ? spacing.xl : spacing.lg,
+    elevation: isLargeScreen ? 8 : 4,
+  },
+  activityModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  activityModalHeaderText: {
+    flex: 1,
+    marginLeft: spacing.sm,
+  },
+  activityModalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  activityModalSubtitle: {
+    fontSize: 14,
+  },
+  activityDetailSection: {
+    marginBottom: spacing.md,
+  },
+  activityDetailTitle: {
+    fontSize: 16,
     fontWeight: '600',
     marginBottom: spacing.sm,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
-  classCapacityItem: {
+  activityDetailItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  activityDetailLabel: {
+    fontSize: 14,
+    flex: 1,
+  },
+  activityDetailValue: {
+    fontSize: 14,
+    fontWeight: '500',
+    flex: 2,
+    textAlign: 'right',
+  },
+  impactSummary: {
+    padding: spacing.md,
+    borderRadius: 8,
+    marginTop: spacing.sm,
+  },
+  impactText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  activityModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: spacing.md,
+  },
+  activityClickIndicator: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingLeft: spacing.sm,
+  },
+
+  // Enhanced Activity Styles
+  activityControls: {
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+  },
+  activitySearchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.sm,
+  },
+  activitySearchInput: {
+    flex: 1,
+    height: 40,
+  },
+  activityFilters: {
+    marginTop: spacing.sm,
+  },
+  filterScrollView: {
+    paddingHorizontal: spacing.sm,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 8,
+    minHeight: 32,
+  },
+  filterChipText: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginLeft: 4,
+  },
+  activityTimeGroup: {
+    marginBottom: spacing.md,
+  },
+  activityTimeGroupHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    paddingHorizontal: spacing.md,
+    borderRadius: 8,
+    backgroundColor: '#f5f5f5',
+    marginBottom: spacing.xs,
   },
-  classInfo: {
-    flex: 1,
-  },
-  className: {
-    fontSize: 13,
+  activityTimeGroupLabel: {
+    fontSize: 16,
     fontWeight: '600',
-    marginBottom: 2,
   },
-  classDetails: {
-    fontSize: 11,
+  activityTimeGroupContent: {
+    paddingLeft: spacing.sm,
   },
-  capacityDisplay: {
-    alignItems: 'flex-end',
-  },
-  capacityText: {
-    fontSize: 11,
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  capacityBar: {
-    width: 60,
-    height: 4,
-    borderRadius: 2,
-  },
-  alertItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingVertical: spacing.xs,
-  },
-  alertMessage: {
-    fontSize: 12,
-    lineHeight: 16,
-    marginLeft: spacing.xs,
-    flex: 1,
-  },
+
 });
 
-export default AdminDashboard; 
+export default AdminDashboard;

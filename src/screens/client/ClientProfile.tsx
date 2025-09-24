@@ -2,13 +2,18 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Alert, Dimensions, Linking, RefreshControl, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { Avatar, Button, Card, Chip, Modal, Portal, ProgressBar, Surface } from 'react-native-paper';
 import { useSelector } from 'react-redux';
 import { Body, Caption, H1, H2 } from '../../../components/ui/Typography';
-import { Colors as AppColors } from '../../../constants/Colors';
-import { useThemeColor } from '../../../hooks/useThemeColor';
+import RainingHearts from '../../components/animations/RainingHearts';
+import LanguageSelector from '../../components/LanguageSelector';
+import { withChristmasDesign } from '../../components/withChristmasDesign';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useThemeColor } from '../../hooks/useDynamicThemeColor';
 import { notificationService } from '../../services/notificationService';
+import { subscriptionService } from '../../services/subscriptionService';
 import { RootState, useAppDispatch } from '../../store';
 import { logoutUser } from '../../store/authSlice';
 import { fetchCurrentSubscription } from '../../store/subscriptionSlice';
@@ -24,9 +29,11 @@ interface NotificationSettings {
 }
 
 function ClientProfile({ navigation }: any) {
+  const { t } = useTranslation();
   const { user } = useSelector((state: RootState) => state.auth);
   const { currentSubscription, isLoading } = useSelector((state: RootState) => state.subscriptions);
   const dispatch = useAppDispatch();
+  const { refreshTheme } = useTheme();
   
   // Get responsive dimensions for modal
   const modalDimensions = getResponsiveModalDimensions('small');
@@ -42,6 +49,17 @@ function ClientProfile({ navigation }: any) {
   const successColor = useThemeColor({}, 'success');
   const warningColor = useThemeColor({}, 'warning');
   const errorColor = useThemeColor({}, 'error');
+  
+  // Create dynamic styles with theme colors
+  const styles = createStyles({
+    background: backgroundColor,
+    surface: surfaceColor, 
+    text: textColor,
+    textSecondary: textSecondaryColor,
+    textOnAccent: textMutedColor,
+    primary: primaryColor,
+    accent: accentColor
+  });
   
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
     enableNotifications: true,
@@ -71,6 +89,11 @@ function ClientProfile({ navigation }: any) {
       
       // Always fetch the latest subscription data to catch any changes made by reception
       dispatch(fetchCurrentSubscription());
+      
+      // Trigger automatic subscription notification checks (runs max once per day)
+      subscriptionService.checkAndSendAutomaticNotifications().catch(error => {
+        console.error('Error in automatic notification check:', error);
+      });
     }, [dispatch])
   );
 
@@ -144,12 +167,12 @@ function ClientProfile({ navigation }: any) {
 
   const handleLogout = async () => {
     Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
+      t('alerts.logout'),
+      t('alerts.logoutConfirm'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Logout',
+          text: t('alerts.logout'),
           style: 'destructive',
           onPress: async () => {
             await dispatch(logoutUser());
@@ -165,7 +188,7 @@ function ClientProfile({ navigation }: any) {
     const whatsappUrl = `whatsapp://send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
     
     Linking.openURL(whatsappUrl).catch(() => {
-      Alert.alert('Error', 'WhatsApp is not installed or cannot be opened. Please contact us directly at +355689400040');
+      Alert.alert(t('alerts.error'), t('alerts.errorWhatsApp'));
     });
   };
 
@@ -178,12 +201,12 @@ function ClientProfile({ navigation }: any) {
         if (supported) {
           return Linking.openURL(phoneUrl);
         } else {
-          Alert.alert('Error', 'Phone calls are not supported on this device');
+          Alert.alert(t('alerts.error'), t('alerts.errorPhoneCall'));
         }
       })
       .catch((err) => {
         console.error('Error making phone call:', err);
-        Alert.alert('Error', 'Could not make phone call. Please dial +355689400040 manually');
+        Alert.alert(t('alerts.error'), t('alerts.errorPhoneCallManual'));
       });
   };
 
@@ -253,7 +276,7 @@ function ClientProfile({ navigation }: any) {
       
       if (!response.success) {
         console.error('Failed to save notification setting:', response.error);
-        Alert.alert('Error', 'Failed to save notification preference');
+        Alert.alert(t('alerts.error'), t('alerts.errorSaveSettings'));
         // Revert local state on error
         setNotificationSettings(prev => ({
           ...prev,
@@ -274,12 +297,15 @@ function ClientProfile({ navigation }: any) {
   }
 
   return (
-    <ScrollView 
-      style={[styles.container, { backgroundColor }]}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-      }
-    >
+    <View style={[styles.container, { backgroundColor }]}>
+      
+      <RainingHearts />
+      <ScrollView 
+        style={{ flex: 1 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
+      >
       {/* Header */}
       <View style={[styles.headerImproved, { backgroundColor: surfaceColor, borderBottomWidth: 1, borderBottomColor: textMutedColor }]}>
         <View style={styles.headerContent}>
@@ -310,7 +336,7 @@ function ClientProfile({ navigation }: any) {
               <View style={styles.sectionTitleRow}>
                 <MaterialIcons name="card-membership" size={24} color={primaryColor} style={styles.sectionIcon} />
                 <H2 style={{ ...styles.sectionTitle, color: textColor }}>
-                  {subscriptionData.isDayPass ? 'Current Day Pass' : 'Current Subscription'}
+                  {subscriptionData.isDayPass ? t('subscription.currentDayPass') : t('subscription.currentSubscription')}
                 </H2>
               </View>
             </View>
@@ -319,13 +345,13 @@ function ClientProfile({ navigation }: any) {
             <View style={styles.progressContainer}>
               <View style={styles.progressHeader}>
                 <Body style={{ ...styles.progressTitle, color: textColor }}>
-                  {subscriptionData.isDayPass ? 'Day Pass' : 
-                   subscriptionData.isUnlimited ? 'Unlimited Classes' : 'Class Usage'}
+                  {subscriptionData.isDayPass ? t('subscription.dayPass') : 
+                   subscriptionData.isUnlimited ? t('subscription.unlimitedClasses') : t('subscription.classUsage')}
                 </Body>
                 <Body style={{ ...styles.progressValue, color: getProgressColor(subscriptionData.remainingClasses, subscriptionData.monthlyClasses) }}>
                   {subscriptionData.isDayPass ? 
-                    (subscriptionData.remainingClasses > 0 ? 'Valid' : 'Used') :
-                    `${subscriptionData.remainingClasses} left`}
+                    (subscriptionData.remainingClasses > 0 ? t('subscription.valid') : t('subscription.used')) :
+                    `${subscriptionData.remainingClasses} ${t('subscription.left')}`}
                 </Body>
               </View>
               {!subscriptionData.isUnlimited && !subscriptionData.isDayPass && (
@@ -337,11 +363,11 @@ function ClientProfile({ navigation }: any) {
               )}
               <Caption style={{ ...styles.progressSubtitle, color: textSecondaryColor }}>
                 {subscriptionData.isDayPass ? 
-                  `Valid for ${subscriptionData.remainingClasses} class${subscriptionData.remainingClasses === 1 ? '' : 'es'}` :
-                 subscriptionData.isUnlimited ? 'Enjoy unlimited classes this month!' : 
+                  `${t('subscription.validFor')} ${subscriptionData.remainingClasses} ${subscriptionData.remainingClasses === 1 ? t('classes.class') : t('classes.classes')}` :
+                 subscriptionData.isUnlimited ? t('subscription.enjoyUnlimited') : 
                  subscriptionData.remainingClasses > subscriptionData.monthlyClasses ? 
-                   `${subscriptionData.remainingClasses} classes available (bonus credits added)` :
-                   `${getUsedClasses()} of ${subscriptionData.monthlyClasses} classes used`}
+                   `${subscriptionData.remainingClasses} ${t('subscription.classesAvailable')} (${t('subscription.bonusCredits')})` :
+                   `${getUsedClasses()} ${t('subscription.of')} ${subscriptionData.monthlyClasses} ${t('subscription.classesUsed')}`}
               </Caption>
             </View>
 
@@ -379,29 +405,29 @@ function ClientProfile({ navigation }: any) {
                   size={24} 
                   color={getEquipmentColor(subscriptionData.equipmentAccess)} 
                 />
-                <Caption style={{ ...styles.detailCardLabel, color: textSecondaryColor }}>Equipment</Caption>
+                <Caption style={{ ...styles.detailCardLabel, color: textSecondaryColor }}>{t('classes.equipment')}</Caption>
                 <Body style={{ ...styles.detailCardValue, color: textColor }}>
-                  {subscriptionData.equipmentAccess === 'both' ? 'Mat + Reformer' : 
-                   subscriptionData.equipmentAccess === 'mat' ? 'Mat Only' : 'Reformer Only'}
+                  {subscriptionData.equipmentAccess === 'both' ? t('classes.both') : 
+                   subscriptionData.equipmentAccess === 'mat' ? t('equipmentAccess.matOnly') : t('equipmentAccess.reformerOnly')}
                 </Body>
               </View>
               
               <View style={[styles.detailCard, { backgroundColor: surfaceColor }]}>
                 <MaterialIcons name="fitness-center" size={24} color={primaryColor} />
-                <Caption style={{ ...styles.detailCardLabel, color: textSecondaryColor }}>Classes</Caption>
+                <Caption style={{ ...styles.detailCardLabel, color: textSecondaryColor }}>{t('classes.classes')}</Caption>
                 <Body style={{ ...styles.detailCardValue, color: textColor }}>
                   {subscriptionData.isDayPass ? 
-                    `${subscriptionData.remainingClasses} Class${subscriptionData.remainingClasses === 1 ? '' : 'es'}` :
-                   subscriptionData.isUnlimited ? 'Unlimited' : 
-                   `${subscriptionData.monthlyClasses}/month`}
+                    `${subscriptionData.remainingClasses} ${subscriptionData.remainingClasses === 1 ? t('classes.class') : t('classes.classes')}` :
+                   subscriptionData.isUnlimited ? t('dashboard.unlimited') : 
+                   `${subscriptionData.monthlyClasses}/${t('subscription.month')}`}
                 </Body>
               </View>
               
               <View style={[styles.detailCard, { backgroundColor: surfaceColor }]}>
                 <MaterialIcons name="timeline" size={24} color={warningColor} />
-                <Caption style={{ ...styles.detailCardLabel, color: textSecondaryColor }}>Member for</Caption>
+                <Caption style={{ ...styles.detailCardLabel, color: textSecondaryColor }}>{t('subscription.memberFor')}</Caption>
                 <Body style={{ ...styles.detailCardValue, color: textColor }}>
-                  {subscriptionData.daysSinceStart} {subscriptionData.daysSinceStart === 1 ? 'day' : 'days'}
+                  {subscriptionData.daysSinceStart} {subscriptionData.daysSinceStart === 1 ? t('subscription.day') : t('subscription.days')}
                 </Body>
               </View>
               
@@ -412,14 +438,14 @@ function ClientProfile({ navigation }: any) {
                   color={subscriptionData.daysUntilEnd > (subscriptionData.isDayPass ? 0 : 7) ? successColor : warningColor} 
                 />
                 <Caption style={{ ...styles.detailCardLabel, color: textSecondaryColor }}>
-                  {subscriptionData.isDayPass ? 'Validity' : 'Time Left'}
+                  {subscriptionData.isDayPass ? t('subscription.validity') : t('subscription.timeLeft')}
                 </Caption>
                 <Body style={{ ...styles.detailCardValue, color: textColor }}>
                   {subscriptionData.isDayPass ? 
-                    (subscriptionData.daysUntilEnd < 0 ? 'Expired' : 
-                     subscriptionData.daysUntilEnd === 0 ? 'Today' : 
-                     `${subscriptionData.daysUntilEnd} ${subscriptionData.daysUntilEnd === 1 ? 'day' : 'days'}`) :
-                   (subscriptionData.daysUntilEnd <= 0 ? 'Expired' : `${subscriptionData.daysUntilEnd} ${subscriptionData.daysUntilEnd === 1 ? 'day' : 'days'}`)}
+                    (subscriptionData.daysUntilEnd < 0 ? t('subscription.expired') : 
+                     subscriptionData.daysUntilEnd === 0 ? t('subscription.today') : 
+                     `${subscriptionData.daysUntilEnd} ${subscriptionData.daysUntilEnd === 1 ? t('subscription.day') : t('subscription.days')}`) :
+                   (subscriptionData.daysUntilEnd <= 0 ? t('subscription.expired') : `${subscriptionData.daysUntilEnd} ${subscriptionData.daysUntilEnd === 1 ? t('subscription.day') : t('subscription.days')}`)}
                 </Body>
               </View>
             </View>
@@ -428,8 +454,8 @@ function ClientProfile({ navigation }: any) {
 
             <View style={styles.contactSection}>
               <Body style={{ ...styles.managedByReception, color: textSecondaryColor, textAlign: 'center' }}>
-                📋 Your subscription is managed by our reception team. 
-                {'\n'}For any changes or questions, please contact us:
+                📋 {t('profile.managedByReception')} 
+                {'\n'}{t('profile.contactForChanges')}
               </Body>
               
               <View style={styles.contactButtons}>
@@ -449,7 +475,7 @@ function ClientProfile({ navigation }: any) {
                   icon="phone"
                   onPress={handlePhoneCall}
                 >
-                  Call Us
+                  {t('profile.callUs')}
                 </Button>
               </View>
               
@@ -464,34 +490,34 @@ function ClientProfile({ navigation }: any) {
           <Card.Content style={styles.cardContentImproved}>
             <View style={styles.welcomeHeader}>
               <MaterialIcons name="sentiment-satisfied-alt" size={48} color={accentColor} />
-              <H2 style={{ ...styles.welcomeTitle, color: textColor }}>Welcome to Animo Pilates!</H2>
+              <H2 style={{ ...styles.welcomeTitle, color: textColor }}>{t('profile.welcomeToAnimo')}</H2>
               <Body style={{ ...styles.welcomeSubtitle, color: textSecondaryColor }}>
-                Ready to start your Pilates journey? Our studio offers expert instruction and premium equipment.
+                {t('profile.welcomeSubtitle')}
               </Body>
             </View>
             
             <View style={styles.featuresList}>
               <View style={styles.featureItem}>
                 <MaterialIcons name="self-improvement" size={24} color={successColor} />
-                <Body style={{ ...styles.featureText, color: textColor }}>Mat & Reformer Classes</Body>
+                <Body style={{ ...styles.featureText, color: textColor }}>{t('profile.matReformerClasses')}</Body>
               </View>
               <View style={styles.featureItem}>
                 <MaterialIcons name="star" size={24} color={warningColor} />
-                <Body style={{ ...styles.featureText, color: textColor }}>Expert Certified Instructors</Body>
+                <Body style={{ ...styles.featureText, color: textColor }}>{t('profile.expertInstructors')}</Body>
               </View>
               <View style={styles.featureItem}>
                 <MaterialIcons name="schedule" size={24} color={primaryColor} />
-                <Body style={{ ...styles.featureText, color: textColor }}>Flexible Scheduling</Body>
+                <Body style={{ ...styles.featureText, color: textColor }}>{t('profile.flexibleScheduling')}</Body>
               </View>
               <View style={styles.featureItem}>
                 <MaterialIcons name="group" size={24} color={accentColor} />
-                <Body style={{ ...styles.featureText, color: textColor }}>Small Group Classes</Body>
+                <Body style={{ ...styles.featureText, color: textColor }}>{t('profile.smallGroupClasses')}</Body>
               </View>
             </View>
             
             <View style={styles.ctaSection}>
               <Body style={{ ...styles.ctaText, color: textSecondaryColor }}>
-                Get started today! Contact our reception team to select the perfect plan for you.
+                {t('profile.getStartedToday')}
               </Body>
               
               <View style={styles.contactButtons}>
@@ -511,7 +537,7 @@ function ClientProfile({ navigation }: any) {
                   icon="phone"
                   onPress={handlePhoneCall}
                 >
-                  Call Us
+                  {t('profile.callUs')}
                 </Button>
               </View>
               
@@ -531,16 +557,16 @@ function ClientProfile({ navigation }: any) {
           <View style={styles.sectionHeaderImproved}>
             <View style={styles.sectionTitleRow}>
               <MaterialIcons name="notifications" size={24} color={primaryColor} style={styles.sectionIcon} />
-              <H2 style={{ ...styles.sectionTitle, color: textColor }}>Notification Preferences</H2>
+              <H2 style={{ ...styles.sectionTitle, color: textColor }}>{t('profile.notificationSettings')}</H2>
             </View>
           </View>
           
           <View style={styles.settingsSection}>
             <View style={styles.settingsRow}>
               <View style={styles.settingInfo}>
-                <Body style={{ ...styles.settingTitle, color: textColor }}>📱 Push Notifications</Body>
+                <Body style={{ ...styles.settingTitle, color: textColor }}>📱 {t('profile.pushNotifications')}</Body>
                 <Caption style={{ ...styles.settingDescription, color: textSecondaryColor }}>
-                  Get push notifications on your device
+                  {t('profile.getPushNotifications')}
                 </Caption>
               </View>
               <Switch
@@ -554,9 +580,9 @@ function ClientProfile({ navigation }: any) {
             {notificationSettings.enableNotifications && (
               <View style={[styles.settingsRow, styles.reminderSection, { backgroundColor: `${accentColor}04` }]}>
                 <View style={styles.settingInfo}>
-                  <Body style={{ ...styles.settingTitle, color: textColor }}>⏰ Reminder Time</Body>
+                  <Body style={{ ...styles.settingTitle, color: textColor }}>⏰ {t('profile.reminderTime')}</Body>
                   <Caption style={{ ...styles.settingDescription, color: textSecondaryColor }}>
-                    How early do you want to be reminded before class?
+                    {t('profile.reminderTimeDescription')}
                   </Caption>
                 </View>
                 <Button
@@ -579,31 +605,54 @@ function ClientProfile({ navigation }: any) {
         </Card.Content>
       </Card>
 
+      {/* Language Settings */}
+      <Card style={[styles.cardImproved, { backgroundColor: surfaceColor }]}>
+        <Card.Content style={styles.cardContentImproved}>
+          <View style={styles.sectionHeaderImproved}>
+            <View style={styles.sectionTitleRow}>
+              <MaterialIcons name="language" size={24} color={primaryColor} style={styles.sectionIcon} />
+              <H2 style={{ ...styles.sectionTitle, color: textColor }}>{t('profile.languageSettings')}</H2>
+            </View>
+          </View>
+          
+          <View style={styles.settingsSection}>
+            <LanguageSelector 
+              showAsButton={true}
+              onLanguageChange={(language) => {
+                // Optional: Show success message or handle language change
+                console.log('Language changed to:', language);
+              }}
+            />
+          </View>
+        </Card.Content>
+      </Card>
+
+
       {/* Account Settings - Moved to the end */}
       <Card style={[styles.card, { backgroundColor: surfaceColor }]}>
         <Card.Content>
-          <H2 style={{ color: textColor }}>Account Settings</H2>
+          <H2 style={{ color: textColor }}>{t('profile.accountSettings')}</H2>
           <View style={styles.accountInfo}>
             <View style={styles.infoItem}>
-              <Body style={{ ...styles.label, color: textSecondaryColor }}>Name:</Body>
-              <Body style={{ ...styles.value, color: textColor }}>{user?.name || 'Not set'}</Body>
+              <Body style={{ ...styles.label, color: textSecondaryColor }}>{t('profile.name')}:</Body>
+              <Body style={{ ...styles.value, color: textColor }}>{user?.name || t('profile.notSet')}</Body>
             </View>
             <View style={styles.infoItem}>
-              <Body style={{ ...styles.label, color: textSecondaryColor }}>Email:</Body>
-              <Body style={{ ...styles.value, color: textColor }}>{user?.email || 'Not set'}</Body>
+              <Body style={{ ...styles.label, color: textSecondaryColor }}>{t('profile.email')}:</Body>
+              <Body style={{ ...styles.value, color: textColor }}>{user?.email || t('profile.notSet')}</Body>
             </View>
             <View style={styles.infoItem}>
-              <Body style={{ ...styles.label, color: textSecondaryColor }}>Phone:</Body>
-              <Body style={{ ...styles.value, color: textColor }}>{user?.phone || 'Not set'}</Body>
+              <Body style={{ ...styles.label, color: textSecondaryColor }}>{t('profile.phone')}:</Body>
+              <Body style={{ ...styles.value, color: textColor }}>{user?.phone || t('profile.notSet')}</Body>
             </View>
             {user?.emergency_contact && (
               <View style={styles.infoItem}>
-                <Body style={{ ...styles.label, color: textSecondaryColor }}>Emergency Contact:</Body>
+                <Body style={{ ...styles.label, color: textSecondaryColor }}>{t('profile.emergencyContact')}:</Body>
                 <Body style={{ ...styles.value, color: textColor }}>{user.emergency_contact}</Body>
               </View>
             )}
             <View style={styles.infoItem}>
-              <Body style={{ ...styles.label, color: textSecondaryColor }}>App Version:</Body>
+              <Body style={{ ...styles.label, color: textSecondaryColor }}>{t('profile.appVersion')}:</Body>
               <Body style={{ ...styles.value, color: textColor }}>{getFormattedAppVersion()}</Body>
             </View>
           </View>
@@ -631,19 +680,24 @@ function ClientProfile({ navigation }: any) {
         </Card.Content>
       </Card>
 
-      <Portal>
-        <Modal visible={reminderModalVisible} onDismiss={() => setReminderModalVisible(false)} contentContainerStyle={[
-          styles.modalContainer,
-          {
-            width: modalDimensions.width,
-            maxWidth: modalDimensions.maxWidth,
-            padding: modalDimensions.padding,
-            margin: modalDimensions.margin
-          }
-        ]}>
-          <H2 style={{ ...styles.modalTitle, color: textColor }}>Reminder Time</H2>
+      <Portal key="reminder-settings-modal">
+        <Modal 
+          key="reminder-modal"
+          visible={reminderModalVisible} 
+          onDismiss={() => setReminderModalVisible(false)} 
+          contentContainerStyle={[
+            styles.modalContainer,
+            {
+              width: modalDimensions.width,
+              maxWidth: modalDimensions.maxWidth,
+              padding: modalDimensions.padding,
+              margin: modalDimensions.margin
+            }
+          ]}
+        >
+          <H2 style={{ ...styles.modalTitle, color: textColor }}>{t('profile.reminderTime')}</H2>
           <Body style={{ ...styles.modalText, color: textSecondaryColor }}>
-            Choose how many minutes before your class you&apos;d like to be reminded:
+            {t('profile.reminderTimeModalDescription')}
           </Body>
           
           {[5, 10, 15, 30, 60].map((minutes) => (
@@ -672,13 +726,14 @@ function ClientProfile({ navigation }: any) {
         </Modal>
       </Portal>
     </ScrollView>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (themeColors: any) => StyleSheet.create({
   container: { 
-    flex: 1, 
-    backgroundColor: AppColors.light.background 
+    flex: 1 
+    // backgroundColor is applied dynamically via useThemeColor in component
   },
   loadingContainer: { 
     justifyContent: 'center', 
@@ -693,7 +748,7 @@ const styles = StyleSheet.create({
     alignItems: 'center' 
   },
   avatarImproved: { 
-    backgroundColor: AppColors.light.accent, 
+    backgroundColor: themeColors.accent, 
     elevation: 1,
     boxShadow: '0px 1px 2px rgba(0, 0, 0, 0.06)'
   },
@@ -708,13 +763,13 @@ const styles = StyleSheet.create({
     marginBottom: 8 
   },
   roleChip: { 
-    backgroundColor: `${AppColors.light.textOnAccent}20`, 
+    backgroundColor: `${themeColors.textOnAccent || themeColors.text}20`, 
     borderWidth: 1, 
-    borderColor: `${AppColors.light.textOnAccent}30`,
+    borderColor: `${themeColors.textOnAccent || themeColors.text}30`,
     borderRadius: 12,
   },
   roleChipText: { 
-    color: AppColors.light.textOnAccent, 
+    color: themeColors.textOnAccent || themeColors.text, 
     fontSize: 11, 
   },
   cardImproved: { 
@@ -858,9 +913,9 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   welcomeCard: { 
-    backgroundColor: AppColors.light.surface,
+    backgroundColor: themeColors.surface,
     borderWidth: 1,
-    borderColor: `${AppColors.light.primary}20`,
+    borderColor: `${themeColors.primary}20`,
   },
   welcomeHeader: { 
     alignItems: 'center', 
@@ -954,7 +1009,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4 
   },
   modalContainer: { 
-    backgroundColor: AppColors.light.surface, 
+    backgroundColor: themeColors.surface, 
     borderRadius: 16,
     alignSelf: 'center',
     elevation: 8,
@@ -987,4 +1042,8 @@ const styles = StyleSheet.create({
 
 });
 
-export default ClientProfile; 
+export default withChristmasDesign(ClientProfile, { 
+  variant: 'snow', 
+  showSnow: true, 
+  showLights: true 
+}); 
