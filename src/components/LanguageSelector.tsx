@@ -46,12 +46,12 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
   const dividerColor = useThemeColor({}, 'divider');
 
   const handleLanguageSelect = (languageCode: SupportedLanguage) => {
-    console.log('Modal: Language selected:', languageCode);
+    // Language selected
     setSelectedLanguage(languageCode);
   };
 
   const handleSaveLanguage = async () => {
-    console.log('Modal: Save button pressed, selected language:', selectedLanguage);
+    // Save button pressed
     console.log('Modal: Current language:', getCurrentLanguage());
     
     if (selectedLanguage === getCurrentLanguage()) {
@@ -116,7 +116,7 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
   };
 
   const openLanguageModal = () => {
-    console.log('Opening language modal, current state:', { modalVisible, currentLanguage, componentId, modalMounted: modalMountedRef.current });
+    // Opening language modal
     
     // Prevent opening if already visible or mounted
     if (modalVisible || modalMountedRef.current) {

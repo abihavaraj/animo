@@ -28,6 +28,14 @@ interface Class {
   level?: string;
   equipment_type: string;
   status: string;
+  category?: 'group' | 'personal';
+  equipment?: string[];
+  description?: string;
+  notes?: string;
+  room?: string;
+  visibility?: 'public' | 'private';
+  instructor_id?: string;
+  instructor_name?: string;
 }
 
 function ScheduleOverview() {
@@ -55,8 +63,8 @@ function ScheduleOverview() {
     name: '',
     date: '',
     time: '',
-    duration: 60,
-    capacity: 10,
+    duration: undefined as number | undefined,
+    capacity: undefined as number | undefined,
     category: 'group' as 'group' | 'personal',
     equipmentType: 'mat' as 'mat' | 'reformer' | 'both',
     equipment: [] as string[],
@@ -101,6 +109,13 @@ function ScheduleOverview() {
   const [loadingEnrolledClients, setLoadingEnrolledClients] = useState(false);
   const [unassigningClient, setUnassigningClient] = useState(false);
 
+  // Edit class states
+  const [editingClassId, setEditingClassId] = useState<string | number | null>(null);
+
+  // Waitlist states
+  const [waitlistData, setWaitlistData] = useState<{[classId: string]: any[]}>({});
+  const [loadingWaitlist, setLoadingWaitlist] = useState<{[classId: string]: boolean}>({});
+
   useEffect(() => {
     if (viewMode === 'calendar') {
       // Load all future classes for calendar view
@@ -110,13 +125,31 @@ function ScheduleOverview() {
     }
   }, [viewMode]);
 
+  // Initial load when component mounts
+  useEffect(() => {
+    // Always load both calendar and list data on mount
+    if (viewMode === 'calendar') {
+      loadAllFutureClasses();
+    } else {
+      loadUpcomingClasses();
+    }
+  }, []);
+
   // Handle navigation parameters from notifications
   useEffect(() => {
     const params = route.params as any;
     if (!params?.classId || !params?.openClassDetails) return;
 
     const classId = params.classId;
-    console.log('🎯 Handling notification navigation to class:', classId);
+
+    // Clear the navigation params to prevent re-triggering
+    const clearParams = () => {
+      // Reset route params after handling
+      if (route.params) {
+        (route.params as any).classId = null;
+        (route.params as any).openClassDetails = false;
+      }
+    };
 
     // Try to find the class in any loaded source
     const localClass =
@@ -125,8 +158,8 @@ function ScheduleOverview() {
       selectedDateClasses.find(c => c.id === classId);
 
     if (localClass) {
-      console.log('✅ Found target class locally:', localClass.name);
       viewClassEnrollments(localClass);
+      clearParams();
       return;
     }
 
@@ -135,7 +168,6 @@ function ScheduleOverview() {
       try {
         const res = await classService.getClassById(classId);
         if (res.success && res.data) {
-          console.log('✅ Loaded target class by ID:', res.data.name);
           // Minimal shape to satisfy viewClassEnrollments
           const fetchedClass = {
             ...res.data,
@@ -143,10 +175,11 @@ function ScheduleOverview() {
           } as Class;
           viewClassEnrollments(fetchedClass);
         } else {
-          console.log('❌ Could not load class by ID for notification:', res.error);
         }
+        clearParams();
       } catch (e) {
         console.error('❌ Error loading class by ID for notification:', e);
+        clearParams();
       }
     })();
   }, [route.params, classes, calendarClasses, selectedDateClasses]);
@@ -155,7 +188,6 @@ function ScheduleOverview() {
   const generateBaseMarkedDates = useCallback(() => {
     const marked: any = {};
     
-    console.log(`🔍 [ScheduleOverview] Generating base marked dates for ${classes.length} classes`);
     
     // Group classes by date
     const classesByDate: { [date: string]: any[] } = {};
@@ -173,7 +205,10 @@ function ScheduleOverview() {
       dateClasses.slice(0, 5).forEach((cls, index) => { // Limit to 5 dots max
         let dotColor = Colors.light.success; // Default green for available
         
-        if (isPastClass(cls.date, cls.time)) {
+        // Check if it's a personal class first
+        if (cls.category === 'personal') {
+          dotColor = '#9B59B6'; // Purple for personal classes (same as client calendar)
+        } else if (isPastClass(cls.date, cls.time)) {
           dotColor = Colors.light.textMuted; // Gray for past classes
         } else {
           const enrollmentPercentage = (cls.enrolled / cls.capacity) * 100;
@@ -230,7 +265,6 @@ function ScheduleOverview() {
   const loadAllFutureClasses = async () => {
     try {
       setCalendarLoading(true);
-      console.log(`🔄 [ScheduleOverview] Loading all classes from current month onwards for calendar`);
       
       const today = new Date();
       const currentMonth = today.toISOString().slice(0, 7); // YYYY-MM format
@@ -255,11 +289,16 @@ function ScheduleOverview() {
           capacity: cls.capacity,
           status: cls.status,
           equipment_type: cls.equipment_type || 'mat',
-          level: 'Beginner' as string
+          level: 'Beginner' as string,
+          category: (cls as any).category || 'group'
         }));
         
-        console.log(`✅ [ScheduleOverview] Loaded ${allClasses.length} classes for calendar (current month onwards)`);
         setCalendarClasses(allClasses);
+        
+        // Load waitlist data for all classes
+        allClasses.forEach(cls => {
+          loadWaitlistForClass(cls.id);
+        });
       }
     } catch (error) {
       console.error('❌ [ScheduleOverview] Failed to load calendar classes:', error);
@@ -281,7 +320,6 @@ function ScheduleOverview() {
         return;
       }
 
-      console.log(`🔄 [ScheduleOverview] Loading calendar dots for month: ${targetMonth}`);
       
       // Calculate date range for the month
       const startDate = `${targetMonth}-01`;
@@ -306,10 +344,10 @@ function ScheduleOverview() {
           capacity: cls.capacity,
           status: cls.status,
           equipment_type: cls.equipment_type || 'mat',
-          level: 'Beginner' as string
+          level: 'Beginner' as string,
+          category: (cls as any).category || 'group'
         }));
         
-        console.log(`✅ [ScheduleOverview] Loaded ${monthClasses.length} class dots for ${targetMonth}`);
         
         // Update calendarClasses with new month data (deduplicated)
         setCalendarClasses(prev => {
@@ -335,23 +373,29 @@ function ScheduleOverview() {
   const loadUpcomingClasses = async () => {
     try {
       setLoading(true);
-      console.log(`🔄 [ScheduleOverview] Loading upcoming classes for instructor: ${user?.id}`);
       
       const response = await classService.getClasses({
         instructor: user?.id?.toString(),
         userRole: 'instructor',
-        upcoming: true,
-        status: 'active'
+        upcoming: true
       });
 
       if (response.success && response.data) {
-        const classesData = response.data.map(cls => ({
+        // Include active, full, and completed upcoming classes; exclude cancelled
+        const filtered = response.data.filter(cls => cls.status !== 'cancelled');
+        
+        const classesData = filtered.map(cls => ({
           ...cls,
-          equipment_type: cls.equipment_type || 'mat'
+          equipment_type: cls.equipment_type || 'mat',
+          category: (cls as any).category || 'group'
         }));
         
-        console.log(`✅ [ScheduleOverview] Loaded ${classesData.length} upcoming classes`);
         setClasses(classesData);
+        
+        // Load waitlist data for all classes
+        classesData.forEach(cls => {
+          loadWaitlistForClass(cls.id);
+        });
       } else {
         setClasses([]);
       }
@@ -368,7 +412,10 @@ function ScheduleOverview() {
   const loadDateClasses = async (date: string) => {
     try {
       setLoadingSelectedDate(true);
-      console.log(`🔄 [ScheduleOverview] Loading full class details for date: ${date}`);
+      // Clear any previously selected class and close enrollment modal
+      setSelectedClass(null);
+      setEnrollmentModalVisible(false);
+      
       
       const response = await classService.getClasses({
         instructor: user?.id?.toString(),
@@ -379,10 +426,10 @@ function ScheduleOverview() {
       if (response.success && response.data) {
         const dateClasses = response.data.map(cls => ({
           ...cls,
-          equipment_type: cls.equipment_type || 'mat'
+          equipment_type: cls.equipment_type || 'mat',
+          category: (cls as any).category || 'group'
         }));
         
-        console.log(`✅ [ScheduleOverview] Loaded ${dateClasses.length} full class details for ${date}`);
         setSelectedDateClasses(dateClasses);
       } else {
         setSelectedDateClasses([]);
@@ -398,7 +445,6 @@ function ScheduleOverview() {
   // 🚀 OPTIMIZATION: Update marked dates for calendar display
   const updateMarkedDates = () => {
     const marked: any = {};
-    console.log(`🔍 [ScheduleOverview] Generating base marked dates for ${calendarClasses.length} classes`);
     const classesByDate: { [date: string]: Class[] } = {};
     calendarClasses.forEach(cls => {
       if (!classesByDate[cls.date]) classesByDate[cls.date] = [];
@@ -410,9 +456,18 @@ function ScheduleOverview() {
       // Limit to 5 dots per date
       dateClasses.slice(0, 5).forEach((cls) => {
         let color = '#2196F3';
-        if (isPastClass(cls.date, cls.time)) color = Colors.light.textMuted; // past gray
-        else if (cls.enrolled >= cls.capacity) color = '#F44336'; // full red
-        else if (cls.status === 'completed') color = '#4CAF50'; // completed green
+        
+        // Check if it's a personal class first
+        if (cls.category === 'personal') {
+          color = '#9B59B6'; // Purple for personal classes
+        } else if (isPastClass(cls.date, cls.time)) {
+          color = Colors.light.textMuted; // past gray
+        } else if (cls.enrolled >= cls.capacity) {
+          color = '#F44336'; // full red
+        } else if (cls.status === 'completed') {
+          color = '#4CAF50'; // completed green
+        }
+        
         dots.push({ key: `class-${cls.id}`, color, selectedDotColor: color });
       });
       marked[date] = { dots };
@@ -493,7 +548,6 @@ function ScheduleOverview() {
         setAvailableClients(response.data);
         if (response.data.length === 0) {
           // Don't show error, just let the empty state handle it
-          console.log('No assigned clients found for instructor');
         }
       } else {
         Alert.alert('Error', 'Failed to load your assigned clients. Please contact admin if you should have clients assigned.');
@@ -534,14 +588,16 @@ function ScheduleOverview() {
         const selectedClient = availableClients.find(c => c.id === selectedClientId);
         if (selectedClient && selectedClassForAssignment && user) {
           await activityService.logActivity({
-            user_id: user.id.toString(),
-            user_name: user.name || 'Instructor',
-            user_role: 'instructor',
-            action_type: 'client_assigned',
-            action_description: `${user.name || 'Instructor'} assigned ${selectedClient.name} to class "${selectedClassForAssignment.name}" on ${selectedClassForAssignment.date} at ${selectedClassForAssignment.time}`,
-            target_id: selectedClassForAssignment.id,
-            target_type: 'class',
-            target_name: selectedClassForAssignment.name
+            staff_id: user.id.toString(),
+            staff_name: user.name || 'Instructor',
+            staff_role: 'instructor',
+            activity_type: 'client_assigned',
+            activity_description: `${user.name || 'Instructor'} assigned ${selectedClient.name} to class "${selectedClassForAssignment.name}" on ${selectedClassForAssignment.date} at ${selectedClassForAssignment.time}`,
+            metadata: {
+              target_id: selectedClassForAssignment.id,
+              target_type: 'class',
+              target_name: selectedClassForAssignment.name
+            }
           });
         }
         
@@ -588,7 +644,6 @@ function ScheduleOverview() {
       if (response.success && response.data) {
         setEnrolledClients(response.data);
         if (response.data.length === 0) {
-          console.log('No enrolled clients found for class');
         }
       } else {
         Alert.alert('Error', 'Failed to load enrolled clients');
@@ -623,14 +678,16 @@ function ScheduleOverview() {
         // Log activity for reception
         if (selectedClientForUnassignment && selectedClassForUnassignment && user) {
           await activityService.logActivity({
-            user_id: user.id.toString(),
-            user_name: user.name || 'Instructor',
-            user_role: 'instructor',
-            action_type: 'client_unassigned',
-            action_description: `${user.name || 'Instructor'} unassigned ${selectedClientForUnassignment.name} from class "${selectedClassForUnassignment.name}" on ${selectedClassForUnassignment.date} at ${selectedClassForUnassignment.time}`,
-            target_id: selectedClassForUnassignment.id,
-            target_type: 'class',
-            target_name: selectedClassForUnassignment.name
+            staff_id: user.id.toString(),
+            staff_name: user.name || 'Instructor',
+            staff_role: 'instructor',
+            activity_type: 'client_unassigned',
+            activity_description: `${user.name || 'Instructor'} unassigned ${selectedClientForUnassignment.name} from class "${selectedClassForUnassignment.name}" on ${selectedClassForUnassignment.date} at ${selectedClassForUnassignment.time}`,
+            metadata: {
+              target_id: selectedClassForUnassignment.id,
+              target_type: 'class',
+              target_name: selectedClassForUnassignment.name
+            }
           });
         }
         
@@ -686,8 +743,8 @@ function ScheduleOverview() {
       name: '',
       date: today,
       time: currentTime,
-      duration: 60,
-      capacity: 10,
+      duration: undefined,
+      capacity: undefined,
       category: 'group',
       equipmentType: 'mat',
       equipment: [],
@@ -748,34 +805,36 @@ function ScheduleOverview() {
 
   const submitCreateClass = async () => {
     try {
-      if (!newClass.name || !newClass.date || !newClass.time || !user?.id) {
-        Alert.alert('Error', 'Please fill in all required fields');
+      if (!newClass.name || !newClass.date || !newClass.time || !newClass.duration || !newClass.capacity || !user?.id) {
+        Alert.alert('Error', 'Please fill in all required fields (Name, Date, Time, Duration, and Capacity)');
         return;
       }
 
-      // Check for instructor conflicts
-      const instructorConflictResponse = await classService.checkInstructorConflict(
-        user.id,
-        newClass.date,
-        newClass.time,
-        newClass.duration
-      );
-
-      if (instructorConflictResponse.success && instructorConflictResponse.data?.hasConflict) {
-        const conflictClass = instructorConflictResponse.data.conflictClass;
-        Alert.alert(
-          'Instructor Conflict',
-          `You already have a class "${conflictClass?.name}" scheduled at ${conflictClass?.time} on ${newClass.date}. Please choose a different time.`
+      // Check for instructor conflicts (skip if editing the same class)
+      if (!editingClassId) {
+        const instructorConflictResponse = await classService.checkInstructorConflict(
+          user.id,
+          newClass.date,
+          newClass.time,
+          newClass.duration || 0
         );
-        return;
+
+        if (instructorConflictResponse.success && instructorConflictResponse.data?.hasConflict) {
+          const conflictClass = instructorConflictResponse.data.conflictClass;
+          Alert.alert(
+            'Instructor Conflict',
+            `You already have a class "${conflictClass?.name}" scheduled at ${conflictClass?.time} on ${newClass.date}. Please choose a different time.`
+          );
+          return;
+        }
       }
 
-      // Check for room conflicts if room is selected
-      if (newClass.room) {
+      // Check for room conflicts if room is selected (skip if editing the same class)
+      if (newClass.room && !editingClassId) {
         const roomConflictResponse = await classService.checkRoomAvailability(
           newClass.date,
           newClass.time,
-          newClass.duration
+          newClass.duration || 0
         );
 
         if (roomConflictResponse.success && roomConflictResponse.data) {
@@ -790,40 +849,68 @@ function ScheduleOverview() {
         }
       }
 
-      console.log('🔧 [ScheduleOverview] Creating class with visibility:', newClass.visibility);
-      const response = await classService.createClass({
-        name: newClass.name,
-        instructorId: user.id,
-        date: newClass.date,
-        time: newClass.time,
-        duration: newClass.duration,
-        category: newClass.category,
-        capacity: newClass.capacity,
-        equipmentType: newClass.equipmentType,
-        equipment: newClass.equipment,
-        description: newClass.description,
-        room: newClass.room,
-        notes: newClass.notes,
-        visibility: newClass.visibility
-      });
+      let response;
+      if (editingClassId) {
+        // Update existing class
+        response = await classService.updateClass(editingClassId, {
+          name: newClass.name,
+          instructorId: user.id,
+          date: newClass.date,
+          time: newClass.time,
+          duration: newClass.duration,
+          category: newClass.category,
+          capacity: newClass.capacity,
+          equipmentType: newClass.equipmentType,
+          equipment: newClass.equipment,
+          description: newClass.description,
+          room: newClass.room,
+          notes: newClass.notes,
+          visibility: newClass.visibility
+        });
+      } else {
+        // Create new class
+        response = await classService.createClass({
+          name: newClass.name,
+          instructorId: user.id,
+          date: newClass.date,
+          time: newClass.time,
+          duration: newClass.duration,
+          category: newClass.category,
+          capacity: newClass.capacity,
+          equipmentType: newClass.equipmentType,
+          equipment: newClass.equipment,
+          description: newClass.description,
+          room: newClass.room,
+          notes: newClass.notes,
+          visibility: newClass.visibility
+        });
+      }
 
       if (response.success) {
         // Log activity for reception
         if (user && response.data) {
+          const activityType = editingClassId ? 'class_updated' : 'class_created';
+          const activityDescription = editingClassId 
+            ? `${user.name || 'Instructor'} updated class "${newClass.name}" on ${newClass.date} at ${newClass.time} (${newClass.category})`
+            : `${user.name || 'Instructor'} created class "${newClass.name}" on ${newClass.date} at ${newClass.time} (${newClass.category})`;
+          
           await activityService.logActivity({
-            user_id: user.id.toString(),
-            user_name: user.name || 'Instructor',
-            user_role: 'instructor',
-            action_type: 'class_created',
-            action_description: `${user.name || 'Instructor'} created class "${newClass.name}" on ${newClass.date} at ${newClass.time} (${newClass.category})`,
-            target_id: response.data.id?.toString(),
-            target_type: 'class',
-            target_name: newClass.name
+            staff_id: user.id.toString(),
+            staff_name: user.name || 'Instructor',
+            staff_role: 'instructor',
+            activity_type: activityType,
+            activity_description: activityDescription,
+            metadata: {
+              target_id: response.data.id?.toString(),
+              target_type: 'class',
+              target_name: newClass.name
+            }
           });
         }
         
-        Alert.alert('Success', 'Class created successfully');
+        Alert.alert('Success', editingClassId ? 'Class updated successfully' : 'Class created successfully');
         setCreateModalVisible(false);
+        setEditingClassId(null);
         // Refresh based on current view mode
         if (viewMode === 'calendar') {
           loadAllFutureClasses();
@@ -831,12 +918,52 @@ function ScheduleOverview() {
           loadUpcomingClasses();
         }
       } else {
-        Alert.alert('Error', response.error || 'Failed to create class');
+        Alert.alert('Error', response.error || (editingClassId ? 'Failed to update class' : 'Failed to create class'));
       }
     } catch (error) {
-      console.error('Failed to create class:', error);
-      Alert.alert('Error', 'Failed to create class');
+      console.error(editingClassId ? 'Failed to update class:' : 'Failed to create class:', error);
+      Alert.alert('Error', editingClassId ? 'Failed to update class' : 'Failed to create class');
     }
+  };
+
+  const loadWaitlistForClass = async (classId: string | number) => {
+    try {
+      setLoadingWaitlist(prev => ({ ...prev, [classId]: true }));
+      const response = await bookingService.getClassWaitlist(classId);
+      
+      if (response.success && response.data) {
+        setWaitlistData(prev => ({ ...prev, [classId]: response.data }));
+      } else {
+        setWaitlistData(prev => ({ ...prev, [classId]: [] }));
+      }
+    } catch (error) {
+      console.error('Failed to load waitlist:', error);
+      setWaitlistData(prev => ({ ...prev, [classId]: [] }));
+    } finally {
+      setLoadingWaitlist(prev => ({ ...prev, [classId]: false }));
+    }
+  };
+
+  const handleEditClass = (classItem: Class) => {
+    // Set the form data to the existing class data
+    setNewClass({
+      name: classItem.name,
+      date: classItem.date,
+      time: classItem.time,
+      duration: classItem.duration,
+      capacity: classItem.capacity,
+      category: classItem.category as 'group' | 'personal',
+      equipmentType: classItem.equipment_type as 'mat' | 'reformer' | 'both',
+      equipment: classItem.equipment || [],
+      description: classItem.description || '',
+      notes: classItem.notes || '',
+      room: (classItem.room as 'Reformer Room' | 'Mat Room' | 'Cadillac Room' | 'Wall Room' | '') || '',
+      visibility: classItem.visibility || 'public',
+    });
+    
+    // Set editing mode
+    setEditingClassId(classItem.id);
+    setCreateModalVisible(true);
   };
 
   const handleDeleteClass = (classId: string | number) => {
@@ -886,6 +1013,18 @@ function ScheduleOverview() {
       return classes; // Already filtered for upcoming classes
     }
     return [];
+  };
+
+  // Get all classes for stats - use calendar data if available, otherwise list data
+  const getAllClassesForStats = () => {
+    if (viewMode === 'calendar' && calendarClasses.length > 0) {
+      return calendarClasses;
+    } else if (viewMode === 'list' && classes.length > 0) {
+      return classes;
+    } else {
+      // Fallback: use whichever has data
+      return calendarClasses.length > 0 ? calendarClasses : classes;
+    }
   };
 
 
@@ -982,32 +1121,31 @@ function ScheduleOverview() {
               <View style={styles.statItem}>
                 <View style={styles.statHeader}>
                   <WebCompatibleIcon name="event" size={24} color={Colors.light.accent} />
-                  <Body style={styles.statNumber}>{classes.length}</Body>
+                  <Body style={styles.statNumber}>{getAllClassesForStats().length}</Body>
                 </View>
                 <Caption style={styles.statLabel}>Total Classes</Caption>
               </View>
 
               <View style={styles.statItem}>
                 <View style={styles.statHeader}>
-                  <WebCompatibleIcon name="people" size={24} color={Colors.light.primary} />
+                  <WebCompatibleIcon name="person" size={24} color={Colors.light.primary} />
                   <Body style={styles.statNumber}>
-                    {classes.reduce((sum, cls) => sum + cls.enrolled, 0)}
+                    {getAllClassesForStats().filter(cls => cls.category === 'personal').length}
                   </Body>
                 </View>
-                <Caption style={styles.statLabel}>Total Enrolled</Caption>
+                <Caption style={styles.statLabel}>Personal Classes</Caption>
               </View>
-              
+
               <View style={styles.statItem}>
                 <View style={styles.statHeader}>
-                  <WebCompatibleIcon name="trending-up" size={24} color={Colors.light.success} />
+                  <WebCompatibleIcon name="groups" size={24} color={Colors.light.secondary} />
                   <Body style={styles.statNumber}>
-                    {classes.length > 0 
-                      ? Math.round((classes.reduce((sum, cls) => sum + cls.enrolled, 0) / classes.reduce((sum, cls) => sum + cls.capacity, 0)) * 100)
-                      : 0}%
+                    {getAllClassesForStats().filter(cls => cls.category === 'group').length}
                   </Body>
                 </View>
-                <Caption style={styles.statLabel}>Fill Rate</Caption>
+                <Caption style={styles.statLabel}>Group Classes</Caption>
               </View>
+
             </View>
           </PaperCard.Content>
         </PaperCard>
@@ -1082,14 +1220,12 @@ function ScheduleOverview() {
                   }}
                   markedDates={markedDates}
                   onDayPress={(day) => {
-                    console.log(`🔍 [ScheduleOverview] Day pressed: ${day.dateString}`);
                     setSelectedDate(day.dateString);
                     loadDateClasses(day.dateString);
                   }}
                   onMonthChange={(month) => {
                     const monthString = month.dateString.slice(0, 7); // YYYY-MM format
                     setCurrentMonth(monthString);
-                    console.log(`📅 [ScheduleOverview] Month changed to: ${monthString}`);
                     
                     // Load data for any month that hasn't been loaded yet
                     if (!loadedMonths.has(monthString)) {
@@ -1129,13 +1265,25 @@ function ScheduleOverview() {
                           onPress={() => viewClassEnrollments(cls)}
                         >
                           <View style={styles.classHeader}>
-                            <Body style={StyleSheet.flatten([styles.className, { color: isPastClass(cls.date, cls.time) ? Colors.light.textMuted : Colors.light.text }])}>{cls.name}</Body>
-                            <View style={styles.chipContainer}>
-                              <StatusChip 
-                                state={getStatusChipState(cls)}
-                                text={getStatusText(cls)}
-                                size="small"
-                              />
+                            <View style={styles.classHeaderLeft}>
+                              <Text style={StyleSheet.flatten([styles.className, { color: isPastClass(cls.date, cls.time) ? Colors.light.textMuted : Colors.light.text }])} numberOfLines={2} ellipsizeMode="tail">{cls.name}</Text>
+                              <View style={styles.chipContainer}>
+                                <StatusChip 
+                                  state={getStatusChipState(cls)}
+                                  text={getStatusText(cls)}
+                                  size="small"
+                                />
+                              </View>
+                            </View>
+                            <View style={styles.classHeaderRight}>
+                              <Caption style={styles.enrollmentInfo}>
+                                {cls.enrolled}/{cls.capacity} enrolled
+                              </Caption>
+                              {waitlistData[cls.id] && waitlistData[cls.id].length > 0 && (
+                                <Caption style={styles.waitlistInfo}>
+                                  {waitlistData[cls.id].length} waitlist
+                                </Caption>
+                              )}
                             </View>
                           </View>
                           
@@ -1157,6 +1305,13 @@ function ScheduleOverview() {
                         </TouchableOpacity>
 
                         <View style={styles.classActions}>
+                          <TouchableOpacity
+                            style={[styles.actionButton, { backgroundColor: Colors.light.primary + '20' }]}
+                            onPress={() => handleEditClass(cls)}
+                          >
+                            <WebCompatibleIcon name="edit" size={16} color={Colors.light.primary} />
+                            <Text style={{ fontSize: 10, color: Colors.light.primary, marginTop: 2 }}>Edit</Text>
+                          </TouchableOpacity>
                           <TouchableOpacity
                             style={[styles.actionButton, { backgroundColor: Colors.light.primary + '20' }]}
                             onPress={() => handleAssignClient(cls)}
@@ -1238,18 +1393,25 @@ function ScheduleOverview() {
                       onPress={() => viewClassEnrollments(cls)}
                     >
                       <View style={styles.classHeader}>
-                        <Body style={StyleSheet.flatten([styles.className, { color: isPastClass(cls.date, cls.time) ? Colors.light.textMuted : Colors.light.text }])}>{cls.name}</Body>
-                        <View style={styles.chipContainer}>
-                          <StatusChip 
-                            state={getLevelChipState(cls.level)}
-                            text={cls.level || 'Beginner'}
-                            size="small"
-                          />
-                          <StatusChip 
-                            state={getStatusChipState(cls)}
-                            text={getStatusText(cls)}
-                            size="small"
-                          />
+                        <View style={styles.classHeaderLeft}>
+                          <Text style={StyleSheet.flatten([styles.className, { color: isPastClass(cls.date, cls.time) ? Colors.light.textMuted : Colors.light.text }])} numberOfLines={2} ellipsizeMode="tail">{cls.name}</Text>
+                          <View style={styles.chipContainer}>
+                            <StatusChip 
+                              state={getStatusChipState(cls)}
+                              text={getStatusText(cls)}
+                              size="small"
+                            />
+                          </View>
+                        </View>
+                        <View style={styles.classHeaderRight}>
+                          <Caption style={styles.enrollmentInfo}>
+                            {cls.enrolled}/{cls.capacity} enrolled
+                          </Caption>
+                          {waitlistData[cls.id] && waitlistData[cls.id].length > 0 && (
+                            <Caption style={styles.waitlistInfo}>
+                              {waitlistData[cls.id].length} waitlist
+                            </Caption>
+                          )}
                         </View>
                       </View>
                       
@@ -1288,6 +1450,13 @@ function ScheduleOverview() {
                     </TouchableOpacity>
 
                     <View style={styles.classActions}>
+                      <TouchableOpacity
+                        style={[styles.actionButton, { backgroundColor: Colors.light.primary + '20' }]}
+                        onPress={() => handleEditClass(cls)}
+                      >
+                        <WebCompatibleIcon name="edit" size={16} color={Colors.light.primary} />
+                        <Text style={{ fontSize: 10, color: Colors.light.primary, marginTop: 2 }}>Edit</Text>
+                      </TouchableOpacity>
                       <TouchableOpacity
                         style={[styles.actionButton, { backgroundColor: Colors.light.primary + '20' }]}
                         onPress={() => handleAssignClient(cls)}
@@ -1334,7 +1503,7 @@ function ScheduleOverview() {
         >
           <PaperCard style={styles.modalCard}>
             <PaperCard.Content style={styles.modalContent}>
-              <H2 style={styles.modalTitle}>Create New Class</H2>
+              <H2 style={styles.modalTitle}>{editingClassId ? 'Edit Class' : 'Create New Class'}</H2>
               
               <ScrollView style={styles.formContainer} showsVerticalScrollIndicator={false}>
                 <TextInput
@@ -1343,6 +1512,15 @@ function ScheduleOverview() {
                   onChangeText={(text) => setNewClass({...newClass, name: text})}
                   style={styles.input}
                   mode="outlined"
+                  theme={{
+                    colors: {
+                      primary: Colors.light.primary,
+                      background: Colors.light.surface,
+                      surface: Colors.light.surface,
+                      onSurface: Colors.light.text,
+                      outline: Colors.light.border,
+                    }
+                  }}
                 />
 
                 {/* Date Picker */}
@@ -1375,20 +1553,40 @@ function ScheduleOverview() {
 
                 <TextInput
                   label="Duration (minutes)"
-                  value={newClass.duration.toString()}
-                  onChangeText={(text) => setNewClass({...newClass, duration: parseInt(text) || 60})}
+                  value={newClass.duration ? String(newClass.duration) : ''}
+                  onChangeText={(text) => setNewClass({...newClass, duration: text ? parseInt(text) : undefined})}
                   style={styles.input}
                   mode="outlined"
                   keyboardType="numeric"
+                  theme={{
+                    colors: {
+                      primary: Colors.light.primary,
+                      background: Colors.light.surface,
+                      surface: Colors.light.surface,
+                      onSurface: Colors.light.text,
+                      outline: Colors.light.border,
+                    }
+                  }}
                 />
 
                 <TextInput
                   label="Capacity"
-                  value={newClass.capacity.toString()}
-                  onChangeText={(text) => setNewClass({...newClass, capacity: parseInt(text) || 10})}
+                  value={newClass.capacity ? String(newClass.capacity) : ''}
+                  onChangeText={(text) => {
+                    setNewClass({...newClass, capacity: text ? parseInt(text) : undefined});
+                  }}
                   style={styles.input}
                   mode="outlined"
                   keyboardType="numeric"
+                  theme={{
+                    colors: {
+                      primary: Colors.light.primary,
+                      background: Colors.light.surface,
+                      surface: Colors.light.surface,
+                      onSurface: Colors.light.text,
+                      outline: Colors.light.border,
+                    }
+                  }}
                 />
 
                 <Caption style={styles.pickerLabel}>Class Category</Caption>
@@ -1400,6 +1598,14 @@ function ScheduleOverview() {
                     { value: 'personal', label: 'Personal' },
                   ]}
                   style={styles.segmentedButtons}
+                  theme={{
+                    colors: {
+                      primary: Colors.light.primary,
+                      surface: Colors.light.surface,
+                      onSurface: Colors.light.text,
+                      outline: Colors.light.border,
+                    }
+                  }}
                 />
 
                 <Caption style={styles.pickerLabel}>Equipment Type</Caption>
@@ -1412,6 +1618,14 @@ function ScheduleOverview() {
                     { value: 'both', label: 'Both' },
                   ]}
                   style={styles.segmentedButtons}
+                  theme={{
+                    colors: {
+                      primary: Colors.light.primary,
+                      surface: Colors.light.surface,
+                      onSurface: Colors.light.text,
+                      outline: Colors.light.border,
+                    }
+                  }}
                 />
 
                 <Caption style={styles.pickerLabel}>Room</Caption>
@@ -1425,6 +1639,14 @@ function ScheduleOverview() {
                     { value: 'Wall Room', label: 'Wall' },
                   ]}
                   style={styles.segmentedButtons}
+                  theme={{
+                    colors: {
+                      primary: Colors.light.primary,
+                      surface: Colors.light.surface,
+                      onSurface: Colors.light.text,
+                      outline: Colors.light.border,
+                    }
+                  }}
                 />
 
                 {checkingRoomAvailability && (
@@ -1457,6 +1679,15 @@ function ScheduleOverview() {
                   mode="outlined"
                   multiline
                   numberOfLines={3}
+                  theme={{
+                    colors: {
+                      primary: Colors.light.primary,
+                      background: Colors.light.surface,
+                      surface: Colors.light.surface,
+                      onSurface: Colors.light.text,
+                      outline: Colors.light.border,
+                    }
+                  }}
                 />
 
                 <TextInput
@@ -1467,6 +1698,15 @@ function ScheduleOverview() {
                   mode="outlined"
                   multiline
                   numberOfLines={2}
+                  theme={{
+                    colors: {
+                      primary: Colors.light.primary,
+                      background: Colors.light.surface,
+                      surface: Colors.light.surface,
+                      onSurface: Colors.light.text,
+                      outline: Colors.light.border,
+                    }
+                  }}
                 />
 
                 {/* Class Visibility Toggle */}
@@ -1513,7 +1753,7 @@ function ScheduleOverview() {
                   onPress={submitCreateClass}
                   style={styles.modalConfirmButton}
                 >
-                  Create Class
+                  {editingClassId ? 'Update Class' : 'Create Class'}
                 </PaperButton>
               </View>
             </PaperCard.Content>
@@ -1562,12 +1802,12 @@ function ScheduleOverview() {
                 ) : enrollments.length > 0 ? (
                   enrollments.map((enrollment, index) => (
                     <View key={index} style={styles.enrollmentItem}>
-                      <View style={styles.enrollmentInfo}>
+                      <View style={styles.enrollmentItemInfo}>
                         <Body style={styles.enrollmentName}>
                           {enrollment.user_name || enrollment.name || 'Unknown User'}
                         </Body>
                         <Caption style={styles.enrollmentEmail}>
-                          {enrollment.user_email || enrollment.email || 'No email'}
+                          Joined: {enrollment.created_at ? new Date(enrollment.created_at).toLocaleString() : 'Unknown time'}
                         </Caption>
                       </View>
                       <View style={styles.enrollmentStatus}>
@@ -1589,6 +1829,34 @@ function ScheduleOverview() {
                   </View>
                 )}
               </ScrollView>
+
+              {/* Waitlist Section */}
+              {selectedClass && waitlistData[selectedClass.id] && waitlistData[selectedClass.id].length > 0 && (
+                <View style={styles.waitlistSection}>
+                  <H2 style={styles.waitlistTitle}>Waitlist ({waitlistData[selectedClass.id].length})</H2>
+                  <ScrollView style={styles.waitlistList} showsVerticalScrollIndicator={false}>
+                    {waitlistData[selectedClass.id].map((waitlistEntry, index) => (
+                      <View key={index} style={styles.waitlistItem}>
+                        <View style={styles.waitlistItemInfo}>
+                          <Body style={styles.waitlistName}>
+                            {waitlistEntry.users?.name || waitlistEntry.user_name || waitlistEntry.name || 'Unknown User'}
+                          </Body>
+                          <Caption style={styles.waitlistPosition}>
+                            Position: {waitlistEntry.position || index + 1}
+                          </Caption>
+                        </View>
+                        <View style={styles.waitlistStatus}>
+                          <StatusChip 
+                            state="warning"
+                            text="Waitlist"
+                            size="small"
+                          />
+                        </View>
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
 
               <PaperButton
                 mode="contained"
@@ -1896,6 +2164,7 @@ function ScheduleOverview() {
                   mode="text"
                   onPress={() => setShowDatePicker(false)}
                   style={styles.dateTimePickerCloseButton}
+                  textColor={Colors.light.textSecondary}
                 >
                   Cancel
                 </PaperButton>
@@ -1904,6 +2173,7 @@ function ScheduleOverview() {
                   mode="text"
                   onPress={() => setShowDatePicker(false)}
                   style={styles.dateTimePickerCloseButton}
+                  textColor={Colors.light.primary}
                 >
                   Done
                 </PaperButton>
@@ -1915,9 +2185,13 @@ function ScheduleOverview() {
                 onChange={onDateChange}
                 minimumDate={new Date()}
                 style={[
-                  Platform.OS === 'ios' ? { backgroundColor: 'white' } : {},
+                  Platform.OS === 'ios' ? { 
+                    backgroundColor: Colors.light.surface,
+                  } : {},
                   styles.dateTimePicker
                 ]}
+                textColor={Colors.light.text}
+                accentColor={Colors.light.primary}
               />
             </View>
           </View>
@@ -1933,6 +2207,7 @@ function ScheduleOverview() {
                   mode="text"
                   onPress={() => setShowTimePicker(false)}
                   style={styles.dateTimePickerCloseButton}
+                  textColor={Colors.light.textSecondary}
                 >
                   Cancel
                 </PaperButton>
@@ -1941,6 +2216,7 @@ function ScheduleOverview() {
                   mode="text"
                   onPress={() => setShowTimePicker(false)}
                   style={styles.dateTimePickerCloseButton}
+                  textColor={Colors.light.primary}
                 >
                   Done
                 </PaperButton>
@@ -1951,9 +2227,13 @@ function ScheduleOverview() {
                 display={Platform.OS === 'ios' ? 'spinner' : 'default'}
                 onChange={onTimeChange}
                 style={[
-                  Platform.OS === 'ios' ? { backgroundColor: 'white' } : {},
+                  Platform.OS === 'ios' ? { 
+                    backgroundColor: Colors.light.surface,
+                  } : {},
                   styles.dateTimePicker
                 ]}
+                textColor={Colors.light.text}
+                accentColor={Colors.light.primary}
               />
             </View>
           </View>
@@ -2022,11 +2302,13 @@ const styles = StyleSheet.create({
   // Stats Grid
   statsGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     gap: spacing.md,
   },
   statItem: {
     flex: 1,
+    minWidth: 100,
     alignItems: 'center',
     backgroundColor: Colors.light.surfaceVariant,
     padding: spacing.md,
@@ -2109,11 +2391,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.sm,
   },
+  classHeaderLeft: {
+    flex: 2, // Give more space to class name
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    marginRight: spacing.sm,
+    minWidth: 0,
+  },
+  classHeaderRight: {
+    flex: 1, // Take less space
+    alignItems: 'flex-end',
+  },
+  enrollmentInfo: {
+    fontSize: 12,
+    color: Colors.light.textSecondary,
+    fontWeight: '500',
+  },
+  waitlistInfo: {
+    fontSize: 11,
+    color: Colors.light.warning,
+    fontWeight: '500',
+    marginTop: 2,
+  },
   className: {
     fontWeight: '600',
     color: Colors.light.text,
-    flex: 1,
-    marginRight: spacing.sm,
+    width: '100%',
+    marginBottom: spacing.xs,
   },
   chipContainer: {
     flexDirection: 'row',
@@ -2212,6 +2516,7 @@ const styles = StyleSheet.create({
   pickerLabel: {
     marginBottom: spacing.xs,
     fontWeight: '600',
+    color: Colors.light.text,
   },
   dateTimeButton: {
     flexDirection: 'row',
@@ -2280,7 +2585,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.light.divider,
   },
-  enrollmentInfo: {
+  enrollmentItemInfo: {
     flex: 1,
   },
   enrollmentName: {
@@ -2292,6 +2597,40 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   enrollmentStatus: {
+    marginLeft: spacing.sm,
+  },
+  waitlistSection: {
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+  },
+  waitlistTitle: {
+    color: Colors.light.warning,
+    marginBottom: spacing.sm,
+    fontSize: 16,
+  },
+  waitlistList: {
+    maxHeight: 120,
+  },
+  waitlistItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+    borderBottomWidth: 0.5,
+    borderBottomColor: Colors.light.divider,
+  },
+  waitlistItemInfo: {
+    flex: 1,
+  },
+  waitlistName: {
+    fontWeight: '600',
+    color: Colors.light.text,
+  },
+  waitlistPosition: {
+    color: Colors.light.textSecondary,
+    marginTop: 2,
+  },
+  waitlistStatus: {
     marginLeft: spacing.sm,
   },
   emptyEnrollments: {

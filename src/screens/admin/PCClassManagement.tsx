@@ -1140,6 +1140,11 @@ function PCClassManagement() {
 
   // Helper function to get class status color
   const getClassStatusColor = (classItem: BackendClass) => {
+    // Check if it's a personal class first
+    if (classItem.category === 'personal') {
+      return '#9B59B6'; // Purple for personal classes
+    }
+    
     if (isPastClass(classItem.date, classItem.time, classItem.duration)) {
       return Colors.light.textMuted; // Gray for passed classes
     }

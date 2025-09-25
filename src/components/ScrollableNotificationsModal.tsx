@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Appearance, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Appearance, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ActivityIndicator, Card } from 'react-native-paper';
 import { useSelector } from 'react-redux';
 import { useTheme } from '../contexts/ThemeContext';
@@ -20,9 +20,10 @@ interface ScrollableNotificationsModalProps {
   visible: boolean;
   onDismiss: () => void;
   onNotificationRead?: () => void;
+  onNotificationTap?: (notification: Notification) => void;
 }
 
-export default function ScrollableNotificationsModal({ visible, onDismiss, onNotificationRead }: ScrollableNotificationsModalProps) {
+export default function ScrollableNotificationsModal({ visible, onDismiss, onNotificationRead, onNotificationTap }: ScrollableNotificationsModalProps) {
   const { t } = useTranslation();
   const { user } = useSelector((state: RootState) => state.auth);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -36,10 +37,10 @@ export default function ScrollableNotificationsModal({ visible, onDismiss, onNot
   // Theme colors
   const { themeColors } = useTheme();
   
-  // Force system-based colors to override theme system
-  const textColor = systemColorScheme === 'dark' ? '#FFFFFF' : '#000000';
-  const textSecondaryColor = systemColorScheme === 'dark' ? '#CCCCCC' : '#666666';
-  const surfaceColor = systemColorScheme === 'dark' ? '#2C2C2C' : '#FFFFFF';
+  // Force light colors (no dark mode)
+  const textColor = '#000000';
+  const textSecondaryColor = '#666666';
+  const surfaceColor = '#FFFFFF';
   const primaryColor = themeColors.primary;
   const errorColor = themeColors.error;
 
@@ -104,7 +105,6 @@ export default function ScrollableNotificationsModal({ visible, onDismiss, onNot
         setPage(currentPage + 1);
         setHasMore(endIndex < allNotifications.length);
         
-        console.log(`🔔 [ScrollableNotificationsModal] Loaded page ${currentPage + 1}, ${newNotifications.length} notifications. Total: ${allNotifications.length}, HasMore: ${endIndex < allNotifications.length}`);
       } else {
         if (reset) {
           setNotifications([]);
@@ -223,45 +223,50 @@ export default function ScrollableNotificationsModal({ visible, onDismiss, onNot
   };
 
   const renderNotification = ({ item }: { item: Notification }) => (
-    <Card 
-      style={[
-        styles.notificationCard, 
-        { 
-          backgroundColor: surfaceColor,
-          borderLeftColor: getNotificationColor(item.type),
-          opacity: item.is_read ? 0.7 : 1
-        }
-      ]}
+    <TouchableOpacity 
+      onPress={() => onNotificationTap?.(item)}
+      activeOpacity={0.7}
     >
-      <Card.Content style={styles.notificationContent}>
-        <View style={styles.notificationHeader}>
-          <View style={[styles.iconContainer, { backgroundColor: getNotificationColor(item.type) + '20' }]}>
-            <MaterialIcons 
-              name={getNotificationIcon(item.type)} 
-              size={20} 
-              color={getNotificationColor(item.type)} 
-            />
-            {/* Fallback text if icon doesn't show */}
-            <Text style={{ 
-              position: 'absolute', 
-              fontSize: 10, 
-              color: getNotificationColor(item.type),
-              fontWeight: 'bold'
-            }}>
-              {item.type.charAt(0).toUpperCase()}
-            </Text>
+      <Card 
+        style={[
+          styles.notificationCard, 
+          { 
+            backgroundColor: surfaceColor,
+            borderLeftColor: getNotificationColor(item.type),
+            opacity: item.is_read ? 0.7 : 1
+          }
+        ]}
+      >
+        <Card.Content style={styles.notificationContent}>
+          <View style={styles.notificationHeader}>
+            <View style={[styles.iconContainer, { backgroundColor: getNotificationColor(item.type) + '20' }]}>
+              <MaterialIcons 
+                name={getNotificationIcon(item.type)} 
+                size={20} 
+                color={getNotificationColor(item.type)} 
+              />
+              {/* Fallback text if icon doesn't show */}
+              <Text style={{ 
+                position: 'absolute', 
+                fontSize: 10, 
+                color: getNotificationColor(item.type),
+                fontWeight: 'bold'
+              }}>
+                {item.type.charAt(0).toUpperCase()}
+              </Text>
+            </View>
+            <View style={styles.notificationText}>
+              <Text style={[styles.notificationMessage, { color: textColor }]}>
+                {item.message}
+              </Text>
+              <Text style={[styles.notificationTime, { color: textSecondaryColor }]}>
+                {formatNotificationTime(item.created_at)}
+              </Text>
+            </View>
           </View>
-          <View style={styles.notificationText}>
-            <Text style={[styles.notificationMessage, { color: textColor }]}>
-              {item.message}
-            </Text>
-            <Text style={[styles.notificationTime, { color: textSecondaryColor }]}>
-              {formatNotificationTime(item.created_at)}
-            </Text>
-          </View>
-        </View>
-      </Card.Content>
-    </Card>
+        </Card.Content>
+      </Card>
+    </TouchableOpacity>
   );
 
   const renderFooter = () => {

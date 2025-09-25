@@ -1,5 +1,6 @@
 import moment from 'moment';
 import { Alert } from 'react-native';
+import i18n from '../i18n';
 import { bookingService } from '../services/bookingService';
 import { pushNotificationService } from '../services/pushNotificationService';
 
@@ -7,8 +8,17 @@ import { pushNotificationService } from '../services/pushNotificationService';
 const formatDate = (dateStr: string) => {
   const date = new Date(dateStr);
   const weekdayIndex = date.getDay();
-  const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const weekday = weekdays[weekdayIndex];
+  
+  // Get localized weekdays from translation
+  const currentLang = i18n.language || 'en';
+  const weekdaysKey = 'dates.weekdays.short';
+  const weekdays = i18n.t(weekdaysKey, { returnObjects: true }) as string[];
+  
+  // Fallback to English if translation fails
+  const fallbackWeekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const finalWeekdays = Array.isArray(weekdays) ? weekdays : fallbackWeekdays;
+  
+  const weekday = finalWeekdays[weekdayIndex];
   const day = date.getDate().toString().padStart(2, '0');
   const month = (date.getMonth() + 1).toString().padStart(2, '0');
   const year = date.getFullYear();
@@ -127,7 +137,7 @@ class BookingUtilsService implements UnifiedBookingUtils {
       const millisecondsUntilClass = classTimeInAlbania.getTime() - currentTimeInAlbania.getTime();
       const hoursUntilClass = millisecondsUntilClass / (1000 * 60 * 60);
       
-      console.log(`🕒 [TIMEZONE] Hours until class: ${hoursUntilClass.toFixed(2)}`);
+      // Timezone check - removed noisy log
       return hoursUntilClass >= 2;
       
     } catch (error) {
@@ -273,7 +283,21 @@ class BookingUtilsService implements UnifiedBookingUtils {
       const response = await bookingService.createBooking({ classId: classId.toString() });
       
       if (response.success) {
-        // Success - calling screen handles the success message
+        // Show success confirmation
+        const successTitle = t ? t('classes.bookingConfirmed') : '✅ Booking Confirmed!';
+        const className = classData?.name || 'class';
+        const classDate = classData?.date ? formatDate(classData.date) : '';
+        const classTime = classData?.time ? formatTime(classData.time) : '';
+        
+        const successMessage = t ? 
+          t('booking.bookingConfirmedMessage', { 
+            className, 
+            date: classDate, 
+            time: classTime 
+          }) : 
+          `Your booking for ${className} is confirmed${classDate ? ` for ${classDate}` : ''}${classTime ? ` at ${classTime}` : ''}.`;
+        
+        Alert.alert(successTitle, successMessage);
         return true;
       } else {
         const title = t ? t('classes.bookingFailed') : 'Booking Failed';
@@ -344,14 +368,14 @@ class BookingUtilsService implements UnifiedBookingUtils {
               style: 'destructive',
               onPress: async () => {
                 try {
-                  console.log('🚫 [UNIFIED] Cancelling booking:', booking.id);
+                  // Cancelling booking
                   
                   // Cancel the booking
                   const response = await bookingService.cancelBooking(booking.id.toString());
                   
                   if (response.success) {
                     // Cancel any reminder notifications for this class
-                    console.log('🔔 [UNIFIED] Cancelling reminder notifications...');
+                    // Cancelling reminder notifications
                     await pushNotificationService.cancelClassReminder(
                       (booking.classId || booking.class_id || booking.id).toString(),
                       booking.class_name || 'Class'
@@ -466,7 +490,34 @@ class BookingUtilsService implements UnifiedBookingUtils {
       const response = await bookingService.joinWaitlist({ classId: classId.toString() });
         
         if (response.success) {
-          // Success - calling screen handles the success message
+          // Show success confirmation with waitlist position
+          const successTitle = t ? t('classes.joinedWaitlist') : '📋 Joined Waitlist!';
+          const className = classData?.name || 'class';
+          const classDate = classData?.date ? formatDate(classData.date) : '';
+          const classTime = classData?.time ? formatTime(classData.time) : '';
+          const position = response.data?.position || null;
+          
+          let successMessage;
+          if (position) {
+            successMessage = t ? 
+              t('booking.joinedWaitlistWithPosition', { 
+                className, 
+                position,
+                date: classDate, 
+                time: classTime 
+              }) : 
+              `You've joined the waitlist for ${className}${classDate ? ` on ${classDate}` : ''}${classTime ? ` at ${classTime}` : ''}.\n\nYour position: ${position}`;
+          } else {
+            successMessage = t ? 
+              t('booking.joinedWaitlistMessage', { 
+                className, 
+                date: classDate, 
+                time: classTime 
+              }) : 
+              `You've joined the waitlist for ${className}${classDate ? ` on ${classDate}` : ''}${classTime ? ` at ${classTime}` : ''}.`;
+          }
+          
+          Alert.alert(successTitle, successMessage);
           return true;
         } else {
           const title = t ? t('classes.failedToJoinWaitlist') : 'Failed to Join Waitlist';

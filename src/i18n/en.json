@@ -107,7 +107,6 @@
     "duration": "Duration",
     "equipment": "Equipment",
     "difficulty": "Difficulty",
-    "bookingConfirmed": "Booking confirmed!",
     "bookingCancelled": "Booking cancelled",
     "waitlistJoined": "Added to waitlist",
     "waitlistLeft": "Removed from waitlist",
@@ -163,7 +162,9 @@
     "subscriptionRequired": "Subscription Required",
     "subscriptionRequiredMessage": "You need an active subscription plan to book classes. Please contact reception to purchase a plan.",
     "subscriptionRequiredWaitlistMessage": "You need an active subscription plan to join waitlists. Please contact reception to purchase a plan.",
-    "needSubscriptionToJoinWaitlist": "You need an active subscription plan to join waitlists. Please contact reception to purchase a plan."
+    "needSubscriptionToJoinWaitlist": "You need an active subscription plan to join waitlists. Please contact reception to purchase a plan.",
+    "bookingConfirmed": "Booking Confirmed!",
+    "joinedWaitlist": "Joined Waitlist!"
   },
   "subscription": {
     "currentPlan": "Current Plan",
@@ -223,7 +224,10 @@
     "leaveWaitlistConfirm": "Are you sure you want to leave the waitlist for {{className}}?",
     "leftWaitlist": "Left Waitlist",
     "failedToLeaveWaitlist": "Failed to Leave Waitlist",
-    "unableToLeaveWaitlist": "Unable to leave waitlist. Please try again."
+    "unableToLeaveWaitlist": "Unable to leave waitlist. Please try again.",
+    "bookingConfirmedMessage": "Your booking for {{className}} is confirmed for {{date}} at {{time}}.",
+    "joinedWaitlistMessage": "You've joined the waitlist for {{className}} on {{date}} at {{time}}.",
+    "joinedWaitlistWithPosition": "You've joined the waitlist for {{className}} on {{date}} at {{time}}.\n\nYour position: {{position}}"
   },
   "settings": {
     "systemSettings": "System Settings",

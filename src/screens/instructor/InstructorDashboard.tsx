@@ -4,10 +4,12 @@ import { Colors } from '@/constants/Colors';
 import { spacing } from '@/constants/Spacing';
 import { useNavigation } from '@react-navigation/native';
 import React, { useEffect, useState } from 'react';
-import { Alert, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { Button as PaperButton, Card as PaperCard } from 'react-native-paper';
+import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Modal, Button as PaperButton, Card as PaperCard, Portal } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
+import ScrollableNotificationsModal from '../../components/ScrollableNotificationsModal';
 import WebCompatibleIcon from '../../components/WebCompatibleIcon';
+import { supabase } from '../../config/supabase.config';
 import { BackendClass, classService } from '../../services/classService';
 import { notificationService } from '../../services/notificationService';
 import { pushNotificationService } from '../../services/pushNotificationService';
@@ -20,13 +22,13 @@ function InstructorDashboard() {
   const { user } = useSelector((state: RootState) => state.auth);
   const [refreshing, setRefreshing] = useState(false);
   const [upcomingClasses, setUpcomingClasses] = useState<BackendClass[]>([]);
+  const [personalClasses, setPersonalClasses] = useState<BackendClass[]>([]);
   const [fullClasses, setFullClasses] = useState<BackendClass[]>([]);
   const [almostFullClasses, setAlmostFullClasses] = useState<BackendClass[]>([]);
   const [todaysStats, setTodaysStats] = useState({
     classesToday: 0,
-    totalAttendees: 0,
-    completedClasses: 0,
-    averageAttendance: 0,
+    personalClassesToday: 0,
+    groupClassesToday: 0,
   });
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -35,6 +37,10 @@ function InstructorDashboard() {
   const [showingMore, setShowingMore] = useState(false);
   const [notificationsPage, setNotificationsPage] = useState(1);
   const [hasMoreNotifications, setHasMoreNotifications] = useState(false);
+  const [timeEditModalVisible, setTimeEditModalVisible] = useState(false);
+  const [selectedClassForTimeEdit, setSelectedClassForTimeEdit] = useState<BackendClass | null>(null);
+  const [newTime, setNewTime] = useState('');
+  const [notificationModalVisible, setNotificationModalVisible] = useState(false);
 
   useEffect(() => {
     loadInstructorData();
@@ -43,7 +49,6 @@ function InstructorDashboard() {
     // Initialize notification services for instructors (IPA build support)
     const initializeNotifications = async () => {
       try {
-        console.log('📱 [InstructorDashboard] Initializing notification services...');
         
         // Initialize both notification services for production builds
         await Promise.all([
@@ -51,7 +56,6 @@ function InstructorDashboard() {
           pushNotificationService.initialize()
         ]);
         
-        console.log('✅ [InstructorDashboard] Notification services initialized successfully');
       } catch (error) {
         console.error('⚠️ [InstructorDashboard] Failed to initialize notification services:', error);
         // Don't block dashboard loading if notification initialization fails
@@ -106,6 +110,9 @@ function InstructorDashboard() {
 
   const handleNotificationTap = async (notification: any) => {
     try {
+      // Close the modal first
+      setNotificationModalVisible(false);
+      
       // Mark as read first
       await markNotificationAsRead(notification.id);
       
@@ -164,25 +171,33 @@ function InstructorDashboard() {
     try {
       if (!user?.id) return;
       
-      // Mark all unread notifications as read in database
-      const { error } = await require('../../config/supabase.config').supabase
+      const { error } = await supabase
         .from('notifications')
         .update({ is_read: true })
         .eq('user_id', user.id)
         .eq('is_read', false);
 
-      if (!error) {
-        // Update local state - mark all as read
-        const updatedNotifications = notifications.map(n => ({ ...n, is_read: true }));
-        const updatedAllNotifications = allNotifications.map(n => ({ ...n, is_read: true }));
-        
-        setNotifications(updatedNotifications);
-        setAllNotifications(updatedAllNotifications);
-        setUnreadNotificationCount(0);
+      if (error) {
+        console.error('Error marking notifications as read:', error);
+        return;
       }
+
+      // Reset unread count
+      setUnreadNotificationCount(0);
     } catch (error) {
-      console.error('Error marking all notifications as read:', error);
+      console.error('Error marking notifications as read:', error);
     }
+  };
+
+  const formatNotificationTime = (timestamp: string) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
+    
+    if (diffInMinutes < 1) return 'Just now';
+    if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+    if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}h ago`;
+    return date.toLocaleDateString();
   };
 
   const loadInstructorData = async () => {
@@ -200,20 +215,34 @@ function InstructorDashboard() {
 
       if (classResponse.success && classResponse.data) {
         const allClasses = classResponse.data;
+        // Normalize missing category values to avoid zero counts when category is null
+        const normalizedClasses = allClasses.map((cls) => ({
+          ...cls,
+          category: (cls as any).category || 'group',
+        }));
         const today = new Date().toISOString().split('T')[0];
         const now = new Date();
         
-        // Filter upcoming classes (today and future)
-        const upcomingClasses = allClasses.filter(cls => {
+        // Filter upcoming classes (today and future) - group classes only
+        const upcomingClasses = normalizedClasses.filter(cls => {
           const classDate = new Date(cls.date);
           const classDateTime = new Date(`${cls.date}T${cls.time}`);
-          return classDate >= new Date(today) && classDateTime > now;
+          return classDate >= new Date(today) && classDateTime > now && cls.category === 'group';
         }).slice(0, 4); // Show next 4 classes for dashboard
 
         setUpcomingClasses(upcomingClasses);
 
+        // Filter personal classes (today and future)
+        const personalClasses = normalizedClasses.filter(cls => {
+          const classDate = new Date(cls.date);
+          const classDateTime = new Date(`${cls.date}T${cls.time}`);
+          return classDate >= new Date(today) && classDateTime > now && cls.category === 'personal';
+        }).slice(0, 3); // Show next 3 personal classes
+
+        setPersonalClasses(personalClasses);
+
         // Filter full classes (at capacity)
-        const fullClasses = allClasses.filter(cls => {
+        const fullClasses = normalizedClasses.filter(cls => {
           const classDate = new Date(cls.date);
           const classDateTime = new Date(`${cls.date}T${cls.time}`);
           return classDate >= new Date(today) && classDateTime > now && (cls.enrolled || 0) >= cls.capacity;
@@ -222,7 +251,7 @@ function InstructorDashboard() {
         setFullClasses(fullClasses);
 
         // Filter almost full classes (80% capacity)
-        const almostFullClasses = allClasses.filter(cls => {
+        const almostFullClasses = normalizedClasses.filter(cls => {
           const classDate = new Date(cls.date);
           const classDateTime = new Date(`${cls.date}T${cls.time}`);
           const enrollmentPercentage = ((cls.enrolled || 0) / cls.capacity) * 100;
@@ -235,25 +264,14 @@ function InstructorDashboard() {
         setAlmostFullClasses(almostFullClasses);
 
         // Calculate today's stats
-        const todaysClasses = allClasses.filter(cls => cls.date === today);
-        const totalTodayAttendees = todaysClasses.reduce((sum, cls) => sum + (cls.enrolled || 0), 0);
-        
-        // Calculate completed classes today (past classes)
-        const completedToday = todaysClasses.filter(cls => {
-          const classDateTime = new Date(`${cls.date}T${cls.time}`);
-          return classDateTime < now;
-        }).length;
-
-        // Calculate average attendance for all instructor's classes
-        const totalEnrolled = allClasses.reduce((sum, cls) => sum + (cls.enrolled || 0), 0);
-        const totalCapacity = allClasses.reduce((sum, cls) => sum + cls.capacity, 0);
-        const avgAttendance = totalCapacity > 0 ? Math.round((totalEnrolled / totalCapacity) * 100) : 0;
+        const todaysClasses = normalizedClasses.filter(cls => cls.date === today);
+        const todaysPersonalClasses = todaysClasses.filter(cls => cls.category === 'personal');
+        const todaysGroupClasses = todaysClasses.filter(cls => cls.category === 'group');
 
         setTodaysStats({
           classesToday: todaysClasses.length,
-          totalAttendees: totalTodayAttendees,
-          completedClasses: completedToday,
-          averageAttendance: avgAttendance,
+          personalClassesToday: todaysPersonalClasses.length,
+          groupClassesToday: todaysGroupClasses.length,
         });
       }
     } catch (error) {
@@ -284,11 +302,44 @@ function InstructorDashboard() {
     navigation.navigate('My Clients');
   };
 
-  const handleClassDetails = (classId: number) => {
+  const handleClassDetails = (classId: string | number, classStatus?: string) => {
     // Navigate to class details
-    console.log('Navigate to class details:', classId);
+    console.log('Navigate to class details:', classId, 'Status:', classStatus);
     // @ts-ignore - navigation type issue
-    navigation.navigate('ClassDetails', { classId: classId.toString() });
+    navigation.navigate('ClassDetails', { 
+      classId: classId.toString(),
+      classStatus: classStatus || 'available'
+    });
+  };
+
+  const handleEditTime = (classItem: BackendClass) => {
+    setSelectedClassForTimeEdit(classItem);
+    setNewTime(classItem.time);
+    setTimeEditModalVisible(true);
+  };
+
+  const handleSaveTimeChange = async () => {
+    if (!selectedClassForTimeEdit || !newTime) return;
+
+    try {
+      const response = await classService.updateClass(selectedClassForTimeEdit.id, {
+        time: newTime
+      });
+
+      if (response.success) {
+        Alert.alert('Success', 'Class time updated successfully');
+        setTimeEditModalVisible(false);
+        setSelectedClassForTimeEdit(null);
+        setNewTime('');
+        // Refresh data
+        loadInstructorData();
+      } else {
+        Alert.alert('Error', response.error || 'Failed to update class time');
+      }
+    } catch (error) {
+      console.error('Error updating class time:', error);
+      Alert.alert('Error', 'Failed to update class time');
+    }
   };
 
   const handleFullClassNotification = async (classItem: BackendClass) => {
@@ -367,8 +418,36 @@ function InstructorDashboard() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <H1 style={styles.headerTitle}>Welcome, {user?.name?.split(' ')[0] || 'Instructor'}</H1>
-        <Caption style={styles.headerSubtitle}>Instructor Dashboard</Caption>
+        <View style={styles.headerContent}>
+          <View style={styles.headerText}>
+            <H1 style={styles.headerTitle}>Welcome, {user?.name?.split(' ')[0] || 'Instructor'}</H1>
+            <Caption style={styles.headerSubtitle}>Instructor Dashboard</Caption>
+          </View>
+          <View style={styles.headerActions}>
+            {/* Notification Icon */}
+            <TouchableOpacity 
+              style={styles.notificationIconContainer}
+              onPress={async () => {
+                setNotificationModalVisible(true);
+                // Mark all notifications as read when modal is opened
+                await markAllNotificationsAsRead();
+              }}
+            >
+              <WebCompatibleIcon 
+                name="notifications" 
+                size={24} 
+                color={Colors.light.textOnAccent} 
+              />
+              {unreadNotificationCount > 0 && (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>
+                    {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
 
       <ScrollView 
@@ -389,32 +468,25 @@ function InstructorDashboard() {
                   <WebCompatibleIcon name="event" size={24} color={Colors.light.accent} />
                   <Body style={styles.statNumber}>{todaysStats.classesToday}</Body>
                 </View>
-                <Caption style={styles.statLabel}>Classes Today</Caption>
+                <Caption style={styles.statLabel}>Total Classes Today</Caption>
               </View>
               
               <View style={styles.statItem}>
                 <View style={styles.statHeader}>
-                  <WebCompatibleIcon name="people" size={24} color={Colors.light.primary} />
-                  <Body style={styles.statNumber}>{todaysStats.totalAttendees}</Body>
+                  <WebCompatibleIcon name="person" size={24} color={Colors.light.primary} />
+                  <Body style={styles.statNumber}>{todaysStats.personalClassesToday}</Body>
                 </View>
-                <Caption style={styles.statLabel}>Total Attendees</Caption>
+                <Caption style={styles.statLabel}>Personal Classes</Caption>
               </View>
               
               <View style={styles.statItem}>
                 <View style={styles.statHeader}>
-                  <WebCompatibleIcon name="check-circle" size={24} color={Colors.light.success} />
-                  <Body style={styles.statNumber}>{todaysStats.completedClasses}</Body>
+                  <WebCompatibleIcon name="groups" size={24} color={Colors.light.secondary} />
+                  <Body style={styles.statNumber}>{todaysStats.groupClassesToday}</Body>
                 </View>
-                <Caption style={styles.statLabel}>Completed</Caption>
+                <Caption style={styles.statLabel}>Group Classes</Caption>
               </View>
               
-              <View style={styles.statItem}>
-                <View style={styles.statHeader}>
-                  <WebCompatibleIcon name="trending-up" size={24} color={Colors.light.warning} />
-                  <Body style={styles.statNumber}>{todaysStats.averageAttendance}%</Body>
-                </View>
-                <Caption style={styles.statLabel}>Avg Attendance</Caption>
-              </View>
             </View>
           </PaperCard.Content>
         </PaperCard>
@@ -426,9 +498,9 @@ function InstructorDashboard() {
               <View style={styles.sectionHeader}>
                 <View style={styles.almostFullClassTitle}>
                   <WebCompatibleIcon name="warning" size={20} color={Colors.light.warning} />
-                  <H2 style={styles.cardTitle}>Almost Full Classes</H2>
+                  <H2 style={{ ...styles.cardTitle, color: Colors.light.warning }}>Almost Full Classes</H2>
                 </View>
-                <Caption style={styles.almostFullClassSubtitle}>
+                <Caption style={{ ...styles.almostFullClassSubtitle, color: Colors.light.warning, fontWeight: '500' }}>
                   Classes approaching capacity (80%+)
                 </Caption>
               </View>
@@ -476,10 +548,90 @@ function InstructorDashboard() {
                     style={styles.warningButton}
                     labelStyle={styles.warningButtonLabel}
                     icon={() => <WebCompatibleIcon name="visibility" size={16} color={Colors.light.warning} />}
-                    onPress={() => handleClassDetails(classItem.id)}
+                    onPress={() => handleClassDetails(classItem.id, 'almost_full')}
                   >
                     View
                   </PaperButton>
+                </View>
+              ))}
+            </PaperCard.Content>
+          </PaperCard>
+        )}
+
+        {/* Personal Classes */}
+        {personalClasses.length > 0 && (
+          <PaperCard style={[styles.card, styles.personalClassCard]}>
+            <PaperCard.Content style={styles.cardContent}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.personalClassTitle}>
+                  <WebCompatibleIcon name="person" size={20} color={Colors.light.primary} />
+                  <H2 style={{ ...styles.cardTitle, color: Colors.light.primary }}>Personal Classes</H2>
+                </View>
+                <Caption style={{ ...styles.personalClassSubtitle, color: Colors.light.primary, fontWeight: '500' }}>
+                  One-on-one sessions
+                </Caption>
+              </View>
+              
+              {personalClasses.map((classItem) => (
+                <View key={classItem.id} style={styles.personalClassItem}>
+                  <View style={styles.classInfo}>
+                    <View style={styles.classHeader}>
+                      <Body style={{ ...styles.className, color: Colors.light.primary, fontWeight: '600' }}>{classItem.name}</Body>
+                      <StatusChip 
+                        state="success"
+                        text="PERSONAL"
+                      />
+                    </View>
+                    
+                    <View style={styles.classDetails}>
+                      <View style={styles.classDetailItem}>
+                        <WebCompatibleIcon name="schedule" size={16} color={Colors.light.textSecondary} />
+                        <Caption style={styles.classDetailText}>
+                          {formatDate(classItem.date)} at {formatTime(classItem.time)}
+                        </Caption>
+                      </View>
+                      
+                      <View style={styles.classDetailItem}>
+                        <WebCompatibleIcon name="people" size={16} color={Colors.light.primary} />
+                        <Caption style={styles.personalClassText}>
+                          {classItem.enrolled || 0}/{classItem.capacity} enrolled
+                        </Caption>
+                      </View>
+                      
+                      {classItem.room && (
+                        <View style={styles.classDetailItem}>
+                          <WebCompatibleIcon name="location-on" size={16} color={Colors.light.textSecondary} />
+                          <Caption style={styles.classDetailText}>
+                            {classItem.room}
+                          </Caption>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                  
+                  <View style={styles.personalClassActions}>
+                    <PaperButton 
+                      mode="outlined" 
+                      compact
+                      style={styles.timeEditButton}
+                      labelStyle={styles.timeEditButtonLabel}
+                      icon={() => <WebCompatibleIcon name="edit" size={16} color={Colors.light.primary} />}
+                      onPress={() => handleEditTime(classItem)}
+                    >
+                      Edit Time
+                    </PaperButton>
+                    
+                    <PaperButton 
+                      mode="outlined" 
+                      compact
+                      style={styles.warningButton}
+                      labelStyle={styles.warningButtonLabel}
+                      icon={() => <WebCompatibleIcon name="visibility" size={16} color={Colors.light.primary} />}
+                      onPress={() => handleClassDetails(classItem.id, 'personal')}
+                    >
+                      View
+                    </PaperButton>
+                  </View>
                 </View>
               ))}
             </PaperCard.Content>
@@ -538,14 +690,14 @@ function InstructorDashboard() {
                   </View>
                   
                   <PaperButton 
-                    mode="contained" 
+                    mode="outlined" 
                     compact
-                    style={styles.notifyButton}
-                    labelStyle={styles.notifyButtonLabel}
-                    icon={() => <WebCompatibleIcon name="notifications" size={16} color="white" />}
-                    onPress={() => handleFullClassNotification(classItem)}
+                    style={styles.warningButton}
+                    labelStyle={styles.warningButtonLabel}
+                    icon={() => <WebCompatibleIcon name="visibility" size={16} color={Colors.light.error} />}
+                    onPress={() => handleClassDetails(classItem.id, 'full')}
                   >
-                    Notify
+                    View
                   </PaperButton>
                 </View>
               ))}
@@ -603,7 +755,7 @@ function InstructorDashboard() {
                     compact
                     style={styles.classAction}
                     labelStyle={styles.classActionLabel}
-                    onPress={() => handleClassDetails(classItem.id)}
+                    onPress={() => handleClassDetails(classItem.id, getStatusText(classItem).toLowerCase().replace(' ', '_'))}
                   >
                     Details
                   </PaperButton>
@@ -632,88 +784,6 @@ function InstructorDashboard() {
           </PaperCard.Content>
         </PaperCard>
 
-        {/* Notifications Panel */}
-        <PaperCard style={styles.card}>
-          <PaperCard.Content style={styles.cardContent}>
-            <View style={styles.sectionHeader}>
-              <H2 style={styles.cardTitle}>Recent Notifications</H2>
-              <View style={styles.notificationActions}>
-                {unreadNotificationCount > 0 && (
-                  <View style={styles.notificationBadge}>
-                    <Caption style={styles.badgeText}>{unreadNotificationCount}</Caption>
-                  </View>
-                )}
-                {unreadNotificationCount > 0 && (
-                  <PaperButton
-                    mode="text"
-                    compact
-                    labelStyle={styles.markAllReadLabel}
-                    onPress={markAllNotificationsAsRead}
-                  >
-                    Mark all read
-                  </PaperButton>
-                )}
-              </View>
-            </View>
-            
-            {notifications.length > 0 ? (
-              <ScrollView style={styles.notificationsScroll} nestedScrollEnabled>
-                {notifications.map((notification, index) => (
-                  <TouchableOpacity 
-                    key={notification.id || index} 
-                    style={[
-                      styles.notificationItem,
-                      !notification.is_read && styles.unreadNotificationItem
-                    ]}
-                    onPress={() => handleNotificationTap(notification)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.notificationHeader}>
-                      <WebCompatibleIcon 
-                        name={notification.is_read ? "notifications" : "notifications-active"} 
-                        size={16} 
-                        color={notification.is_read ? Colors.light.textMuted : Colors.light.primary} 
-                      />
-                      <Caption style={[
-                        styles.notificationTime,
-                        { color: notification.is_read ? Colors.light.textMuted : Colors.light.textSecondary }
-                      ]}>
-                        {new Date(notification.created_at).toLocaleDateString()}
-                      </Caption>
-                      {!notification.is_read && (
-                        <View style={styles.unreadDot} />
-                      )}
-                    </View>
-                    <Body style={[
-                      styles.notificationMessage,
-                      { fontWeight: notification.is_read ? 'normal' : '600' }
-                    ]}>
-                      {notification.message}
-                    </Body>
-                  </TouchableOpacity>
-                ))}
-                
-                {hasMoreNotifications && (
-                  <PaperButton 
-                    mode="outlined" 
-                    style={styles.loadMoreNotificationsButton}
-                    labelStyle={styles.loadMoreLabel}
-                    onPress={loadMoreNotifications}
-                    icon={() => <WebCompatibleIcon name="keyboard-arrow-down" size={16} color={Colors.light.primary} />}
-                  >
-                    Load More
-                  </PaperButton>
-                )}
-              </ScrollView>
-            ) : (
-              <View style={styles.emptyState}>
-                <WebCompatibleIcon name="notifications-none" size={48} color={Colors.light.textSecondary} />
-                <Body style={styles.emptyText}>No notifications</Body>
-                <Caption style={styles.emptySubtext}>You'll receive notifications about your classes here</Caption>
-              </View>
-            )}
-          </PaperCard.Content>
-        </PaperCard>
 
         {/* Quick Navigation */}
         <PaperCard style={styles.card}>
@@ -744,6 +814,87 @@ function InstructorDashboard() {
           </PaperCard.Content>
         </PaperCard>
       </ScrollView>
+
+      {/* Time Edit Modal */}
+      {timeEditModalVisible && selectedClassForTimeEdit && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <H2 style={styles.modalTitle}>Edit Class Time</H2>
+              <PaperButton 
+                mode="text" 
+                onPress={() => setTimeEditModalVisible(false)}
+                icon="close"
+              >
+                Close
+              </PaperButton>
+            </View>
+            
+            <View style={styles.modalContent}>
+              <Body style={styles.modalText}>
+                Class: {selectedClassForTimeEdit.name}
+              </Body>
+              <Caption style={styles.modalSubtext}>
+                Date: {formatDate(selectedClassForTimeEdit.date)}
+              </Caption>
+              
+              <View style={styles.timeInputContainer}>
+                <Caption style={styles.inputLabel}>New Time:</Caption>
+                <TextInput
+                  style={styles.timeInput}
+                  value={newTime}
+                  onChangeText={setNewTime}
+                  placeholder="HH:MM"
+                  placeholderTextColor={Colors.light.textMuted}
+                />
+              </View>
+            </View>
+            
+            <View style={styles.modalActions}>
+              <PaperButton 
+                mode="outlined" 
+                onPress={() => setTimeEditModalVisible(false)}
+                style={styles.modalButton}
+              >
+                Cancel
+              </PaperButton>
+              <PaperButton 
+                mode="contained" 
+                onPress={handleSaveTimeChange}
+                style={[styles.modalButton, { backgroundColor: Colors.light.primary }]}
+                labelStyle={{ color: 'white' }}
+              >
+                Save Time
+              </PaperButton>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Notification Modal */}
+      <Portal>
+        <Modal
+          visible={notificationModalVisible}
+          onDismiss={() => setNotificationModalVisible(false)}
+          contentContainerStyle={[styles.notificationModal, { backgroundColor: Colors.light.surface }]}
+        >
+          <View style={styles.notificationModalHeader}>
+            <H2 style={{ color: Colors.light.text }}>🔔 Recent Notifications</H2>
+            <TouchableOpacity 
+              onPress={() => setNotificationModalVisible(false)}
+              style={styles.closeButton}
+            >
+              <WebCompatibleIcon name="close" size={24} color={Colors.light.text} />
+            </TouchableOpacity>
+          </View>
+          <ScrollableNotificationsModal 
+            visible={notificationModalVisible}
+            onDismiss={() => setNotificationModalVisible(false)}
+            onNotificationRead={() => loadNotifications()}
+            onNotificationTap={handleNotificationTap}
+          />
+        </Modal>
+      </Portal>
     </View>
   );
 }
@@ -765,6 +916,19 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.light.border,
   },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerText: {
+    flex: 1,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   headerTitle: {
     color: Colors.light.textOnAccent,
     marginBottom: spacing.xs,
@@ -772,6 +936,61 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     color: Colors.light.textOnAccent,
     opacity: 0.8,
+  },
+  notificationIconContainer: {
+    position: 'relative',
+    padding: spacing.sm,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    backgroundColor: Colors.light.error,
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: Colors.light.primary,
+  },
+  notificationBadgeText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  notificationModal: {
+    margin: 20,
+    padding: 0,
+    borderRadius: 12,
+    height: '45%',
+    width: '90%',
+    alignSelf: 'center',
+  },
+  notificationModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    paddingTop: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+  },
+  closeButton: {
+    padding: spacing.sm,
+  },
+  emptyText: {
+    color: Colors.light.textMuted,
+    marginTop: spacing.md,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  emptySubtext: {
+    color: Colors.light.textMuted,
+    marginTop: spacing.xs,
+    textAlign: 'center',
   },
   content: {
     flex: 1,
@@ -790,6 +1009,10 @@ const styles = StyleSheet.create({
   almostFullClassCard: {
     borderLeftWidth: 4,
     borderLeftColor: Colors.light.warning,
+  },
+  personalClassCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: Colors.light.primary,
   },
   cardContent: {
     padding: spacing.lg,
@@ -813,6 +1036,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   almostFullClassSubtitle: {
+    color: Colors.light.textSecondary,
+    marginTop: spacing.xs,
+  },
+  personalClassTitle: {
+    color: Colors.light.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  personalClassSubtitle: {
     color: Colors.light.textSecondary,
     marginTop: spacing.xs,
   },
@@ -883,6 +1115,16 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: spacing.sm,
   },
+  personalClassItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.light.border,
+    backgroundColor: Colors.light.primary + '10',
+    borderRadius: 8,
+    marginBottom: spacing.sm,
+  },
   classInfo: {
     flex: 1,
   },
@@ -944,15 +1186,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.xl,
   },
-  emptyText: {
-    color: Colors.light.textSecondary,
-    marginTop: spacing.md,
-    marginBottom: spacing.xs,
-  },
-  emptySubtext: {
-    color: Colors.light.textSecondary,
-    textAlign: 'center',
-  },
   navigationButtons: {
     flexDirection: 'row',
     gap: spacing.md,
@@ -973,72 +1206,6 @@ const styles = StyleSheet.create({
     color: Colors.light.primary,
     fontWeight: '500',
   },
-  // Notification styles
-  notificationCard: {
-    borderLeftWidth: 4,
-    borderLeftColor: Colors.light.accent,
-  },
-  notificationHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  notificationBadge: {
-    backgroundColor: Colors.light.error,
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 'auto',
-  },
-  badgeText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  notificationItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.light.border,
-  },
-  notificationContent: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
-  },
-  notificationIcon: {
-    marginTop: 2,
-  },
-  notificationText: {
-    flex: 1,
-  },
-  notificationTitle: {
-    fontWeight: '500',
-    marginBottom: 2,
-  },
-  unreadText: {
-    color: Colors.light.accent,
-    fontWeight: '600',
-  },
-  notificationMessage: {
-    color: Colors.light.textSecondary,
-    marginBottom: 2,
-  },
-  notificationTime: {
-    color: Colors.light.textSecondary,
-    fontSize: 11,
-  },
-  unreadDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.light.accent,
-    marginLeft: spacing.sm,
-  },
   seeMoreButton: {
     marginTop: spacing.md,
     borderColor: Colors.light.primary,
@@ -1048,53 +1215,91 @@ const styles = StyleSheet.create({
     color: Colors.light.primary,
     fontSize: 14,
   },
-  notificationBadge: {
-    backgroundColor: Colors.light.error,
-    borderRadius: 10,
-    paddingHorizontal: spacing.xs,
-    paddingVertical: 2,
-    minWidth: 20,
-    alignItems: 'center',
+  personalClassText: {
+    color: Colors.light.primary,
+    fontWeight: '500',
   },
-  badgeText: {
-    color: 'white',
+  personalClassActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  timeEditButton: {
+    borderColor: Colors.light.primary,
+  },
+  timeEditButtonLabel: {
+    color: Colors.light.primary,
     fontSize: 12,
-    fontWeight: '600',
   },
-  notificationItem: {
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.light.border,
+  // Modal styles
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
   },
-  notificationHeader: {
+  modalContainer: {
+    backgroundColor: Colors.light.surface,
+    borderRadius: 12,
+    margin: spacing.lg,
+    maxWidth: 400,
+    width: '90%',
+    ...shadows.card,
+  },
+  modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    padding: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.light.border,
+  },
+  modalTitle: {
+    color: Colors.light.text,
+    flex: 1,
+  },
+  modalContent: {
+    padding: spacing.lg,
+  },
+  modalText: {
+    color: Colors.light.text,
     marginBottom: spacing.xs,
   },
-  notificationActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
+  modalSubtext: {
+    color: Colors.light.textSecondary,
+    marginBottom: spacing.md,
   },
-  markAllReadLabel: {
-    fontSize: 12,
-    color: Colors.light.primary,
+  timeInputContainer: {
+    marginTop: spacing.md,
   },
-  notificationsScroll: {
-    maxHeight: 300,
+  inputLabel: {
+    color: Colors.light.text,
+    marginBottom: spacing.xs,
+    fontWeight: '500',
   },
-  unreadNotificationItem: {
-    backgroundColor: Colors.light.surface + '40', // Light blue tint for unread
-  },
-  loadMoreNotificationsButton: {
-    marginTop: spacing.sm,
-    borderColor: Colors.light.primary,
+  timeInput: {
+    borderWidth: 1,
+    borderColor: Colors.light.border,
     borderRadius: 8,
+    padding: spacing.md,
+    fontSize: 16,
+    color: Colors.light.text,
+    backgroundColor: Colors.light.background,
   },
-  loadMoreLabel: {
-    fontSize: 14,
-    color: Colors.light.primary,
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.md,
+    padding: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: Colors.light.border,
+  },
+  modalButton: {
+    minWidth: 100,
   },
 });
 

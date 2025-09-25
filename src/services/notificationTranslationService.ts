@@ -204,10 +204,10 @@ export class NotificationTranslationService {
         .eq('id', userId)
         .single();
       
-      console.log(`🌍 [getUserLanguage] Database lookup for user ${userId}:`, { user, error });
+      // Database language lookup - removed noisy logs
       
       if (!error && user?.language_preference) {
-        console.log(`✅ [getUserLanguage] Found DB language preference: ${user.language_preference}`);
+        // Found DB language preference
         return user.language_preference;
       }
       
@@ -215,7 +215,7 @@ export class NotificationTranslationService {
       try {
         const AsyncStorage = await import('@react-native-async-storage/async-storage');
         const storedLanguage = await AsyncStorage.default.getItem('app_language');
-        console.log(`📱 [getUserLanguage] AsyncStorage fallback: ${storedLanguage || 'en'}`);
+        // AsyncStorage fallback
         return storedLanguage || 'en';
       } catch (asyncError) {
         console.log('Could not get user language from AsyncStorage:', asyncError);
@@ -244,15 +244,15 @@ export class NotificationTranslationService {
     // If useCurrentLanguage is true, prioritize current UI language
     if (useCurrentLanguage) {
       const currentLang = i18n.language;
-      console.log(`🌍 [createTranslatedNotification] Using current UI language: ${currentLang} instead of DB: ${userLanguage}`);
+      // Using current UI language instead of DB
       userLanguage = currentLang;
     }
     
-    console.log(`🔔 [createTranslatedNotification] User ${userId}, Type: ${type}, Language: ${userLanguage}`);
+    // Creating translated notification - removed noisy logs
     
     // Get translated content
     const { title, body } = this.getTranslatedNotification(type, data, userLanguage);
-    console.log(`📝 [createTranslatedNotification] Generated content:`, { title, body });
+    // Generated notification content
     
     return {
       title,

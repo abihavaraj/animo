@@ -812,6 +812,14 @@ function ClassesView() {
     };
   }, [user?.id, dispatch]);
 
+  // Auto-refresh modal content when Redux state changes (for booking/cancel actions)
+  useEffect(() => {
+    if (dayClassesVisible && selectedDate) {
+      // Refresh the modal content when classes or bookings change and modal is open
+      setSelectedDateClasses(getClassesForDate(selectedDate));
+    }
+  }, [classes, bookings, userWaitlist, dayClassesVisible, selectedDate]);
+
   const loadData = async () => {
     try {
       // Load all classes for clients (service will apply 2-month rule automatically)
@@ -1043,8 +1051,15 @@ function ClassesView() {
     const formatDate = (dateStr: string) => {
       const date = new Date(dateStr);
       const weekdayIndex = date.getDay();
-      const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      const weekday = weekdays[weekdayIndex];
+      
+      // Get localized weekdays from translation
+      const weekdays = i18n.t('dates.weekdays.short', { returnObjects: true }) as string[];
+      
+      // Fallback to English if translation fails
+      const fallbackWeekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const finalWeekdays = Array.isArray(weekdays) ? weekdays : fallbackWeekdays;
+      
+      const weekday = finalWeekdays[weekdayIndex];
       const day = date.getDate().toString().padStart(2, '0');
       const month = (date.getMonth() + 1).toString().padStart(2, '0');
       const year = date.getFullYear();
@@ -1073,7 +1088,7 @@ function ClassesView() {
               const success = await unifiedBookingUtils.bookClass(classId, currentSubscription, class_, t);
               if (success) {
                 await loadData();
-                setDayClassesVisible(false);
+                // Modal will auto-refresh via useEffect when Redux state updates
               }
             } catch (error: any) {
               // If booking fails, it might be because class is full - try to join waitlist
@@ -1124,7 +1139,7 @@ function ClassesView() {
         () => {
           // On success callback
           loadData();
-          setDayClassesVisible(false);
+          // Modal will auto-refresh via useEffect when Redux state updates
         },
         t
       );
@@ -1147,8 +1162,15 @@ function ClassesView() {
     const formatDate = (dateStr: string) => {
       const date = new Date(dateStr);
       const weekdayIndex = date.getDay();
-      const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      const weekday = weekdays[weekdayIndex];
+      
+      // Get localized weekdays from translation
+      const weekdays = i18n.t('dates.weekdays.short', { returnObjects: true }) as string[];
+      
+      // Fallback to English if translation fails
+      const fallbackWeekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const finalWeekdays = Array.isArray(weekdays) ? weekdays : fallbackWeekdays;
+      
+      const weekday = finalWeekdays[weekdayIndex];
       const day = date.getDate().toString().padStart(2, '0');
       const month = (date.getMonth() + 1).toString().padStart(2, '0');
       const year = date.getFullYear();
@@ -1176,7 +1198,7 @@ function ClassesView() {
               const success = await unifiedBookingUtils.joinWaitlist(classId, currentSubscription, class_, t);
               if (success) {
                 await loadData();
-                setDayClassesVisible(false);
+                // Modal will auto-refresh via useEffect when Redux state updates
               }
             } catch (error: any) {
               console.error('❌ [ClassesView] Error joining waitlist:', error);
@@ -1206,7 +1228,7 @@ function ClassesView() {
         () => {
           // On success callback
           loadData();
-          setDayClassesVisible(false);
+          // Modal will auto-refresh via useEffect when Redux state updates
         },
         t
       );

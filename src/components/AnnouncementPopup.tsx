@@ -121,7 +121,7 @@ const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({ onDismiss }) => {
   const getPriorityIcon = (type: string) => {
     switch (type) {
       case 'urgent':
-        return 'alert-circle';
+        return 'warning';
       case 'warning':
         return 'warning';
       case 'info':
@@ -187,7 +187,9 @@ const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({ onDismiss }) => {
                     onPress={handleDismiss}
                     textColor={textSecondaryColor}
                     compact
-                  />
+                  >
+                    Close
+                  </Button>
                 </View>
 
                 {/* Title */}

@@ -96,7 +96,7 @@ class PushNotificationService {
 
       if (finalStatus !== 'granted') {
         console.error('❌ [initialize] Permission not granted for push notifications. Status:', finalStatus);
-        console.log('🔍 [initialize] TestFlight Debug - User denied notification permissions or system restriction');
+        // TestFlight Debug - User denied notification permissions
         return;
       }
 
@@ -142,12 +142,11 @@ class PushNotificationService {
                        ((Constants as any).manifest2?.extra ? (Constants as any).manifest2.extra.eas?.projectId : undefined) ||
                        'd4bdbfc4-ecbc-40d7-aabb-ad545c836ab3'; // Fallback to your project ID
       
-      console.log('🔍 [getPushTokenSafely] TestFlight Debug - Project ID from config:', projectId);
+      // TestFlight Debug - Project ID from config
 
       if (!projectId) {
         console.error('❌ [getPushTokenSafely] Could not find Expo project ID. Push notifications disabled.');
-        console.log('🔍 [getPushTokenSafely] TestFlight Debug - Constants.expoConfig:', JSON.stringify((Constants as any).expoConfig, null, 2));
-        console.log('🔍 [getPushTokenSafely] TestFlight Debug - Constants.manifest:', JSON.stringify((Constants as any).manifest, null, 2));
+        // TestFlight Debug - Constants info
         return null;
       }
 
@@ -159,9 +158,9 @@ class PushNotificationService {
       
       // In production, only log partial token for security
       if (__DEV__) {
-        console.log('📱 [getPushTokenSafely] Push Token (DEV):', token.data);
+        // Push Token (DEV)
       } else {
-        console.log('📱 [getPushTokenSafely] TestFlight Debug - Push Token (PROD):', token.data.substring(0, 20) + '...');
+        // TestFlight Debug - Push Token (PROD)
       }
       
       return token.data;
@@ -204,8 +203,7 @@ class PushNotificationService {
         console.error('❌ [registerTokenWithServerSafely] Failed to register push token:', error);
         console.error('❌ [registerTokenWithServerSafely] Error details:', JSON.stringify(error, null, 2));
       } else {
-        console.log('✅ [registerTokenWithServerSafely] Push token registered successfully');
-        console.log('🔍 [registerTokenWithServerSafely] Update result:', updateResult);
+        // Push token registered successfully
       }
     } catch (error) {
       console.error('❌ [registerTokenWithServerSafely] Exception during token registration:', error);

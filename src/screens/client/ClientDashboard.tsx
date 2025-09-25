@@ -107,9 +107,6 @@ function ClientDashboard() {
   const [cancellingBookings, setCancellingBookings] = useState<Set<string>>(new Set());
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
-  const [debugModalVisible, setDebugModalVisible] = useState(false);
-  const [debugModalTitle, setDebugModalTitle] = useState('');
-  const [debugModalMessage, setDebugModalMessage] = useState('');
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   
   // Animation values
@@ -1570,79 +1567,6 @@ function ClientDashboard() {
        </Card>
 
 
-        {/* DEBUG: Notification Test Button (Development Only) */}
-        {__DEV__ && (
-          <Card style={[{ backgroundColor: surfaceColor, borderColor: textMutedColor, marginBottom: 20, marginHorizontal: 20 }]}>
-            <Card.Content>
-              <H3 style={{ color: textColor, marginBottom: 16 }}>🔧 Debug Notifications</H3>
-              <Button 
-                mode="contained" 
-                onPress={async () => {
-                  try {
-                    console.log('🧪 [DEBUG] Testing all notification types...');
-                    
-                    // Test 1: Direct push notification
-                    await notificationService.sendPushNotificationToUser(
-                      user?.id || '', 
-                      '🧪 Test Direct Push', 
-                      'This is a direct push notification test using sendPushNotificationToUser()'
-                    );
-                    console.log('✅ [DEBUG] Direct push notification sent');
-                    
-                    // Test 2: Class full notification (instructor notification)
-                    if (user?.id) {
-                      console.log('🧪 [DEBUG] Testing class full notification...');
-                      await notificationService.sendClassFullNotification('test-class-123', user.id);
-                      console.log('✅ [DEBUG] Class full notification sent');
-                    }
-                    
-                    // Test 3: Test notification function
-                    console.log('🧪 [DEBUG] Testing test notification function...');
-                    await notificationService.sendTestNotification(parseInt(user?.id || '0'), 'This is a test notification using sendTestNotification()');
-                    console.log('✅ [DEBUG] Test notification sent');
-                    
-                    // Test 4: Multiple users notification
-                    console.log('🧪 [DEBUG] Testing multiple users notification...');
-                    await notificationService.sendNotificationToMultipleUsers(
-                      [user?.id || ''], 
-                      '🧪 Test Multi-User Notification', 
-                      'This tests sendNotificationToMultipleUsers()'
-                    );
-                    console.log('✅ [DEBUG] Multiple users notification sent');
-                    
-                    // Test 5: Bulk push notifications
-                    console.log('🧪 [DEBUG] Testing bulk push notifications...');
-                    await notificationService.sendBulkPushNotifications(
-                      [], // Empty tokens array for safety
-                      '🧪 Test Bulk Push', 
-                      'This tests sendBulkPushNotifications()',
-                      { testData: true }
-                    );
-                    console.log('✅ [DEBUG] Bulk push notifications tested');
-                    
-                    setDebugModalTitle('🧪 Debug Test Complete');
-                    setDebugModalMessage('All notification types have been tested. Check your console logs and device notifications!');
-                    setDebugModalVisible(true);
-                    
-                  } catch (error) {
-                    console.error('❌ [DEBUG] Notification test failed:', error);
-                    setDebugModalTitle('❌ Debug Test Failed');
-                    setDebugModalMessage(`Error: ${error}`);
-                    setDebugModalVisible(true);
-                  }
-                }}
-                icon="bug-report"
-                style={{ backgroundColor: '#FF6B35' }}
-                textColor="white"
-              >
-                Test All Notifications
-              </Button>
-              <Caption style={{ color: textSecondaryColor, marginTop: 8, textAlign: 'center' }}>
-                Development only - Tests all notification types and logs which system they use
-              </Caption>
-            </Card.Content>
-          </Card>
-        )}
 
       </ScrollView>
 
@@ -1669,34 +1593,6 @@ function ClientDashboard() {
           />
         </Modal>
 
-        {/* Debug Modal */}
-        <Modal
-          visible={debugModalVisible}
-          onDismiss={() => setDebugModalVisible(false)}
-          contentContainerStyle={[styles.notificationModal, { backgroundColor: surfaceColor }]}
-        >
-          <View style={styles.notificationModalHeader}>
-            <H2 style={{ color: textColor }}>{debugModalTitle}</H2>
-            <TouchableOpacity 
-              onPress={() => setDebugModalVisible(false)}
-              style={styles.closeButton}
-            >
-              <MaterialIcons name="close" size={24} color={textColor} />
-            </TouchableOpacity>
-          </View>
-          <View style={{ padding: 20 }}>
-            <Body style={{ color: textColor, lineHeight: 24 }}>{debugModalMessage}</Body>
-          </View>
-          <View style={{ padding: 20, paddingTop: 0 }}>
-            <Button 
-              mode="contained" 
-              onPress={() => setDebugModalVisible(false)}
-              style={{ backgroundColor: accentColor }}
-            >
-              OK
-            </Button>
-          </View>
-        </Modal>
       </Portal>
     </View>
   );

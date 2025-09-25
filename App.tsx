@@ -141,46 +141,46 @@ function AppContent() {
 
   // Add Supabase auth state listener for automatic session management
   useEffect(() => {
-    console.log('🔐 [App] Setting up Supabase auth state listener...');
+    // App auth Setting up Supabase auth state listener...');
     
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('🔐 [App] Auth state change:', event, 'Session exists:', !!session, 'User logged in:', isLoggedIn);
+      // App auth Auth state change:', event, 'Session exists:', !!session, 'User logged in:', isLoggedIn);
       
       // CRITICAL: Only handle auth changes if user is currently logged in
       // This prevents false logouts during app initialization
       if (!isLoggedIn) {
-        console.log('🔐 [App] User not logged in - ignoring auth state change');
+        // App auth User not logged in - ignoring auth state change');
         return;
       }
       
       // Handle explicit sign out events
       if (event === 'SIGNED_OUT') {
-        console.log('🚪 [App] Explicit sign out detected - logging user out');
+        // App auth Explicit sign out detected - logging user out');
         store.dispatch({ type: 'auth/clearAuth' });
       } 
       // Handle token refresh failures ONLY if it's a critical session invalidation
       // NOT for temporary network issues or normal token expiration
       else if (event === 'TOKEN_REFRESHED' && !session) {
-        console.log('⚠️ [App] Token refresh failed - could be network issue, not forcing logout');
-        console.log('🔄 [App] User can continue using app, will retry refresh on next API call');
+        // App auth Token refresh failed - could be network issue, not forcing logout');
+        // App auth User can continue using app, will retry refresh on next API call');
         // DON'T auto-logout here - let user continue using the app
         // Only logout if API calls start failing consistently
       } 
       // Handle successful token refresh
       else if (event === 'TOKEN_REFRESHED' && session) {
-        console.log('🔄 [App] Token refreshed successfully');
+        // App auth Token refreshed successfully');
         // Token is automatically updated by Supabase client
       }
       // Handle sign in from another device (optional - could force logout)
       else if (event === 'SIGNED_IN' && session) {
-        console.log('🔐 [App] User signed in from another session - keeping current session');
+        // App auth User signed in from another session - keeping current session');
         // NOTE: Not forcing logout here to avoid interrupting legitimate usage
         // Only logout if we detect session conflicts
       }
     });
 
     return () => {
-      console.log('🔐 [App] Cleaning up auth state listener');
+      // App auth Cleaning up auth state listener');
       subscription?.unsubscribe();
     };
   }, [isLoggedIn]); // Include isLoggedIn in dependencies to get current state

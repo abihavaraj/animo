@@ -4,17 +4,17 @@ import { useTranslation } from 'react-i18next';
 import { Alert, Dimensions, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import {
-  ActivityIndicator,
-  Badge,
-  Button,
-  Card,
-  Chip,
-  FAB,
-  Modal,
-  Portal,
-  Searchbar,
-  SegmentedButtons,
-  Surface,
+    ActivityIndicator,
+    Badge,
+    Button,
+    Card,
+    Chip,
+    FAB,
+    Modal,
+    Portal,
+    Searchbar,
+    SegmentedButtons,
+    Surface,
 } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 import { Body, Caption, H1, H2, H3 } from '../../../components/ui/Typography';
@@ -152,7 +152,11 @@ function PCCalendarView() {
       );
       
       let color = availableColor; // Blue for available classes (good visibility in both modes)
-      if (userBooking) {
+      
+      // Check if it's a personal class first
+      if (classItem.category === 'personal') {
+        color = '#9B59B6'; // Purple for personal classes
+      } else if (userBooking) {
         // Use distinctive colors for user's bookings that stand out clearly
         color = userBooking.status === 'confirmed' ? '#00C851' : '#FF8800'; // Bright green for confirmed, bright orange for waitlist
       } else if (classItem.enrolled >= classItem.capacity) {

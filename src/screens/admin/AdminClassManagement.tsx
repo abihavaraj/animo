@@ -60,10 +60,10 @@ function AdminClassManagement() {
     instructorName: '',
     date: '',
     time: '',
-    duration: 60,
+    duration: undefined as number | undefined,
     // level: removed from schema
     category: 'group' as 'personal' | 'group',
-    capacity: 10,
+    capacity: undefined as number | undefined,
     equipment: '',
     description: '',
     equipmentType: 'mat' as BackendClass['equipment_type'],
@@ -953,8 +953,8 @@ function AdminClassManagement() {
               <View style={styles.numberInputSection}>
                 <TextInput
                   label="Duration (minutes) *"
-                  value={formData.duration.toString()}
-                  onChangeText={(text) => setFormData({...formData, duration: parseInt(text) || 60})}
+                  value={formData.duration ? String(formData.duration) : ''}
+                  onChangeText={(text) => setFormData({...formData, duration: text ? parseInt(text) : undefined})}
                   mode="outlined"
                   keyboardType="numeric"
                   style={styles.numberInput}
@@ -965,8 +965,8 @@ function AdminClassManagement() {
               <View style={styles.numberInputSection}>
                 <TextInput
                   label="Capacity *"
-                  value={formData.capacity.toString()}
-                  onChangeText={(text) => setFormData({...formData, capacity: parseInt(text) || 10})}
+                  value={formData.capacity ? String(formData.capacity) : ''}
+                  onChangeText={(text) => setFormData({...formData, capacity: text ? parseInt(text) : undefined})}
                   mode="outlined"
                   keyboardType="numeric"
                   style={styles.numberInput}
@@ -1004,10 +1004,9 @@ function AdminClassManagement() {
               <View style={styles.inputColumn}>
                 <TextInput
                   label="Capacity *"
-                  value={String(formData.capacity)}
+                  value={formData.capacity ? String(formData.capacity) : ''}
                   onChangeText={(text) => {
-                    const capacity = parseInt(text) || 1;
-                    setFormData({...formData, capacity});
+                    setFormData({...formData, capacity: text ? parseInt(text) : undefined});
                   }}
                   mode="outlined"
                   keyboardType="numeric"
@@ -1023,10 +1022,9 @@ function AdminClassManagement() {
               <View style={styles.inputColumn}>
                 <TextInput
                   label="Duration (minutes) *"
-                  value={String(formData.duration)}
+                  value={formData.duration ? String(formData.duration) : ''}
                   onChangeText={(text) => {
-                    const duration = parseInt(text) || 60;
-                    setFormData({...formData, duration});
+                    setFormData({...formData, duration: text ? parseInt(text) : undefined});
                   }}
                   mode="outlined"
                   keyboardType="numeric"

@@ -160,7 +160,7 @@ function InstructorNavigator() {
         options={{
           headerShown: true,
           title: 'Class Details',
-          headerStyle: { backgroundColor: '#9B8A7D' },
+          headerStyle: { backgroundColor: '#6B8E7F' }, // Same green as dashboard header
           headerTintColor: 'white',
         }}
       />

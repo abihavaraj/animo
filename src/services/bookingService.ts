@@ -586,8 +586,7 @@ class BookingService {
 
   async cancelBooking(id: string): Promise<ApiResponse<Booking>> {
     try {
-      console.log('🚀 [CANCEL_TRACKING] Starting cancellation process for booking ID:', id);
-      console.log('🚀 [CANCEL_TRACKING] Timestamp:', new Date().toISOString());
+      // Starting cancellation process
       
       // First get the booking details before cancelling
       const { data: originalBooking, error: fetchError } = await supabase
@@ -638,7 +637,7 @@ class BookingService {
       
       // Restore class back to subscription when booking is cancelled
       if (data && data.user_id) {
-        console.log('🚀 [CANCEL_TRACKING] STEP 3 STARTING - Credit refund process for user:', data.user_id);
+        // Credit refund process
         try {
           await this.restoreClassToSubscription(data.user_id);
         } catch (refundError) {
@@ -661,7 +660,7 @@ class BookingService {
       let waitlistPromoted = false;
       
       if (originalBooking && originalBooking.class_id) {
-        console.log('🚀 [CANCEL_TRACKING] STEP 4 STARTING - Waitlist promotion check for class:', originalBooking.class_id);
+        // Waitlist promotion check
         try {
           waitlistPromoted = await this.promoteFromWaitlist(originalBooking.class_id);
         } catch (waitlistError) {
@@ -669,12 +668,12 @@ class BookingService {
           // Don't fail cancellation if waitlist promotion fails
         }
       } else {
-        console.log('⚠️ [CANCEL_TRACKING] STEP 4 SKIPPED - No class_id for waitlist promotion');
+        // No class_id for waitlist promotion
       }
 
       // Cancel scheduled class reminder notification for the user
       if (originalBooking && originalBooking.user_id && originalBooking.class_id) {
-        console.log('🚀 [CANCEL_TRACKING] STEP 5 STARTING - Cancelling scheduled class reminder notification');
+        // Cancelling scheduled class reminder notification
         try {
           await pushNotificationService.cancelClassReminder(originalBooking.user_id, originalBooking.class_id);
         } catch (notificationError) {
@@ -698,10 +697,16 @@ class BookingService {
         if (classWithInstructor?.instructor_id) {
           // Send cancellation notification to instructor (RLS issues now fixed)
           try {
-            await notificationService.sendInstructorCancellationNotification(
+            // Create cancellation notification for instructor
+            await notificationService.createTranslatedNotification(
               classWithInstructor.instructor_id,
-              originalBooking.class_id,
-              studentDetails
+              'class_assignment_cancelled',
+              {
+                type: 'class_assignment_cancelled',
+                className: classDetails?.name || 'class',
+                date: classDetails?.date || '',
+                time: classDetails?.time || ''
+              }
             );
             console.log('✅ Cancellation notification sent to instructor successfully');
           } catch (notificationError) {
@@ -709,25 +714,12 @@ class BookingService {
             // Don't fail the booking cancellation if notification fails
           }
         } else {
-          console.log('⚠️ [NOTIFICATION] No instructor found for class, skipping cancellation notification');
+          // No instructor found for class, skipping cancellation notification
         }
       }
       
       // Return data with waitlist promotion info
-      console.log('🎉 [CANCEL_TRACKING] CANCELLATION COMPLETED SUCCESSFULLY:', {
-        bookingId: id,
-        userId: originalBooking.user_id,
-        classId: originalBooking.class_id,
-        className: (originalBooking.classes as any)?.name,
-        waitlistPromoted: waitlistPromoted,
-        timestamp: new Date().toISOString(),
-        summary: {
-          step1_fetch_booking: '✅ SUCCESS',
-          step2_update_status: '✅ SUCCESS', 
-          step3_refund_credit: '✅ SUCCESS',
-          step4_waitlist_promotion: waitlistPromoted ? '✅ PROMOTED' : '✅ NO_PROMOTION'
-        }
-      });
+      // Cancellation completed successfully
       
       return { 
         success: true, 
@@ -750,13 +742,12 @@ class BookingService {
 
   private async restoreClassToSubscription(userId: string): Promise<void> {
     try {
-      console.log('🔍 [REFUND_TRACKING] Starting credit restoration for user:', userId);
-      console.log('🔍 [REFUND_TRACKING] Timestamp:', new Date().toISOString());
+      // Starting credit restoration
       
       // First, try to restore to user_subscriptions table (for subscription users)
       // Use the same query logic as deductClassFromSubscription for consistency
       const today = new Date().toISOString().split('T')[0];
-      console.log('🔍 [REFUND_TRACKING] Querying active subscriptions for user:', userId, 'after date:', today);
+      // Querying active subscriptions
       
       const { data: subscriptions, error: fetchError } = await supabase
         .from('user_subscriptions')
@@ -779,15 +770,7 @@ class BookingService {
         throw fetchError;
       }
       
-      console.log('📊 [REFUND_TRACKING] Subscriptions query result:', {
-        userId: userId,
-        subscriptionsFound: subscriptions?.length || 0,
-        subscriptions: subscriptions?.map(s => ({
-          id: s.id,
-          remaining_classes: s.remaining_classes,
-          plan_name: (s.subscription_plans as any)?.name
-        }))
-      });
+      // Subscriptions query completed
         
       const subscription = subscriptions && subscriptions.length > 0 ? subscriptions[0] : null;
 
@@ -796,13 +779,7 @@ class BookingService {
         const oldRemainingClasses = subscription.remaining_classes;
         const newRemainingClasses = oldRemainingClasses + 1;
         
-        console.log('🔄 [REFUND_TRACKING] SUBSCRIPTION REFUND - Updating subscription:', {
-          subscriptionId: subscription.id,
-          userId: userId,
-          oldRemainingClasses: oldRemainingClasses,
-          newRemainingClasses: newRemainingClasses,
-          planName: (subscription.subscription_plans as any)?.name
-        });
+        // Updating subscription
         
         const { data: updateData, error: updateError } = await supabase
           .from('user_subscriptions')
@@ -833,7 +810,7 @@ class BookingService {
       }
 
       // No subscription found - restore to user's daypass credits
-      console.log('🔄 [REFUND_TRACKING] DAYPASS REFUND - No active subscription found, restoring to daypass credits for user:', userId);
+      // No active subscription found, restoring to daypass credits
       
       const { data: userData, error: userError } = await supabase
         .from('users')
@@ -1073,7 +1050,7 @@ class BookingService {
       const creditDeducted = await this.deductClassFromSubscription(waitlistEntry.user_id);
       
       if (!creditDeducted) {
-        console.log(`⚠️ [WAITLIST] User ${waitlistEntry.user_id} has no remaining classes - skipping and trying next person`);
+        // User has no remaining classes - skipping
         
         // Delete the booking we just created since user has no credits
         await supabase
@@ -1091,7 +1068,7 @@ class BookingService {
         await this.updateWaitlistPositions(classId);
         
         // Try to promote the NEXT person in line who might have credits
-        console.log(`🔄 [WAITLIST] Trying to promote next person in line for class ${classId}`);
+        // Trying to promote next person in line
         return await this.promoteFromWaitlist(classId);
       }
       
@@ -1099,7 +1076,7 @@ class BookingService {
       try {
         const classInfo = waitlistEntry.classes as any;
         if (classInfo) {
-          console.log(`📢 [NOTIFICATION] Sending waitlist to booking promotion notification to user ${waitlistEntry.user_id}`);
+          // Sending waitlist to booking promotion notification
           console.log(`📢 [NOTIFICATION] Class info:`, classInfo);
           
           // Use translated notification service for proper language support
@@ -1141,7 +1118,7 @@ class BookingService {
 
   // 🔧 DEBUG METHOD: Test waitlist promotion for a specific class
   async debugWaitlistPromotion(classId: number): Promise<void> {
-    console.log(`🔧 [DEBUG] Testing waitlist promotion for class ${classId}`);
+    // Testing waitlist promotion
     
     // Check class details
     const { data: classDetails, error: classError } = await supabase

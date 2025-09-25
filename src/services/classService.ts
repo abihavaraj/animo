@@ -164,7 +164,6 @@ class ClassService {
   // 🚀 OPTIMIZATION 1: Single query with enrollment counts and date filtering
   async getClasses(filters?: ClassFilters & { userRole?: string }): Promise<ApiResponse<BackendClass[]>> {
     try {
-              // console.log('🔍 [ClassService] getClasses called with filters:', filters);
       const classQueryStart = Date.now();
       
       // 🚀 OPTIMIZATION 2: Build efficient query with minimal fields for dashboard
@@ -189,11 +188,9 @@ class ClassService {
       // 🚀 OPTIMIZATION 3: Server-side filtering
       if (filters?.status) {
         baseQuery = baseQuery.eq('status', filters.status);
-        // console.log('🔍 [ClassService] Filtering by status:', filters.status);
       } else {
         // Include active, full, and completed classes (clients can see all classes including past ones)
         baseQuery = baseQuery.in('status', ['active', 'full', 'completed']);
-        // console.log('🔍 [ClassService] Using default status filter: active, full, completed');
       }
 
       // 🔒 PRIVACY FILTERING: Filter by visibility and date based on user role
@@ -249,13 +246,10 @@ class ClassService {
       // Only apply limit if explicitly provided in filters
       if (filters?.limit) {
         baseQuery = baseQuery.limit(filters.limit);
-        // console.log('🔍 [ClassService] Applied explicit limit:', filters.limit);
       }
-      // console.log('🔍 [ClassService] No automatic limits - unlimited classes supported');
       
 
       const { data, error } = await baseQuery;
-      const classQueryEnd = Date.now();
    
       if (error) {
         console.error('❌ ClassService: Supabase error:', error);
@@ -263,13 +257,8 @@ class ClassService {
       }
       
       // 🚀 OPTIMIZATION 5: Simplified enrollment counting
-      const enrollmentStart = Date.now();
       const classesWithEnrollment = await this.addEnrollmentCounts(data || []);
-      const enrollmentEnd = Date.now();
       
-      // console.log('🔍 [ClassService] Final result:', classesWithEnrollment.length, 'classes with enrollment data');
-      // console.log('🔍 [ClassService] September 2025 classes:', classesWithEnrollment.filter(c => c.date >= '2025-09-01' && c.date < '2025-10-01').length);
-      // console.log('🔍 [ClassService] Sample September classes:', classesWithEnrollment.filter(c => c.date >= '2025-09-01' && c.date < '2025-10-01').slice(0, 3));
       return { success: true, data: classesWithEnrollment };
     } catch (error) {
       console.error('❌ Error in getClasses:', error);
@@ -316,11 +305,6 @@ class ClassService {
 
   async createClass(classData: CreateClassRequest): Promise<ApiResponse<BackendClass>> {
     try {
-      console.log('🔧 [ClassService] Creating class with data:', {
-        name: classData.name,
-        visibility: classData.visibility,
-        finalVisibility: classData.visibility || 'public'
-      });
       
       const { data, error } = await supabase
         .from('classes')
@@ -418,10 +402,6 @@ class ClassService {
       const now = new Date();
       const classHasPassed = classStartDateTime <= now;
       
-      //console.log(`🕐 Class "${classDetails.name}" start time: ${classStartDateTime.toISOString()}`);
-      //console.log(`🕐 Current time: ${now.toISOString()}`);
-      //console.log(`🕐 Class has ${classHasPassed ? 'started/passed' : 'not started yet'}`);
-
       // 3. Get all confirmed bookings for this class
       const { data: bookings, error: bookingsError } = await supabase
         .from('bookings')
@@ -439,14 +419,38 @@ class ClassService {
         // Continue with deletion even if we can't fetch bookings
       }
 
-      // 4. Only refund credits for classes that haven't started yet
+      // 4. Send cancellation notifications to enrolled users BEFORE deletion
+      if (bookings && bookings.length > 0) {
+        try {
+          // Import notification service dynamically to avoid circular dependencies
+          const { notificationService } = await import('./notificationService');
+          
+          await notificationService.sendClassCancellationNotifications(
+            id.toString(),
+            classDetails.name,
+            classDetails.date,
+            classDetails.time
+          );
+        } catch (notificationError) {
+          console.error('❌ [deleteClass] Failed to send cancellation notifications:', notificationError);
+          // Don't fail the deletion if notifications fail
+        }
+      }
+
+      // 5. Cancel any scheduled reminder notifications for this class
+      try {
+        const { notificationService } = await import('./notificationService');
+        await notificationService.cancelClassNotifications(Number(id));
+      } catch (notificationError) {
+        console.error('❌ [deleteClass] Failed to cancel class notifications:', notificationError);
+        // Don't fail the deletion if notification cancellation fails
+      }
+
+      // 6. Only refund credits for classes that haven't started yet
       let refundCount = 0;
       if (bookings && bookings.length > 0) {
         if (classHasPassed) {
-          //console.log(`⏰ Class has already started/passed - no refunds will be processed`);
-          //console.log(`📋 ${bookings.length} users had bookings but will not receive refunds`);
         } else {
-          //console.log(`💰 Class hasn't started yet - refunding ${bookings.length} users...`);
           
           for (const booking of bookings) {
             try {
@@ -458,11 +462,10 @@ class ClassService {
             }
           }
           
-          //console.log(`✅ Refund process completed for ${refundCount} users`);
         }
       }
 
-      // 3. Delete all bookings for this class
+      // 7. Delete all bookings for this class
       const { error: deleteBookingsError } = await supabase
         .from('bookings')
         .delete()
@@ -473,7 +476,7 @@ class ClassService {
         // Continue with class deletion
       }
 
-      // 4. Finally, delete the class record from the database
+      // 8. Finally, delete the class record from the database
       const { error } = await supabase
         .from('classes')
         .delete()
@@ -485,9 +488,11 @@ class ClassService {
       
       // Generate appropriate message based on timing and refunds
       let refundMessage = '';
+      let notificationMessage = '';
       if (bookings && bookings.length > 0) {
+        notificationMessage = ` ${bookings.length} user${bookings.length === 1 ? '' : 's'} have been notified of the cancellation.`;
         if (classHasPassed) {
-          refundMessage = ` Class had already started, so no refunds were processed for ${bookings.length} booking${bookings.length === 1 ? '' : 's'}.`;
+          refundMessage = ` Class had already started, so no refunds were processed.`;
         } else if (refundCount > 0) {
           refundMessage = ` Credits have been refunded to ${refundCount} user${refundCount === 1 ? '' : 's'}.`;
         }
@@ -495,7 +500,7 @@ class ClassService {
       
       return { 
         success: true, 
-        message: `Class deleted successfully.${refundMessage}`
+        message: `Class deleted successfully.${notificationMessage}${refundMessage}`
       };
     } catch (error) {
       return { success: false, error: 'Failed to delete class' };
@@ -532,7 +537,6 @@ class ClassService {
       const isUnlimited = monthlyClasses >= 999;
       
       if (isUnlimited) {
-        //console.log(`✅ User ${userName} has unlimited plan - no credit refund needed`);
         return;
       }
 
@@ -552,7 +556,6 @@ class ClassService {
       }
       
       const planName = (subscription.subscription_plans as any)?.name || 'Unknown Plan';
-      //console.log(`✅ Refunded 1 class to ${userName} (${planName}): ${subscription.remaining_classes} → ${newRemainingClasses}`);
       
     } catch (error) {
       console.error(`❌ Failed to refund credits for user ${userId} (${userName}):`, error);
@@ -578,10 +581,6 @@ class ClassService {
       const now = new Date();
       const classHasPassed = classStartDateTime <= now;
       
-      //console.log(`🕐 Cancelling class "${classDetails.name}" start time: ${classStartDateTime.toISOString()}`);
-      //console.log(`🕐 Current time: ${now.toISOString()}`);
-      //console.log(`🕐 Class has ${classHasPassed ? 'started/passed' : 'not started yet'}`);
-
       // 3. Get all confirmed bookings for this specific class
       const { data: bookings, error: bookingsError } = await supabase
         .from('bookings')
@@ -605,31 +604,25 @@ class ClassService {
       
       if (bookings && bookings.length > 0) {
         if (classHasPassed) {
-          //console.log(`⏰ Class has already started/passed - no refunds will be processed`);
-          //console.log(`📋 ${bookings.length} users had bookings but will not receive refunds`);
           refundMessage = ` Class had already started, so no refunds were processed for ${bookings.length} booking${bookings.length === 1 ? '' : 's'}.`;
         } else {
-          //console.log(`💰 Class hasn't started yet - refunding ${bookings.length} users who had bookings...`);
           
           for (const booking of bookings) {
             try {
               await this.refundUserCredits(booking.user_id, (booking.users as any)?.name || 'Unknown User');
               refundCount++;
-              //console.log(`✅ Refunded credits to ${(booking.users as any)?.name || 'Unknown User'} for cancelled class`);
             } catch (refundError) {
               console.warn(`⚠️ Failed to refund user ${booking.user_id}:`, refundError);
               // Continue with other refunds even if one fails
             }
           }
           
-          //console.log(`✅ Refund process completed for ${refundCount} users with bookings`);
           
           if (refundCount > 0) {
             refundMessage = ` Credits have been refunded to ${refundCount} user${refundCount === 1 ? '' : 's'} who had bookings.`;
           }
         }
       } else {
-        //console.log(`📭 No confirmed bookings found for this class - no refunds needed`);
       }
 
       // 5. Update class status to cancelled
@@ -902,7 +895,6 @@ class ClassService {
     let enrollmentCounts: { [key: string]: number } = {};
     
     if (classIds.length > 0) {
-      //console.log('📊 Calculating enrollment counts for classes:', classIds);
       
       const { data: bookingsData, error: bookingsError } = await supabase
         .from('bookings')
@@ -910,15 +902,12 @@ class ClassService {
         .in('class_id', classIds)
         .eq('status', 'confirmed');
         
-      //console.log('📊 Booking data for enrollment count:', bookingsData);
-      //console.log('📊 Booking error:', bookingsError);
         
       if (!bookingsError && bookingsData) {
         bookingsData.forEach(booking => {
           const classId = booking.class_id;
           enrollmentCounts[classId] = (enrollmentCounts[classId] || 0) + 1;
         });
-        //console.log('📊 Final enrollment counts:', enrollmentCounts);
       } else {
         console.error('❌ Error fetching bookings for enrollment count:', bookingsError);
       }

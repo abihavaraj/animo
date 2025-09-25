@@ -5,11 +5,11 @@ import { layout, spacing } from '@/constants/Spacing';
 import React, { useEffect, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import {
-  Avatar,
-  Divider,
-  Button as PaperButton,
-  Card as PaperCard,
-  Switch
+    Avatar,
+    Divider,
+    Button as PaperButton,
+    Card as PaperCard,
+    Switch
 } from 'react-native-paper';
 import { useSelector } from 'react-redux';
 import WebCompatibleIcon from '../../components/WebCompatibleIcon';
@@ -62,7 +62,6 @@ function InstructorProfile() {
     // Initialize notification services for IPA build support
     const initializeNotifications = async () => {
       try {
-        console.log('📱 [InstructorProfile] Initializing notification services...');
         
         // Initialize both notification services for production builds
         await Promise.all([
@@ -70,7 +69,6 @@ function InstructorProfile() {
           pushNotificationService.initialize()
         ]);
         
-        console.log('✅ [InstructorProfile] Notification services initialized successfully');
       } catch (error) {
         console.error('⚠️ [InstructorProfile] Failed to initialize notification services:', error);
         // Don't block profile loading if notification initialization fails
@@ -235,7 +233,6 @@ function InstructorProfile() {
         return;
       }
 
-      console.log('🔄 [updateNotificationPreference] Starting update:', { key, value, userId: user.id });
 
       // Update local state immediately
       setNotificationPreferences(prev => ({
@@ -246,7 +243,6 @@ function InstructorProfile() {
       // Convert camelCase to snake_case for database
       const dbKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
       
-      console.log('📝 [updateNotificationPreference] Database update:', { key, dbKey, value, userId: user.id });
       
       // Update in notification_settings table
       const { error } = await supabase
@@ -268,7 +264,6 @@ function InstructorProfile() {
           [key]: !value
         }));
       } else {
-        console.log('✅ [updateNotificationPreference] Successfully updated:', { key, dbKey, value });
       }
     } catch (error) {
       console.error('Failed to update notification preference:', error);
@@ -587,7 +582,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xl,
     paddingBottom: spacing.md,
-    ...shadows.small,
+    ...shadows.card,
   },
   pageTitle: {
     color: Colors.light.text,
@@ -601,7 +596,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     backgroundColor: Colors.light.surface,
     borderRadius: layout.borderRadius,
-    ...shadows.small,
+    ...shadows.card,
   },
   cardContent: {
     padding: spacing.lg,

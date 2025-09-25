@@ -285,11 +285,11 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
       )
       .subscribe();
     
-    console.log('📡 Theme realtime subscription established');
+    // Theme realtime subscription established
     
     // Cleanup function
     return () => {
-      console.log('📡 Cleaning up theme realtime subscription');
+      // Cleaning up theme realtime subscription
       supabase.removeChannel(channel);
     };
   }, []);

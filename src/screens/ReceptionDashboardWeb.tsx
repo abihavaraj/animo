@@ -2794,7 +2794,7 @@ function ReceptionPCLayout({ navigation }: any) {
 
   const getAnnouncementIcon = (type: string) => {
     switch (type) {
-      case 'warning': return 'alert-circle';
+      case 'warning': return 'warning';
       case 'urgent': return 'alert-octagon';
       default: return 'information';
     }

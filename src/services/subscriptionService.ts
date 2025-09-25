@@ -2326,25 +2326,25 @@ class SubscriptionService {
     }
 
     try {
-      console.log('🔔 [DAILY CHECK] Running automatic subscription notifications...');
+      // Running automatic subscription notifications
       
       // Send expiring notifications (5 days warning)
       const expiringResult = await notificationService.sendSubscriptionExpiryNotifications();
       if (expiringResult.success) {
         const expiringCount = expiringResult.data?.notificationCount || 0;
-        console.log(`📅 [DAILY CHECK] Sent ${expiringCount} expiring subscription notifications`);
+        // Sent expiring subscription notifications
       }
 
       // Send expired notifications
       const expiredResult = await notificationService.sendSubscriptionExpiredNotifications();
       if (expiredResult.success) {
         const expiredCount = expiredResult.data?.notificationCount || 0;
-        console.log(`❌ [DAILY CHECK] Sent ${expiredCount} expired subscription notifications`);
+        // Sent expired subscription notifications
       }
 
       // Mark as completed for today
       SubscriptionService.lastNotificationCheck[checkKey] = today;
-      console.log('✅ [DAILY CHECK] Automatic notification check completed');
+      // Automatic notification check completed
 
     } catch (error) {
       console.error('❌ [DAILY CHECK] Error in automatic notification check:', error);

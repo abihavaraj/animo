@@ -136,37 +136,6 @@ function ClassDetails() {
     );
   };
 
-  const handleRemoveAttendee = (attendeeId: string) => {
-    Alert.alert(
-      'Remove Attendee',
-      'Are you sure you want to remove this attendee from the class?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // Cancel the booking (this will remove the attendee)
-              const response = await bookingService.cancelBooking(attendeeId);
-              
-              if (response.success) {
-                Alert.alert('Success', 'Attendee removed from class');
-                // Reload attendees and waitlist
-                await loadAttendees();
-                await loadWaitlist();
-              } else {
-                Alert.alert('Error', response.error || 'Failed to remove attendee');
-              }
-            } catch (error) {
-              console.error('Error removing attendee:', error);
-              Alert.alert('Error', 'Failed to remove attendee');
-            }
-          }
-        }
-      ]
-    );
-  };
 
   const formatTime = (time: string) => {
     return new Date(`2000-01-01T${time}`).toLocaleTimeString('en-US', {
@@ -223,7 +192,12 @@ function ClassDetails() {
         <PaperCard style={styles.card}>
           <PaperCard.Content style={styles.cardContent}>
             <View style={styles.classHeader}>
-              <H1 style={styles.className}>{classData.name}</H1>
+              <H1 style={{
+                ...styles.className,
+                color: getStatusChipState(classData) === 'warning' 
+                  ? (getStatusText(classData) === 'Full' ? Colors.light.error : Colors.light.warning)
+                  : Colors.light.text
+              }}>{classData.name}</H1>
               <StatusChip 
                 state={getStatusChipState(classData)}
                 text={getStatusText(classData)}
@@ -281,17 +255,10 @@ function ClassDetails() {
                      <Caption style={styles.attendeeEmail}>
                        {attendee.users?.email || attendee.user_email || 'No email'}
                      </Caption>
+                     <Caption style={styles.joinTime}>
+                       Joined: {attendee.created_at ? new Date(attendee.created_at).toLocaleString() : 'Unknown time'}
+                     </Caption>
                    </View>
-                   
-                   <PaperButton 
-                     mode="outlined" 
-                     compact
-                     style={styles.removeButton}
-                     labelStyle={styles.removeButtonLabel}
-                     onPress={() => handleRemoveAttendee(attendee.id)}
-                   >
-                     Remove
-                   </PaperButton>
                  </View>
                ))
              ) : (
@@ -321,6 +288,9 @@ function ClassDetails() {
                        </Body>
                        <Caption style={styles.attendeeEmail}>
                          {attendee.users?.email || 'No email'}
+                       </Caption>
+                       <Caption style={styles.joinTime}>
+                         Joined: {attendee.created_at ? new Date(attendee.created_at).toLocaleString() : 'Unknown time'}
                        </Caption>
                        <Caption style={styles.waitlistPosition}>Position: {attendee.position}</Caption>
                      </View>
@@ -360,20 +330,6 @@ function ClassDetails() {
                  }}
                >
                  Refresh Data
-               </PaperButton>
-               
-               <PaperButton 
-                 mode="outlined" 
-                 style={styles.actionButton}
-                 labelStyle={styles.outlinedButtonLabel}
-                 icon={() => <WebCompatibleIcon name="notifications" size={20} color={Colors.light.primary} />}
-                 onPress={() => {
-                   // Send notification
-                   console.log('Send notification for class:', classId);
-                   Alert.alert('Success', 'Notification sent to attendees');
-                 }}
-               >
-                 Notify Attendees
                </PaperButton>
              </View>
            </PaperCard.Content>
@@ -456,17 +412,14 @@ const styles = StyleSheet.create({
     color: Colors.light.textSecondary,
     marginTop: spacing.xs,
   },
+  joinTime: {
+    color: Colors.light.textMuted,
+    marginTop: spacing.xs,
+    fontSize: 11,
+  },
   waitlistPosition: {
     color: Colors.light.warning,
     marginTop: spacing.xs,
-  },
-  removeButton: {
-    marginLeft: spacing.md,
-    borderColor: Colors.light.error,
-  },
-  removeButtonLabel: {
-    color: Colors.light.error,
-    fontSize: 12,
   },
   promoteButton: {
     marginLeft: spacing.md,
@@ -492,10 +445,6 @@ const styles = StyleSheet.create({
   actionButtonLabel: {
     color: 'white',
     fontWeight: '600',
-  },
-  outlinedButtonLabel: {
-    color: Colors.light.primary,
-    fontWeight: '500',
   },
 });
 
