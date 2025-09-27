@@ -68,26 +68,26 @@ class PushNotificationService {
       }
 
       // Wrap all native calls in individual try-catch blocks
-      //console.log('🔍 [initialize] Checking notification permissions...');
+      console.log('🔍 [initialize] Checking notification permissions...');
       let permissionsResult;
       try {
         permissionsResult = await Notifications.getPermissionsAsync();
-        //console.log('🔍 [initialize] Current permissions:', JSON.stringify(permissionsResult, null, 2));
+        console.log('🔍 [initialize] Current permissions:', JSON.stringify(permissionsResult, null, 2));
       } catch (permError) {
         console.error('❌ [initialize] Failed to get permissions:', permError);
         return;
       }
 
       let finalStatus = permissionsResult.status;
-      //console.log('🔍 [initialize] Current permission status:', finalStatus);
+      console.log('🔍 [initialize] Current permission status:', finalStatus);
 
       if (finalStatus !== 'granted') {
-        //console.log('🔍 [initialize] Requesting notification permissions...');
+        console.log('🔍 [initialize] Requesting notification permissions...');
         try {
           const requestResult = await Notifications.requestPermissionsAsync();
           finalStatus = requestResult.status;
-          //console.log('🔍 [initialize] Permission request result:', JSON.stringify(requestResult, null, 2));
-          //console.log('🔍 [initialize] Final permission status:', finalStatus);
+          console.log('🔍 [initialize] Permission request result:', JSON.stringify(requestResult, null, 2));
+          console.log('🔍 [initialize] Final permission status:', finalStatus);
         } catch (requestError) {
           console.error('❌ [initialize] Failed to request permissions:', requestError);
           return;
@@ -100,7 +100,7 @@ class PushNotificationService {
         return;
       }
 
-      //console.log('✅ [initialize] Notification permissions granted');
+      console.log('✅ [initialize] Notification permissions granted');
 
       // Create Android notification channels for production builds
       if (Platform.OS === 'android') {
@@ -117,7 +117,7 @@ class PushNotificationService {
       if (token) {
         this.pushToken = token;
         await this.registerTokenWithServerSafely(token);
-        //console.log('✅ Push notifications initialized successfully');
+        console.log('✅ Push notifications initialized successfully');
       }
 
       this.isInitialized = true;
@@ -150,17 +150,23 @@ class PushNotificationService {
         return null;
       }
 
-      //console.log('🔍 [getPushTokenSafely] Requesting Expo push token with project ID:', projectId);
+      console.log('🔍 [getPushTokenSafely] Requesting Expo push token with project ID:', projectId);
+      
+      // Add extra debugging for Android
+      if (Platform.OS === 'android') {
+        console.log('🤖 [getPushTokenSafely] Android - Attempting FCM token generation...');
+      }
+      
       const token = await Notifications.getExpoPushTokenAsync({
         projectId,
       });
-      //console.log('✅ [getPushTokenSafely] Got push token successfully');
+      console.log('✅ [getPushTokenSafely] Got push token successfully');
       
       // In production, only log partial token for security
       if (__DEV__) {
-        // Push Token (DEV)
+        console.log('🔍 [getPushTokenSafely] Push Token (DEV):', token.data);
       } else {
-        // TestFlight Debug - Push Token (PROD)
+        console.log('🔍 [getPushTokenSafely] Push Token (PROD):', token.data.substring(0, 50) + '...');
       }
       
       return token.data;
@@ -173,12 +179,13 @@ class PushNotificationService {
 
   private async registerTokenWithServerSafely(token: string): Promise<void> {
     try {
-      //console.log('🔍 [registerTokenWithServerSafely] Starting token registration...');
-      //console.log('📱 [registerTokenWithServerSafely] Token to register:', token);
+      console.log('🔍 [registerTokenWithServerSafely] Starting token registration...');
+      console.log('📱 [registerTokenWithServerSafely] Token to register:', token.substring(0, 20) + '...');
+      console.log('🤖 [registerTokenWithServerSafely] Platform:', Platform.OS);
       
       // Get current user ID from Supabase auth
       const { data: { user }, error: authError } = await supabase.auth.getUser();
-      //console.log('🔍 [registerTokenWithServerSafely] Auth result:', { user: user?.id, authError });
+      console.log('🔍 [registerTokenWithServerSafely] Auth result:', { user: user?.id, authError });
       
       if (authError) {
         console.error('❌ [registerTokenWithServerSafely] Auth error:', authError);
@@ -190,29 +197,120 @@ class PushNotificationService {
         return;
       }
 
-      //console.log('🔍 [registerTokenWithServerSafely] Registering push token for user:', user.id);
+      console.log('🔍 [registerTokenWithServerSafely] Registering push token for user:', user.id);
 
-      // Update user's push token in the users table (original GitHub approach)
-      const { error, data: updateResult } = await supabase
+      // 1. Update user's push token in the users table (legacy approach)
+      const { error: userError, data: updateResult } = await supabase
         .from('users')
         .update({ push_token: token })
         .eq('id', user.id)
         .select('id, push_token');
 
-      if (error) {
-        console.error('❌ [registerTokenWithServerSafely] Failed to register push token:', error);
-        console.error('❌ [registerTokenWithServerSafely] Error details:', JSON.stringify(error, null, 2));
+      if (userError) {
+        console.error('❌ [registerTokenWithServerSafely] Failed to register push token in users table:', userError);
       } else {
-        // Push token registered successfully
+        console.log('✅ [registerTokenWithServerSafely] Push token registered in users table for user:', user.id);
+        console.log('📱 [registerTokenWithServerSafely] Updated user data:', updateResult);
       }
+
+      // 2. Register token in push_tokens table (new approach for multi-device support)
+      const deviceInfo = {
+        user_id: user.id,
+        token: token,
+        device_type: Platform.OS,
+        device_id: await this.getDeviceId(),
+        device_name: await this.getDeviceName(),
+        is_active: true,
+        last_used_at: new Date().toISOString()
+      };
+
+      console.log('🔍 [registerTokenWithServerSafely] Registering in push_tokens table:', deviceInfo);
+
+      const { error: pushTokensError, data: pushTokensResult } = await supabase
+        .from('push_tokens')
+        .upsert(deviceInfo, { 
+          onConflict: 'token',
+          ignoreDuplicates: false 
+        })
+        .select('id, token, device_type, is_active');
+
+      if (pushTokensError) {
+        console.error('❌ [registerTokenWithServerSafely] Failed to register push token in push_tokens table:', pushTokensError);
+      } else {
+        console.log('✅ [registerTokenWithServerSafely] Push token registered in push_tokens table successfully');
+        console.log('📱 [registerTokenWithServerSafely] Push tokens result:', pushTokensResult);
+      }
+
     } catch (error) {
       console.error('❌ [registerTokenWithServerSafely] Exception during token registration:', error);
       console.error('❌ [registerTokenWithServerSafely] Error details:', JSON.stringify(error, null, 2));
     }
   }
 
+  // Get device ID for tracking
+  private async getDeviceId(): Promise<string> {
+    try {
+      // Use a combination of platform and device info for unique ID
+      const deviceId = `${Platform.OS}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      return deviceId;
+    } catch (error) {
+      console.error('❌ [getDeviceId] Error generating device ID:', error);
+      return `${Platform.OS}_unknown`;
+    }
+  }
+
+  // Get device name for tracking
+  private async getDeviceName(): Promise<string> {
+    try {
+      if (Platform.OS === 'ios') {
+        return Device.modelName || 'iOS Device';
+      } else if (Platform.OS === 'android') {
+        return Device.modelName || 'Android Device';
+      } else {
+        return 'Unknown Device';
+      }
+    } catch (error) {
+      console.error('❌ [getDeviceName] Error getting device name:', error);
+      return 'Unknown Device';
+    }
+  }
+
   getPushTokenValue(): string | null {
     return this.pushToken;
+  }
+
+  // Clear the current push token (useful for re-registration)
+  clearToken(): void {
+    this.pushToken = null;
+    this.isInitialized = false;
+    this.initializationAttempted = false;
+    console.log('🧹 [clearToken] Push token cleared, ready for re-registration');
+  }
+
+  // Force re-registration of push token (for users without tokens)
+  async forceReRegistration(): Promise<boolean> {
+    try {
+      console.log('🔄 [forceReRegistration] Starting forced re-registration...');
+      
+      // Clear any existing state
+      this.clearToken();
+      
+      // Force re-initialization
+      await this.initialize();
+      
+      // Check if we got a token
+      const token = this.getPushTokenValue();
+      if (token) {
+        console.log('✅ [forceReRegistration] Push token re-registered successfully');
+        return true;
+      } else {
+        console.log('❌ [forceReRegistration] Failed to get push token after re-registration');
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ [forceReRegistration] Error during forced re-registration:', error);
+      return false;
+    }
   }
 
   async forceTokenReregistration(): Promise<void> {
@@ -240,7 +338,9 @@ class PushNotificationService {
     }
 
     try {
-      // Main notification channel for general notifications
+      console.log('🤖 [createAndroidNotificationChannels] Creating Android notification channels...');
+
+      // Main notification channel for general notifications (matches app.json config)
       await Notifications.setNotificationChannelAsync('animo-notifications', {
         name: 'ANIMO Notifications',
         description: 'General notifications from ANIMO Pilates Studio',
@@ -252,6 +352,7 @@ class PushNotificationService {
         enableVibrate: true,
         enableLights: true,
         showBadge: true,
+        sound: 'default',
       });
 
       // Class reminder channel
@@ -266,6 +367,7 @@ class PushNotificationService {
         enableVibrate: true,
         enableLights: true,
         showBadge: true,
+        sound: 'default',
       });
 
       // Class updates channel
@@ -280,6 +382,7 @@ class PushNotificationService {
         enableVibrate: true,
         enableLights: true,
         showBadge: true,
+        sound: 'default',
       });
 
       // Subscription updates channel
@@ -294,11 +397,28 @@ class PushNotificationService {
         enableVibrate: true,
         enableLights: true,
         showBadge: true,
+        sound: 'default',
       });
 
-      console.log('✅ Android notification channels created successfully');
+      // Test channel for debugging
+      await Notifications.setNotificationChannelAsync('test-notifications', {
+        name: 'Test Notifications',
+        description: 'Test notifications for debugging push notification issues',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#F5F2B8',
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        bypassDnd: false,
+        enableVibrate: true,
+        enableLights: true,
+        showBadge: true,
+        sound: 'default',
+      });
+
+      console.log('✅ [createAndroidNotificationChannels] Android notification channels created successfully');
+      console.log('📱 [createAndroidNotificationChannels] Channels: animo-notifications, class-reminders, class-updates, subscription-updates, test-notifications');
     } catch (error) {
-      console.error('❌ Failed to create Android notification channels:', error);
+      console.error('❌ [createAndroidNotificationChannels] Failed to create Android notification channels:', error);
       throw error;
     }
   }
