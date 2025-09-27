@@ -2,7 +2,7 @@
   "expo": {
     "name": "ANIMO",
     "slug": "PilatesStudioApp",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "orientation": "portrait",
     "scheme": "animopilatesstudio",
     "userInterfaceStyle": "automatic",
@@ -65,11 +65,12 @@
     "android": {
       "package": "com.animo.pilatesstudio",
       "icon": "./assets/images/icon.png",
-      "jsEngine": "jsc",
+      "jsEngine": "hermes",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#F5F2B8"
       },
+      "googleServicesFile": "./android/app/google-services.json",
       "permissions": [
         "android.permission.READ_CALENDAR",
         "android.permission.WRITE_CALENDAR",
