@@ -103,21 +103,7 @@ function HomeScreen() {
     console.log('Navigate to schedule');
   };
 
-  const handleApiTest = () => {
-    navigation.navigate('ApiTest' as never);
-  };
 
-  const handleSupabaseTest = () => {
-    navigation.navigate('SupabaseTest' as never);
-  };
-
-  const handleAuthTest = () => {
-    navigation.navigate('AuthTest' as never);
-  };
-
-  const handleNetworkTest = () => {
-    navigation.navigate('NetworkDiagnostic' as never);
-  };
 
   const getWelcomeMessage = () => {
     const hour = new Date().getHours();
@@ -218,24 +204,6 @@ function HomeScreen() {
             </View>
 
             <View style={styles.actionGrid}>
-              <PaperButton 
-                mode="outlined" 
-                style={styles.secondaryAction}
-                labelStyle={styles.secondaryActionLabel}
-                icon={() => <MaterialIcons name="settings" size={20} color={Colors.light.textSecondary} />}
-                onPress={handleApiTest}
-              >
-                API Test
-              </PaperButton>
-              <PaperButton 
-                mode="outlined" 
-                style={styles.secondaryAction}
-                labelStyle={styles.secondaryActionLabel}
-                icon={() => <MaterialIcons name="settings" size={20} color={Colors.light.textSecondary} />}
-                onPress={handleSupabaseTest}
-              >
-                Supabase Test
-              </PaperButton>
             </View>
             <View style={styles.actionGrid}>
               <PaperButton 

@@ -291,7 +291,7 @@ class ProfileService {
       if (!error && data) {
         return {
           classFullNotifications: data.class_full_notifications ?? true,
-          newEnrollmentNotifications: data.new_enrollment_notifications ?? false,
+          newEnrollmentNotifications: data.new_enrollment_notifications ?? true,
           classCancellationNotifications: data.class_cancellation_notifications ?? true,
           generalReminders: data.general_reminders ?? true,
         };

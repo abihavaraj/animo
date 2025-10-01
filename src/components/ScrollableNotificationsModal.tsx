@@ -37,10 +37,10 @@ export default function ScrollableNotificationsModal({ visible, onDismiss, onNot
   // Theme colors
   const { themeColors } = useTheme();
   
-  // Force light colors (no dark mode)
-  const textColor = '#000000';
-  const textSecondaryColor = '#666666';
-  const surfaceColor = '#FFFFFF';
+  // Use theme colors for proper dark mode support
+  const textColor = themeColors.text || '#000000';
+  const textSecondaryColor = themeColors.textSecondary || '#666666';
+  const surfaceColor = themeColors.surface || '#FFFFFF';
   const primaryColor = themeColors.primary;
   const errorColor = themeColors.error;
 

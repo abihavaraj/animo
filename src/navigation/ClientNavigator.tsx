@@ -4,14 +4,9 @@ import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Animated, Platform, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import AuthTest from '../components/AuthTest';
-import CrashTest from '../components/CrashTest';
-import NetworkDiagnostic from '../components/NetworkDiagnostic';
-import { SupabaseTest } from '../components/SupabaseTest';
 import ChristmasTabBarDecoration from '../components/animations/ChristmasTabBarDecoration';
 import { useTheme } from '../contexts/ThemeContext';
 import { useThemeColor } from '../hooks/useDynamicThemeColor';
-import ApiTestScreen from '../screens/ApiTestScreen';
 import BookingHistory from '../screens/client/BookingHistory';
 import ClassesView from '../screens/client/ClassesView';
 import ClientDashboard from '../screens/client/ClientDashboard';
@@ -542,59 +537,11 @@ export default function ClientNavigator() {
         }}
       />
       <Stack.Screen 
-        name="CrashTest" 
-        component={CrashTest}
-        options={{
-          headerShown: true,
-          title: '🛡️ Crash Prevention Test',
-          headerStyle: {
-            backgroundColor: '#6B8E7F',
-          },
-          headerTintColor: '#ffffff',
-        }}
-      />
-      <Stack.Screen 
         name="ApiTest" 
-        component={ApiTestScreen}
+        component={ClientDashboard}
         options={{
           headerShown: true,
           title: '🔧 API Configuration Test',
-          headerStyle: {
-            backgroundColor: '#6B8E7F',
-          },
-          headerTintColor: '#ffffff',
-        }}
-      />
-      <Stack.Screen 
-        name="SupabaseTest" 
-        component={SupabaseTest}
-        options={{
-          headerShown: true,
-          title: '🛡️ Supabase Test',
-          headerStyle: {
-            backgroundColor: '#6B8E7F',
-          },
-          headerTintColor: '#ffffff',
-        }}
-      />
-      <Stack.Screen 
-        name="AuthTest" 
-        component={AuthTest}
-        options={{
-          headerShown: true,
-          title: '🔐 Authentication Test',
-          headerStyle: {
-            backgroundColor: '#6B8E7F',
-          },
-          headerTintColor: '#ffffff',
-        }}
-      />
-      <Stack.Screen 
-        name="NetworkDiagnostic" 
-        component={NetworkDiagnostic}
-        options={{
-          headerShown: true,
-          title: '🔧 Network Diagnostic',
           headerStyle: {
             backgroundColor: '#6B8E7F',
           },

@@ -2,21 +2,21 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, Dimensions, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import {
-  ActivityIndicator,
-  Button,
-  Chip,
-  DataTable,
-  Divider,
-  Icon,
-  IconButton,
-  Menu,
-  Modal,
-  Portal,
-  Searchbar,
-  SegmentedButtons,
-  Surface,
-  Switch,
-  TextInput
+    ActivityIndicator,
+    Button,
+    Chip,
+    DataTable,
+    Divider,
+    Icon,
+    IconButton,
+    Menu,
+    Modal,
+    Portal,
+    Searchbar,
+    SegmentedButtons,
+    Surface,
+    Switch,
+    TextInput
 } from 'react-native-paper';
 import { useSelector } from 'react-redux';
 import { Body, Caption, H2, H3 } from '../../../components/ui/Typography';
@@ -460,39 +460,46 @@ function PCClassManagement() {
 
         const response = await classService.updateClass(editingClass.id, updateData);
         if (response.success) {
-          // Check for changes that require notifications
+          // Check if class has already passed (considering duration)
+          const isClassPassed = isPastClass(formData.date, formData.time, formData.duration);
+          
+          // Check for changes that require notifications (only if class hasn't passed)
           const instructorChanged = String(editingClass.instructor_id) !== formData.instructorId;
           const timeChanged = editingClass.time !== formData.time;
           
-          // Send notifications for significant changes
-          try {
-            if (instructorChanged) {
-              const oldInstructorName = editingClass.instructor_name || 'Previous Instructor';
-              const newInstructorName = formData.instructorName || 'New Instructor';
+          // Send notifications for significant changes only if class hasn't passed
+          if (!isClassPassed) {
+            try {
+              if (instructorChanged) {
+                const oldInstructorName = editingClass.instructor_name || 'Previous Instructor';
+                const newInstructorName = formData.instructorName || 'New Instructor';
+                
+                await notificationService.sendInstructorChangeNotifications(
+                  editingClass.id,
+                  formData.name,
+                  formData.date,
+                  oldInstructorName,
+                  newInstructorName
+                );
+                console.log('📢 [RECEPTION] Instructor change notification sent for class:', formData.name);
+              }
               
-              await notificationService.sendInstructorChangeNotifications(
-                editingClass.id,
-                formData.name,
-                formData.date,
-                oldInstructorName,
-                newInstructorName
-              );
-              console.log('📢 [RECEPTION] Instructor change notification sent for class:', formData.name);
+              if (timeChanged) {
+                await notificationService.sendClassTimeChangeNotifications(
+                  editingClass.id,
+                  formData.name,
+                  formData.date,
+                  editingClass.time,
+                  formData.time
+                );
+                console.log('📢 [RECEPTION] Time change notification sent for class:', formData.name);
+              }
+            } catch (notificationError) {
+              console.error('❌ Failed to send change notifications:', notificationError);
+              // Don't block the main operation for notification errors
             }
-            
-            if (timeChanged) {
-              await notificationService.sendClassTimeChangeNotifications(
-                editingClass.id,
-                formData.name,
-                formData.date,
-                editingClass.time,
-                formData.time
-              );
-              console.log('📢 [RECEPTION] Time change notification sent for class:', formData.name);
-            }
-          } catch (notificationError) {
-            console.error('❌ Failed to send change notifications:', notificationError);
-            // Don't block the main operation for notification errors
+          } else {
+            console.log('⏰ [RECEPTION] Class has already passed - skipping notifications for:', formData.name);
           }
 
           // Log activity for class update
@@ -1964,6 +1971,29 @@ function PCClassManagement() {
             }
           });
         }
+        
+        // 🚨 ADDED: Send "class cancelled by studio" notifications to all enrolled users (only if class hasn't passed)
+        if (classToDelete) {
+          const isClassPassed = isPastClass(classToDelete.date, classToDelete.time, classToDelete.duration);
+          
+          if (!isClassPassed) {
+            try {
+              await notificationService.sendClassCancellationNotifications(
+                classId,
+                classToDelete.name,
+                classToDelete.date,
+                classToDelete.time
+              );
+              console.log('📢 [RECEPTION] Class cancellation notifications sent to enrolled users');
+            } catch (notificationError) {
+              console.error('❌ Failed to send class cancellation notifications:', notificationError);
+              // Don't block the deletion for notification errors
+            }
+          } else {
+            console.log('⏰ [RECEPTION] Class has already passed - skipping cancellation notifications for:', classToDelete.name);
+          }
+        }
+        
         // Cancel any scheduled reminder notifications for this class
         try {
           await notificationService.cancelClassNotifications(Number(classId));
@@ -1975,8 +2005,8 @@ function PCClassManagement() {
         
         console.log('🗑️ Delete successful, reloading classes...');
         await loadClasses();
-        // Show the detailed message including refund info
-        const successMessage = (response as any).message || 'Class deleted successfully';
+        // Show the detailed message including refund info and student notifications
+        const successMessage = (response as any).message || 'Class deleted successfully and students have been notified';
         if (Platform.OS === 'web') {
           window.alert(successMessage);
         } else {
@@ -2315,10 +2345,9 @@ function PCClassManagement() {
                     setFormData({
                       ...formData, 
                       category: newCategory,
-                      // Smart capacity adjustment based on category
-                      capacity: newCategory === 'personal' ? 
-                        (formData.capacity > 5 ? 1 : formData.capacity) : // Keep small numbers for personal
-                        (formData.capacity < 5 ? 10 : formData.capacity)   // Reset to 10 for group if very small
+                      // Only suggest capacity if switching TO personal and current capacity is unrealistic
+                      // Allow manual override for any capacity
+                      capacity: newCategory === 'personal' && formData.capacity > 10 ? 1 : formData.capacity
                     });
                   }}
                   buttons={[

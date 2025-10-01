@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import {
-  Button,
-  Card,
-  Chip,
-  Icon,
-  Menu,
-  SegmentedButtons,
-  Surface,
-  Switch,
-  TextInput
+    Button,
+    Card,
+    Chip,
+    Icon,
+    Menu,
+    SegmentedButtons,
+    Surface,
+    Switch,
+    TextInput
 } from 'react-native-paper';
 import { Colors } from '../../constants/Colors';
 import { CreateClassRequest } from '../../services/classService';
@@ -300,9 +300,9 @@ export default function EnhancedCreateClassForm({
                 setFormData({
                   ...formData, 
                   category: newCategory,
-                  capacity: newCategory === 'personal' ? 
-                    (formData.capacity > 5 ? 1 : formData.capacity) : 
-                    (formData.capacity < 5 ? 10 : formData.capacity)
+                  // Only suggest capacity if switching TO personal and current capacity is unrealistic
+                  // Allow manual override for any capacity
+                  capacity: newCategory === 'personal' && formData.capacity > 10 ? 1 : formData.capacity
                 });
               }}
               buttons={[

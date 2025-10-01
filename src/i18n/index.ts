@@ -16,6 +16,54 @@ export const SUPPORTED_LANGUAGES = [
 
 export type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number]['code'];
 
+// 🚨 SYNC FUNCTION: Ensure AsyncStorage and database language preferences match
+const syncLanguageWithDatabase = async (asyncStorageLanguage: string) => {
+  try {
+    const { supabase } = await import('../config/supabase.config');
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) return; // Not logged in, skip sync
+    
+    // Get current database language preference
+    const { data: dbUser, error } = await supabase
+      .from('users')
+      .select('language_preference')
+      .eq('id', user.id)
+      .single();
+    
+    if (error || !dbUser) return; // Database error, skip sync
+    
+    const databaseLanguage = dbUser.language_preference;
+    
+    // If they don't match, update database to match AsyncStorage (UI preference)
+    if (databaseLanguage !== asyncStorageLanguage) {
+      console.log(`🔄 [LANG_SYNC] Detected mismatch: UI=${asyncStorageLanguage}, DB=${databaseLanguage}`);
+      console.log(`🔄 [LANG_SYNC] Updating database to match UI preference: ${asyncStorageLanguage}`);
+      
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ language_preference: asyncStorageLanguage })
+        .eq('id', user.id);
+      
+      if (!updateError) {
+        // Clear notification cache to use updated language
+        try {
+          const { NotificationTranslationService } = await import('../services/notificationTranslationService');
+          NotificationTranslationService.clearUserLanguageCache(user.id);
+          console.log(`✅ [LANG_SYNC] Synchronized language preference to ${asyncStorageLanguage}`);
+        } catch (cacheError) {
+          // Silent cache error
+        }
+      } else {
+        console.error(`❌ [LANG_SYNC] Failed to update database:`, updateError);
+      }
+    }
+  } catch (error) {
+    // Silent sync error - don't disrupt app functionality
+    console.log(`🔄 [LANG_SYNC] Sync error (ignored):`, error);
+  }
+};
+
 // Language detection function
 const languageDetector = {
   type: 'languageDetector' as const,
@@ -25,6 +73,17 @@ const languageDetector = {
       // Try to get saved language from AsyncStorage
       const savedLanguage = await AsyncStorage.getItem(LANGUAGE_STORAGE_KEY);
       if (savedLanguage && SUPPORTED_LANGUAGES.some(lang => lang.code === savedLanguage)) {
+        
+        // 🚨 SYNC CHECK: Ensure database and AsyncStorage are synchronized
+        // This prevents notifications using wrong language
+        setTimeout(async () => {
+          try {
+            await syncLanguageWithDatabase(savedLanguage);
+          } catch (syncError) {
+            // Silent sync error
+          }
+        }, 1000); // Small delay to not block app startup
+        
         callback(savedLanguage);
         return;
       }
@@ -83,7 +142,17 @@ export const changeLanguage = async (languageCode: SupportedLanguage) => {
           .update({ language_preference: languageCode })
           .eq('id', user.id);
         
-        // Silent language preference update
+        if (!updateError) {
+          // 🚨 CRITICAL: Clear notification language cache when user changes language
+          // This ensures notifications will use the new language immediately
+          try {
+            const { NotificationTranslationService } = await import('../services/notificationTranslationService');
+            NotificationTranslationService.clearUserLanguageCache(user.id);
+            console.log(`🌐 [LANG_CHANGE] Cleared notification cache for user ${user.id} after language change to ${languageCode}`);
+          } catch (cacheError) {
+            // Silent cache clear error
+          }
+        }
       }
     } catch (dbError) {
       // Silent error handling

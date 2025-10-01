@@ -13,6 +13,7 @@ import { withChristmasDesign } from '../../components/withChristmasDesign';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useThemeColor } from '../../hooks/useDynamicThemeColor';
 import { notificationService } from '../../services/notificationService';
+import { pushNotificationService } from '../../services/pushNotificationService';
 import { subscriptionService } from '../../services/subscriptionService';
 import { RootState, useAppDispatch } from '../../store';
 import { logoutUser } from '../../store/authSlice';
@@ -288,6 +289,28 @@ function ClientProfile({ navigation }: any) {
     }
   };
 
+  // Test push notification re-registration (development only)
+  const [testModalVisible, setTestModalVisible] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string; token?: string } | null>(null);
+
+  const handleTestPushReregistration = async () => {
+    if (!__DEV__) return; // Only in development
+    
+    try {
+      console.log('🧪 [ClientProfile] Starting push notification re-registration test...');
+      const result = await pushNotificationService.testReregistration();
+      setTestResult(result);
+      setTestModalVisible(true);
+    } catch (error) {
+      console.error('Error testing push re-registration:', error);
+      setTestResult({
+        success: false,
+        message: `Failed to test re-registration: ${error}`
+      });
+      setTestModalVisible(true);
+    }
+  };
+
   if (isLoading) {
     return (
       <View style={[styles.container, styles.loadingContainer, { backgroundColor }]}>
@@ -379,15 +402,15 @@ function ClientProfile({ navigation }: any) {
                     <Caption style={{ ...styles.billingText, color: textSecondaryColor }}>
                       {subscriptionData.isDayPass ? 
                         (subscriptionData.daysUntilEnd < 0 
-                          ? 'Day pass expired'
+                          ? t('subscription.dayPassExpired')
                           : subscriptionData.daysUntilEnd === 0 
-                            ? 'Expires today'
-                            : `Expires in ${subscriptionData.daysUntilEnd} ${subscriptionData.daysUntilEnd === 1 ? 'day' : 'days'}`
+                            ? t('subscription.expiresToday')
+                            : `${t('subscription.expiresIn')} ${subscriptionData.daysUntilEnd} ${subscriptionData.daysUntilEnd === 1 ? t('subscription.day') : t('subscription.days')}`
                         ) :
                         (subscriptionData.daysUntilEnd <= 0 
                           ? 'Subscription expired'
                           : subscriptionData.daysUntilEnd > 0 
-                            ? `${subscriptionData.daysUntilEnd} ${subscriptionData.daysUntilEnd === 1 ? 'day' : 'days'} until renewal`
+                            ? `${subscriptionData.daysUntilEnd} ${subscriptionData.daysUntilEnd === 1 ? t('subscription.day') : t('subscription.days')} ${t('subscription.untilRenewal')}`
                             : 'Renews today'
                         )
                       }
@@ -591,7 +614,7 @@ function ClientProfile({ navigation }: any) {
                   style={{ ...styles.reminderButton, borderColor: accentColor }}
                   icon="access-time"
                 >
-                  {notificationSettings.defaultReminderMinutes} min
+                  {notificationSettings.defaultReminderMinutes} {t('profile.minutes')}
                 </Button>
               </View>
             )}
@@ -677,6 +700,21 @@ function ClientProfile({ navigation }: any) {
               Logout
             </Button>
           </View>
+          
+          {/* Development only: Test push notification re-registration */}
+          {__DEV__ && (
+            <View style={[styles.buttonContainer, { marginTop: 10 }]}>
+              <Button 
+                mode="outlined" 
+                style={{ ...styles.editButton, borderColor: primaryColor }} 
+                onPress={handleTestPushReregistration}
+                icon="refresh"
+                textColor={primaryColor}
+              >
+                🧪 Test Push Re-registration (DEV)
+              </Button>
+            </View>
+          )}
         </Card.Content>
       </Card>
 
@@ -711,7 +749,7 @@ function ClientProfile({ navigation }: any) {
               style={{ ...styles.reminderOption, borderColor: accentColor }}
               labelStyle={{ color: textColor }}
             >
-              {minutes} minutes
+              {minutes} {t('profile.minutes')}
             </Button>
           ))}
           
@@ -725,6 +763,46 @@ function ClientProfile({ navigation }: any) {
           </Button>
         </Modal>
       </Portal>
+
+      {/* Development only: Test result modal */}
+      {__DEV__ && (
+        <Portal key="test-result-modal">
+          <Modal 
+            visible={testModalVisible} 
+            onDismiss={() => setTestModalVisible(false)} 
+            contentContainerStyle={[
+              styles.modalContainer,
+              {
+                width: modalDimensions.width,
+                maxWidth: modalDimensions.maxWidth,
+                padding: modalDimensions.padding,
+                margin: modalDimensions.margin
+              }
+            ]}
+          >
+            <H2 style={{ ...styles.modalTitle, color: textColor }}>
+              {testResult?.success ? '✅ Re-registration Success' : '❌ Re-registration Failed'}
+            </H2>
+            <Body style={{ ...styles.modalText, color: textSecondaryColor }}>
+              {testResult?.message}
+            </Body>
+            {testResult?.token && (
+              <Body style={{ ...styles.modalText, color: textSecondaryColor, fontFamily: 'monospace', fontSize: 12 }}>
+                Token: {testResult.token}
+              </Body>
+            )}
+            
+            <Button 
+              mode="contained" 
+              onPress={() => setTestModalVisible(false)}
+              style={{ ...styles.modalButton, backgroundColor: primaryColor }}
+              textColor="white"
+            >
+              OK
+            </Button>
+          </Modal>
+        </Portal>
+      )}
     </ScrollView>
     </View>
   );

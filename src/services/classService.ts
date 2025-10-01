@@ -161,12 +161,62 @@ class ClassService {
     }
   }
 
-  // 🚀 OPTIMIZATION 1: Single query with enrollment counts and date filtering
+  // 🚀 OPTIMIZATION 1: Advanced caching and parallel queries
+  private classesCache: {
+    data: BackendClass[];
+    timestamp: number;
+    expiry: number;
+    filters: string;
+  } | null = null;
+
+  // 🚀 OPTIMIZATION: Cache invalidation method
+  invalidateClassesCache(): void {
+    this.classesCache = null;
+    console.log('🗑️ [CLASS_PERF] Classes cache invalidated');
+  }
+
+  // 🚨 CRITICAL: Force fresh data for booking-critical operations
+  async getFreshClasses(filters?: ClassFilters & { userRole?: string }): Promise<ApiResponse<BackendClass[]>> {
+    // Temporarily disable cache
+    const originalCache = this.classesCache;
+    this.classesCache = null;
+    
+    try {
+      console.log('🔄 [CLASS_PERF] Forcing fresh class data for real-time accuracy');
+      const result = await this.getClasses(filters);
+      return result;
+    } finally {
+      // Restore cache (if it was valid)
+      this.classesCache = originalCache;
+    }
+  }
+
   async getClasses(filters?: ClassFilters & { userRole?: string }): Promise<ApiResponse<BackendClass[]>> {
     try {
       const classQueryStart = Date.now();
+      console.log('🚀 [CLASS_PERF] Starting class loading...');
       
-      // 🚀 OPTIMIZATION 2: Build efficient query with minimal fields for dashboard
+      // 🚀 OPTIMIZATION 2: Real-time aware caching
+      const cacheKey = JSON.stringify(filters || {});
+      const now = Date.now();
+      const CACHE_DURATION = 15 * 1000; // Only 15 seconds cache for real-time accuracy
+      
+      // 🚨 CRITICAL: Only cache for specific safe scenarios
+      const isSafeForCaching = filters?.instructor || // Instructor-specific views
+                              filters?.date ||       // Single date views
+                              filters?.limit;        // Limited result sets
+      
+      const useCache = isSafeForCaching && 
+                      this.classesCache && 
+                      now < this.classesCache.expiry && 
+                      this.classesCache.filters === cacheKey;
+      
+      if (useCache) {
+        console.log(`🚀 [CLASS_PERF] Using cached data (${this.classesCache.data.length} classes) - 15s cache`);
+        return { success: true, data: this.classesCache.data };
+      }
+      
+      // 🚀 OPTIMIZATION 3: Optimized query with instructor data
       let baseQuery = supabase
         .from('classes')
         .select(`
@@ -178,36 +228,34 @@ class ClassService {
           capacity,
           category,
           equipment_type,
+          equipment,
           room,
           status,
           visibility,
           instructor_id,
+          created_at,
+          updated_at,
           users!classes_instructor_id_fkey (name)
         `);
         
-      // 🚀 OPTIMIZATION 3: Server-side filtering
+      // 🚀 OPTIMIZATION 4: Server-side filtering
       if (filters?.status) {
         baseQuery = baseQuery.eq('status', filters.status);
       } else {
-        // Include active, full, and completed classes (clients can see all classes including past ones)
         baseQuery = baseQuery.in('status', ['active', 'full', 'completed']);
       }
 
       // 🔒 PRIVACY FILTERING: Filter by visibility and date based on user role
       if (filters?.userRole === 'client') {
-        // Clients can only see public classes
         baseQuery = baseQuery.eq('visibility', 'public');
         
-        // 📅 CLIENT 1-MONTH RULE: Only show classes from 1 month ago onwards
         if (!filters?.date_from) {
           const today = new Date();
           const oneMonthAgo = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate());
           const oneMonthAgoStr = oneMonthAgo.toISOString().split('T')[0];
           baseQuery = baseQuery.gte('date', oneMonthAgoStr);
         }
-      } else {
       }
-      // Admin, instructor, and reception can see ALL classes (no additional filters)
       
       if (filters?.date) {
         baseQuery = baseQuery.eq('date', filters.date);
@@ -224,8 +272,6 @@ class ClassService {
       if (filters?.instructor) {
         baseQuery = baseQuery.eq('instructor_id', filters.instructor);
       }
-   
-      
       
       if (filters?.equipmentType) {
         baseQuery = baseQuery.eq('equipment_type', filters.equipmentType);
@@ -237,29 +283,61 @@ class ClassService {
         baseQuery = baseQuery.gte('date', todayStr);
       }
       
-      // 🚀 OPTIMIZATION 4: Efficient ordering - NO LIMITS for unlimited future classes
-      // Only apply limit if explicitly requested in filters
+      // 🚀 OPTIMIZATION 5: Efficient ordering and optional limiting
       baseQuery = baseQuery
         .order('date')
         .order('time');
       
-      // Only apply limit if explicitly provided in filters
       if (filters?.limit) {
         baseQuery = baseQuery.limit(filters.limit);
       }
-      
 
-      const { data, error } = await baseQuery;
+      // 🚀 OPTIMIZATION 6: Run classes query and enrollment counting in parallel
+      const [classesResult, enrollmentCountsResult] = await Promise.all([
+        baseQuery,
+        // Get enrollment counts for all matching classes in parallel
+        supabase
+          .from('bookings')
+          .select('class_id, status')
+          .eq('status', 'confirmed')
+      ]);
+
+      const { data: classesData, error: classesError } = classesResult;
+      const { data: enrollmentData, error: enrollmentError } = enrollmentCountsResult;
    
-      if (error) {
-        console.error('❌ ClassService: Supabase error:', error);
-        return { success: false, error: error.message };
+      if (classesError) {
+        console.error('❌ ClassService: Supabase error:', classesError);
+        return { success: false, error: classesError.message };
       }
       
-      // 🚀 OPTIMIZATION 5: Simplified enrollment counting
-      const classesWithEnrollment = await this.addEnrollmentCounts(data || []);
+      console.log(`🚀 [CLASS_PERF] Parallel queries completed in ${Date.now() - classQueryStart}ms`);
       
-      return { success: true, data: classesWithEnrollment };
+      // 🚀 OPTIMIZATION 7: Fast enrollment counting using Map
+      const enrollmentMap = new Map<string, number>();
+      if (!enrollmentError && enrollmentData) {
+        enrollmentData.forEach(booking => {
+          const classId = booking.class_id.toString();
+          enrollmentMap.set(classId, (enrollmentMap.get(classId) || 0) + 1);
+        });
+      }
+      
+      // 🚀 OPTIMIZATION 8: Single pass data transformation
+      const processedClasses = (classesData || []).map(cls => ({
+        ...cls,
+        enrolled: enrollmentMap.get(cls.id.toString()) || 0,
+        instructor_name: (cls.users as any)?.name || 'TBD'
+      })) as BackendClass[];
+      
+      // 🚀 OPTIMIZATION 9: Cache the results
+      this.classesCache = {
+        data: processedClasses,
+        timestamp: now,
+        expiry: now + CACHE_DURATION,
+        filters: cacheKey
+      };
+      
+      console.log(`🚀 [CLASS_PERF] Total class loading time: ${Date.now() - classQueryStart}ms (${processedClasses.length} classes)`);
+      return { success: true, data: processedClasses };
     } catch (error) {
       console.error('❌ Error in getClasses:', error);
       return { success: false, error: 'Failed to get classes' };
@@ -340,6 +418,9 @@ class ClassService {
         instructor_name: data?.users?.name || 'Unknown Instructor'
       };
       
+      // 🚀 OPTIMIZATION: Invalidate cache when class is created
+      this.invalidateClassesCache();
+      
       return { success: true, data: transformedData };
     } catch (error) {
       return { success: false, error: 'Failed to create class' };
@@ -377,6 +458,9 @@ class ClassService {
         ...data,
         instructor_name: data?.users?.name || 'Unknown Instructor'
       };
+      
+      // 🚀 OPTIMIZATION: Invalidate cache when class is updated
+      this.invalidateClassesCache();
       
       return { success: true, data: transformedData };
     } catch (error) {
@@ -497,6 +581,9 @@ class ClassService {
           refundMessage = ` Credits have been refunded to ${refundCount} user${refundCount === 1 ? '' : 's'}.`;
         }
       }
+      
+      // 🚀 OPTIMIZATION: Invalidate cache when class is deleted
+      this.invalidateClassesCache();
       
       return { 
         success: true, 

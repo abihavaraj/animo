@@ -5,11 +5,11 @@ import { layout, spacing } from '@/constants/Spacing';
 import React, { useEffect, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import {
-    Avatar,
-    Divider,
-    Button as PaperButton,
-    Card as PaperCard,
-    Switch
+  Avatar,
+  Divider,
+  Button as PaperButton,
+  Card as PaperCard,
+  Switch
 } from 'react-native-paper';
 import { useSelector } from 'react-redux';
 import WebCompatibleIcon from '../../components/WebCompatibleIcon';
@@ -188,7 +188,7 @@ function InstructorProfile() {
           enableEmailNotifications: data.enable_email_notifications ?? false,
           defaultReminderMinutes: data.default_reminder_minutes ?? 15,
           classFullNotifications: data.class_full_notifications ?? true,
-          newEnrollmentNotifications: data.new_enrollment_notifications ?? false,
+          newEnrollmentNotifications: data.new_enrollment_notifications ?? true,
           classCancellationNotifications: data.class_cancellation_notifications ?? true,
           generalReminders: data.general_reminders ?? true,
         });
@@ -203,7 +203,7 @@ function InstructorProfile() {
             enable_email_notifications: false,
             default_reminder_minutes: 15,
             class_full_notifications: true,
-            new_enrollment_notifications: false,
+            new_enrollment_notifications: true,
             class_cancellation_notifications: true,
             general_reminders: true,
           });
@@ -215,7 +215,7 @@ function InstructorProfile() {
             enableEmailNotifications: false,
             defaultReminderMinutes: 15,
             classFullNotifications: true,
-            newEnrollmentNotifications: false,
+            newEnrollmentNotifications: true,
             classCancellationNotifications: true,
             generalReminders: true,
           });
@@ -228,11 +228,14 @@ function InstructorProfile() {
 
   const updateNotificationPreference = async (key: string, value: boolean) => {
     try {
+      console.log(`🔧 [updateNotificationPreference] Called with key: ${key}, value: ${value}`);
+      
       if (!user?.id) {
         console.error('❌ [updateNotificationPreference] No user ID available');
         return;
       }
 
+      console.log(`🔧 [updateNotificationPreference] User ID: ${user.id}`);
 
       // Update local state immediately
       setNotificationPreferences(prev => ({
@@ -243,6 +246,7 @@ function InstructorProfile() {
       // Convert camelCase to snake_case for database
       const dbKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
       
+      console.log(`🔧 [updateNotificationPreference] Database key: ${dbKey}`);
       
       // Update in notification_settings table
       const { error } = await supabase
@@ -264,6 +268,7 @@ function InstructorProfile() {
           [key]: !value
         }));
       } else {
+        console.log(`✅ [updateNotificationPreference] Successfully updated ${dbKey} to ${value}`);
       }
     } catch (error) {
       console.error('Failed to update notification preference:', error);

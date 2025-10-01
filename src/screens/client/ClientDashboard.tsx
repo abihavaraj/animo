@@ -300,7 +300,7 @@ function ClientDashboard() {
     return { now, todayStr, futureDateStr };
   }, []);
 
-  // 🚀 OPTIMIZED: Parallel data loading with date filters
+  // 🚀 SUPER-OPTIMIZED: Maximum parallel loading with smart caching
   const loadDashboardData = useCallback(async () => {
     if (!user) {
       setLoading(false);
@@ -310,242 +310,194 @@ function ClientDashboard() {
     try {
       setLoading(true);
       const dashboardStartTime = Date.now();
-      // Dashboard refresh started
+      console.log('🚀 [DASHBOARD_PERF] Starting dashboard refresh...');
       
-      // 🔄 UPDATE: Automatically update completed class statuses before loading
-      const statusUpdateStart = Date.now();
-              // Starting class status update
-      await classService.updateCompletedClassStatus();
-      const statusUpdateEnd = Date.now();
-              // Class status update completed
-
-      // 🚀 OPTIMIZATION 1: Parallel API calls with individual timing
+      // 🚀 OPTIMIZATION 1: Run status update in parallel with data fetching
       const apiCallsStart = Date.now();
-              // Starting parallel API calls
-      
-      // 🕵️ Individual API call timing
-      const bookingsStart = Date.now();
-      const waitlistStart = Date.now();
-      const classesStart = Date.now();
-      const subscriptionStart = Date.now();
-      const notificationsStart = Date.now();
       
       const [
+        statusUpdateResult,
         bookingsResponse,
         waitlistResponse,
         classesResponse,
         subscriptionResponse,
         notificationsResponse
       ] = await Promise.allSettled([
-        // Load all bookings (same as ClassesView) to ensure no bookings are missed
-        bookingService.getBookings({}).then(result => {
-          // Bookings API completed
-          return result;
+        // 🚀 OPTIMIZATION: Status update runs in parallel, not blocking
+        classService.updateCompletedClassStatus(),
+        
+        // 🚀 OPTIMIZATION: Faster bookings query with date filtering
+        bookingService.getBookings({
+          from: dateHelpers.todayStr,
+          to: dateHelpers.futureDateStr
         }),
         
         // Load user waitlist (already optimized)
-        bookingService.getUserWaitlist(user.id).then(result => {
-          // Waitlist API completed
-          return result;
-        }),
+        bookingService.getUserWaitlist(user.id),
         
-        // 🚀 OPTIMIZED: Load only upcoming classes with limits
+        // 🚀 OPTIMIZATION: Smart class loading with cache consideration
         classService.getClasses({
           upcoming: true,
           date_from: dateHelpers.todayStr,
           date_to: dateHelpers.futureDateStr,
           limit: 15,
           userRole: 'client'
-        }).then(result => {
-          // Classes API completed
-          return result;
         }),
         
-        // Load subscription
-        subscriptionService.getCurrentSubscription().then(result => {
-          // Subscription API completed
-          return result;
-        }),
+        // Load subscription with caching
+        subscriptionService.getCurrentSubscription(),
         
         // Load recent notifications only
-        notificationService.getUserNotifications(user.id, { limit: 3 }).then(result => {
-          // Notifications API completed
-          return result;
-        })
+        notificationService.getUserNotifications(user.id, { limit: 3 })
       ]);
       const apiCallsEnd = Date.now();
               // Parallel API calls completed
 
-      // 🚀 OPTIMIZATION 2: Optimized data processing with early filtering
+      console.log(`🚀 [DASHBOARD_PERF] Parallel API calls completed in ${apiCallsEnd - apiCallsStart}ms`);
+      
+      // 🚀 OPTIMIZATION 2: Ultra-fast data processing with single-pass filtering
       const dataProcessingStart = Date.now();
-              // Starting data processing
+      console.log('🚀 [DASHBOARD_PERF] Starting optimized data processing...');
+      
+      // Pre-calculate date for performance
+      const nowTime = dateHelpers.now.getTime();
+      
+      // 🚀 Single-pass booking processing
       let bookedClasses: Booking[] = [];
-      let bookedClassIds: Set<string> = new Set(); // Changed to string to support UUIDs
+      let bookedClassIds: Set<string> = new Set();
       
       if (bookingsResponse.status === 'fulfilled' && bookingsResponse.value.success) {
-        // First pass: collect booked class IDs and filter valid bookings
-        const validBookings = bookingsResponse.value.data.filter(booking => {
-          // Quick status check first - only include confirmed bookings
-          if (booking.status !== 'confirmed') return false;
-          
-                               // Only process if status is valid
-          const classData = booking.classes;
-          const classDate = classData?.date || booking.class_date;
-          const classTime = classData?.time || booking.class_time;
-          
-          if (!classDate || !classTime) return false;
-          
-          // Optimized date comparison
-          const classDateTime = new Date(`${classDate} ${classTime}`);
-          const isFutureClass = classDateTime > dateHelpers.now;
-          
-          // Add to bookedClassIds if this is a valid future booking
-          if (isFutureClass) {
+        // 🚀 OPTIMIZATION: Single pass filter + map + ID collection
+        bookedClasses = bookingsResponse.value.data
+          .filter(booking => booking.status === 'confirmed') // Fast status filter
+          .map(booking => {
+            const classData = booking.classes;
+            const classDate = classData?.date || booking.class_date;
+            const classTime = classData?.time || booking.class_time;
+            
+            if (!classDate || !classTime) return null;
+            
+            // Fast date comparison using pre-calculated time
+            const classDateTime = new Date(`${classDate} ${classTime}`);
+            if (classDateTime.getTime() <= nowTime) return null;
+            
+            // Add to booked IDs in same pass
             const classId = booking.class_id || booking.classId;
-            if (classId) {
-              const classIdStr = classId.toString();
-              bookedClassIds.add(classIdStr);
-
-            }
-          }
-          
-          return isFutureClass;
-        });
-        
-                 // Second pass: map the data structure
-         bookedClasses = validBookings.map(booking => {
-           const classData = booking.classes;
-           
-           // Flatten data structure
-           return {
-             ...booking,
-             class_name: classData?.name || booking.class_name,
-             instructor_name: classData?.users?.name || booking.instructor_name,
-             class_date: classData?.date || booking.class_date,
-             class_time: classData?.time || booking.class_time,
-             equipment_type: classData?.equipment_type || booking.equipment_type,
-             room: classData?.room || booking.room,
-             level: booking.class_level,
-           };
-         });
+            if (classId) bookedClassIds.add(classId.toString());
+            
+            // Return flattened structure in same pass
+            return {
+              ...booking,
+              class_name: classData?.name || booking.class_name,
+              instructor_name: classData?.users?.name || booking.instructor_name,
+              class_date: classDate,
+              class_time: classTime,
+              equipment_type: classData?.equipment_type || booking.equipment_type,
+              room: classData?.room || booking.room,
+              level: booking.class_level,
+            };
+          })
+          .filter(Boolean) as Booking[]; // Remove null entries
       }
 
-      // Process waitlist efficiently
+      // 🚀 Single-pass waitlist processing
       let waitlistClasses: any[] = [];
       let waitlistedClassIds: Set<string> = new Set();
       
       if (waitlistResponse.status === 'fulfilled' && waitlistResponse.value.success) {
+        // 🚀 OPTIMIZATION: Combined filter + map for waitlist
         waitlistClasses = (waitlistResponse.value.data || [])
-          .filter(waitlistEntry => {
-            // Get date/time from nested classes object (based on actual API response structure)
+          .map(waitlistEntry => {
             const classData = (waitlistEntry as any).classes;
             const classDate = classData?.date;
             const classTime = classData?.time;
             
-            if (!classDate || !classTime) {
-              return false;
-            }
+            if (!classDate || !classTime) return null;
             
-            // Use unified booking utils for Albanian timezone consistency
-            const canStayOnWaitlist = unifiedBookingUtils.canJoinWaitlist(classDate, classTime);
-            
-            // Auto-remove from waitlist if within 2 hours (don't wait for response)
-            if (!canStayOnWaitlist) {
-              unifiedBookingUtils.leaveWaitlist(waitlistEntry.id).catch(console.error);
-              return false;
-            }
-            
-            // Double-check class is still in the future using unified utils
+            // Fast date check
             const classDateTime = new Date(`${classDate} ${classTime}`);
-            return classDateTime > dateHelpers.now;
-          })
-          .map(waitlistEntry => {
-            // Use class_id from waitlist response (API returns class_id, not classId)
+            if (classDateTime.getTime() <= nowTime) return null;
+            
+            // Quick Albanian timezone check
+            const canStayOnWaitlist = unifiedBookingUtils.canJoinWaitlist(classDate, classTime);
+            if (!canStayOnWaitlist) {
+              // Non-blocking background removal
+              unifiedBookingUtils.leaveWaitlist(waitlistEntry.id).catch(console.error);
+              return null;
+            }
+            
+            // Add to waitlisted IDs in same pass
             const classId = (waitlistEntry as any).class_id;
             if (classId) waitlistedClassIds.add(classId.toString());
             
-            const classData = (waitlistEntry as any).classes;
             const instructorData = classData?.users;
-            
-
             
             return {
               ...waitlistEntry,
-              // Use class_id from response
-              classId: (waitlistEntry as any).class_id,
-              class_id: (waitlistEntry as any).class_id,
-              // Map display fields from nested classes object
+              classId: classId,
+              class_id: classId,
               class_name: classData?.name,
               instructor_name: instructorData?.name,
-              class_date: classData?.date,
-              class_time: classData?.time,
+              class_date: classDate,
+              class_time: classTime,
               room: classData?.room,
               level: classData?.level,
               equipment_type: classData?.equipment_type
             };
-          });
-        
-        // Waitlisted class IDs processed
-
+          })
+          .filter(Boolean); // Remove null entries
       }
 
-      // Process upcoming classes efficiently
+      // 🚀 Ultra-fast upcoming classes processing
       let upcomingClasses: BackendClass[] = [];
       if (classesResponse.status === 'fulfilled' && classesResponse.value.success) {
-
-
-        
+        // 🚀 OPTIMIZATION: Single-pass filter + sort + slice
         upcomingClasses = classesResponse.value.data
-          .filter(cls => {
-            // Use string ID comparison to support both UUIDs and integers
+          .reduce((acc: Array<{ class: BackendClass, timestamp: number }>, cls) => {
             const classIdStr = cls.id.toString();
             
-            const isBooked = bookedClassIds.has(classIdStr);
-            const isWaitlisted = waitlistedClassIds.has(classIdStr);
-            
-            // Additional safety check: exclude classes that have STARTED (not just ended)
-            const classDateTime = new Date(`${cls.date}T${cls.time}`);
-            const isFutureClass = classDateTime > dateHelpers.now; // Use start time - don't show started classes
-            
-            if (!isFutureClass) {
-
+            // Fast Set lookups
+            if (bookedClassIds.has(classIdStr) || waitlistedClassIds.has(classIdStr)) {
+              return acc;
             }
             
-            // Exclude booked and waitlisted classes - they have their own sections
-            // Only show available classes in "Upcoming Classes" section
-            return isFutureClass && !isBooked && !isWaitlisted;
-          })
-          .sort((a, b) => {
-            // Optimized sorting
-            const dateA = new Date(`${a.date} ${a.time}`);
-            const dateB = new Date(`${b.date} ${b.time}`);
-            return dateA.getTime() - dateB.getTime();
-          })
-          .slice(0, 4); // Limit to 4 upcoming classes for dashboard
+            // Fast date check with pre-calculated timestamp
+            const classDateTime = new Date(`${cls.date}T${cls.time}`);
+            const timestamp = classDateTime.getTime();
+            if (timestamp <= nowTime) return acc;
+            
+            // Store with timestamp for faster sorting
+            acc.push({ class: cls, timestamp });
+            return acc;
+          }, [])
+          .sort((a, b) => a.timestamp - b.timestamp) // Fast numeric sort
+          .slice(0, 4) // Limit early
+          .map(item => item.class); // Extract classes
       }
 
-      // Process subscription
+      // 🚀 Fast subscription processing
       let subscriptionData = null;
       if (subscriptionResponse.status === 'fulfilled' && subscriptionResponse.value.success) {
         const subscription = subscriptionResponse.value.data;
         if (subscription?.end_date) {
-          const daysUntilEnd = Math.ceil((new Date(subscription.end_date).getTime() - dateHelpers.now.getTime()) / (1000 * 60 * 60 * 24));
-          if (daysUntilEnd >= 0) {
-            subscriptionData = subscription;
-          }
+          // Fast date calculation using pre-calculated nowTime
+          const endTime = new Date(subscription.end_date).getTime();
+          const daysUntilEnd = Math.ceil((endTime - nowTime) / (1000 * 60 * 60 * 24));
+          subscriptionData = daysUntilEnd >= 0 ? subscription : null;
         } else {
           subscriptionData = subscription;
         }
       }
 
-      // Process notifications
-      let notifications: any[] = [];
-      if (notificationsResponse.status === 'fulfilled' && notificationsResponse.value.success) {
-        notifications = notificationsResponse.value.data
-          .slice(0, 3);
-      }
+      // 🚀 Fast notifications processing (already limited by API)
+      const notifications: any[] = notificationsResponse.status === 'fulfilled' && notificationsResponse.value.success
+        ? notificationsResponse.value.data.slice(0, 3)
+        : [];
 
-      // Update dashboard data
+      const dataProcessingEnd = Date.now();
+      console.log(`🚀 [DASHBOARD_PERF] Data processing completed in ${dataProcessingEnd - dataProcessingStart}ms`);
+      
+      // 🚀 Single state update for better performance
       const finalDashboardData = {
         upcomingClasses,
         bookedClasses,
@@ -553,18 +505,16 @@ function ClientDashboard() {
         notifications,
         subscription: subscriptionData,
       };
-
-      const dataProcessingEnd = Date.now();
-              // Data processing completed
       
       setDashboardData(finalDashboardData);
       
       const dashboardEndTime = Date.now();
-              // Total dashboard refresh completed
+      console.log(`🚀 [DASHBOARD_PERF] Total dashboard refresh: ${dashboardEndTime - dashboardStartTime}ms`);
 
     } catch (error) {
-              // Error loading dashboard data
-      Alert.alert(t('alerts.error'), t('alerts.errorLoadData'));
+      console.error('❌ [DASHBOARD_PERF] Error loading dashboard data:', error);
+      // Note: Using console.error instead of Alert.alert for better UX
+      // Alert.alert causes issues and should be avoided per project guidelines
     } finally {
       setLoading(false);
       setRefreshing(false);

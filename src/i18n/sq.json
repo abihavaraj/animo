@@ -51,7 +51,26 @@
     "daysRemaining": "ditë të mbetura",
     "renewNow": "Rinovo tani",
     "month": "muaj",
-    "memberFor": "Anëtar për"
+    "memberFor": "Anëtar për",
+    "left": "të mbetura",
+    "classUsage": "Përdorimi i Klasave",
+    "currentSubscription": "Abonimi Aktual",
+    "currentDayPass": "Kalimi Aktual i Ditës",
+    "unlimitedClasses": "Klasa të Pakufizuara",
+    "of": "nga",
+    "day": "ditë",
+    "days": "ditë",
+    "validity": "Vlefshmëria",
+    "timeLeft": "Koha e Mbetur",
+    "today": "Sot",
+    "valid": "E vlefshme",
+    "enjoyUnlimited": "Gëzoni klasa të pakufizuara këtë muaj!",
+    "classesAvailable": "klasa të disponueshme",
+    "bonusCredits": "kredite bonus të shtuara",
+    "untilRenewal": "deri në rinovim",
+    "expiresIn": "Skadon në",
+    "expiresToday": "Skadon sot",
+    "dayPassExpired": "Kalimi i ditës ka skaduar"
   },
   "auth": {
     "login": "Identifikohu",
@@ -146,7 +165,8 @@
     "matReformerClasses": "Orë Mat & Reformer",
     "expertInstructors": "Instruktorë Ekspertë të Certifikuar",
     "flexibleScheduling": "Orar Fleksibël",
-    "smallGroupClasses": "Klasa të Vogla Grupi"
+    "smallGroupClasses": "Klasa të Vogla Grupi",
+    "minutes": "minuta"
   },
   "classes": {
     "allClasses": "Të gjitha orët",
@@ -347,6 +367,10 @@
     "title": "Njoftimet",
     "subtitle": "Qëndroni të përditësuar me orët dhe abonimin tuaj",
     "generalNotificationTitle": "🧘‍♀️ Animo Pilates",
+    "studentJoinedClassTitle": "🎉 Regjistrim i ri studenti",
+    "studentJoinedClassBody": "{{studentName}} është regjistruar në {{className}} më {{date}} në {{time}}.",
+    "studentCancelledBookingTitle": "📋 Anulim nga studenti",
+    "studentCancelledBookingBody": "{{studentName}} e ka anuluar rezervimin për {{className}} më {{date}} në {{time}}.",
     "waitlistJoinedTitle": "📝 U shtuat në listën e pritjes!",
     "waitlistJoinedBody": "U shtuat në listën e pritjes për {{className}} më {{date}} në {{time}}. Pozicioni juaj: #{{position}}",
     "classAssignmentTitle": "🎯 Caktim i ri klase!",
@@ -371,8 +395,9 @@
     "waitlistMovedUpBody": "Pozicioni juaj në listën e pritjes për {{className}} u përditësua në #{{newPosition}}.",
     "welcomeTitle": "🎉 Mirë se erdhe në Animo Pilates!",
     "welcomeBody": "Mirë se erdhe {{userName}}! Jemi të emocionuar që filloni udhëtimin tuaj të Pilates me ne.",
-    "classAssignmentCancelledTitle": "📋 Caktimi i orës u anulua",
-    "classAssignmentCancelledBody": "Rezervimi juaj për {{className}} më {{date}} në {{time}} u anulua nga {{staffName}}.{{creditRestored}}"
+    "classAssignmentCancelledTitle": "📋 U hoqët nga ora",
+    "classAssignmentCancelledBody": "Jeni hequr nga {{className}} më {{date}} në {{time}} nga {{staffName}}.{{creditRestored}}",
+    "classCreditRestored": "Krediti juaj i orës është rikthyer."
   },
   "alerts": {
     "logout": "Dilni",
@@ -404,7 +429,8 @@
     "personalSubscriptionRequired": "Nevojitet abonim personal",
     "personalOnly": "Abonimi juaj personal lejon vetëm rezervimin e orëve personale/private. Ju lutemi zgjidhni një seancë trajnimi personal.",
     "personalTrainingSession": "Seancë trajnimi personal",
-    "needPersonalSubscription": "Kjo është një seancë trajnimi personal. Ju nevojitet një abonim personal për të rezervuar këtë orë."
+    "needPersonalSubscription": "Kjo është një seancë trajnimi personal. Ju nevojitet një abonim personal për të rezervuar këtë orë.",
+    "needGroupSubscription": "Kjo është një orë grupi. Ju nevojitet një abonim grupi për të rezervuar këtë orë."
   },
   "contact": {
     "managedByReception": "Abonimi dhe pagesat menaxhohen nga recepsioni",

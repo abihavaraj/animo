@@ -2,26 +2,33 @@ import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import {
-  ActivityIndicator,
-  Button,
-  Caption,
-  Card,
-  Chip,
-  FAB,
-  IconButton,
-  Menu,
-  Modal,
-  Paragraph,
-  Portal,
-  Searchbar,
-  SegmentedButtons,
-  TextInput,
-  Title
+    ActivityIndicator,
+    Button,
+    Caption,
+    Card,
+    Chip,
+    FAB,
+    IconButton,
+    Menu,
+    Modal,
+    Paragraph,
+    Portal,
+    Searchbar,
+    SegmentedButtons,
+    TextInput,
+    Title
 } from 'react-native-paper';
 import { useThemeColor } from '../../../hooks/useThemeColor';
 import { BackendClass, classService, CreateClassRequest, UpdateClassRequest } from '../../services/classService';
 import { notificationService } from '../../services/notificationService';
 import { BackendUser, userService } from '../../services/userService';
+
+// Helper function to check if a class has passed (finished)
+const isPastClass = (date: string, time: string, duration: number) => {
+  const classDateTime = new Date(`${date}T${time}`);
+  const endDateTime = new Date(classDateTime.getTime() + duration * 60000); // Add duration in minutes
+  return endDateTime < new Date();
+};
 
 function AdminClassManagement() {
   // Theme colors
@@ -332,37 +339,44 @@ function AdminClassManagement() {
         const response = await classService.updateClass(editingClass.id, updateData);
         
         if (response.success && response.data) {
-          // Check for changes that require notifications
+          // Check if class has already passed (considering duration)
+          const isClassPassed = isPastClass(formData.date, formData.time, formData.duration);
+          
+          // Check for changes that require notifications (only if class hasn't passed)
           const instructorChanged = String(editingClass.instructor_id) !== formData.instructorId;
           const timeChanged = editingClass.time !== formData.time;
           
-          // Send notifications for significant changes
-          try {
-            if (instructorChanged) {
-              const oldInstructorName = editingClass.instructor_name || 'Previous Instructor';
-              const newInstructorName = formData.instructorName || 'New Instructor';
+          // Send notifications for significant changes only if class hasn't passed
+          if (!isClassPassed) {
+            try {
+              if (instructorChanged) {
+                const oldInstructorName = editingClass.instructor_name || 'Previous Instructor';
+                const newInstructorName = formData.instructorName || 'New Instructor';
+                
+                await notificationService.sendInstructorChangeNotifications(
+                  editingClass.id,
+                  formData.name,
+                  formData.date,
+                  oldInstructorName,
+                  newInstructorName
+                );
+              }
               
-              await notificationService.sendInstructorChangeNotifications(
-                editingClass.id,
-                formData.name,
-                formData.date,
-                oldInstructorName,
-                newInstructorName
-              );
+              if (timeChanged) {
+                await notificationService.sendClassTimeChangeNotifications(
+                  editingClass.id,
+                  formData.name,
+                  formData.date,
+                  editingClass.time,
+                  formData.time
+                );
+              }
+            } catch (notificationError) {
+              console.error('Notification error:', notificationError);
+              // Don't block the main operation for notification errors
             }
-            
-            if (timeChanged) {
-              await notificationService.sendClassTimeChangeNotifications(
-                editingClass.id,
-                formData.name,
-                formData.date,
-                editingClass.time,
-                formData.time
-              );
-            }
-          } catch (notificationError) {
-            console.error('Notification error:', notificationError);
-            // Don't block the main operation for notification errors
+          } else {
+            console.log('⏰ [ADMIN] Class has already passed - skipping notifications for:', formData.name);
           }
           
           Alert.alert('Success', `Class updated successfully${formData.room ? ` in ${formData.room}` : ''}`);
@@ -986,10 +1000,9 @@ function AdminClassManagement() {
                   setFormData({
                     ...formData, 
                     category: newCategory,
-                    // Suggest capacity based on category, but allow manual override
-                    capacity: newCategory === 'personal' ? 
-                      (formData.capacity > 5 ? 1 : formData.capacity) : // Keep small numbers for personal
-                      (formData.capacity < 5 ? 10 : formData.capacity)   // Reset to 10 for group if very small
+                    // Only suggest capacity if switching TO personal and current capacity is unrealistic
+                    // Allow manual override for any capacity
+                    capacity: newCategory === 'personal' && formData.capacity > 10 ? 1 : formData.capacity
                   });
                 }}
                 buttons={[

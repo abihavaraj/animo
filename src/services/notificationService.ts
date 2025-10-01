@@ -64,7 +64,8 @@ class NotificationService {
         enable_email_notifications: false,
         default_reminder_minutes: 15,
         class_full_notifications: userRole === 'instructor' ? true : false,
-        new_enrollment_notifications: userRole === 'instructor' ? true : false,
+        new_enrollment_notifications: userRole === 'instructor' ? true : false, // Default true for enrollments
+        student_cancellation_notifications: userRole === 'instructor' ? true : false, // Default true for cancellations
         class_cancellation_notifications: true,
         general_reminders: true,
       };
@@ -135,7 +136,8 @@ class NotificationService {
     }
   }
 
-  // Create a translated notification
+  // Create a translated notification  
+  // 🚀 OPTIMIZED: Better performance with caching
   async createTranslatedNotification(
     userId: string,
     type: NotificationData['type'],
@@ -143,8 +145,10 @@ class NotificationService {
     scheduledFor?: Date,
     useCurrentLanguage: boolean = false
   ): Promise<ApiResponse<any>> {
+    const startTime = Date.now();
+    
     try {
-      // Get translated content
+      // 🚀 OPTIMIZATION: Use optimized translation service
       const translatedContent = await NotificationTranslationService.createTranslatedNotification(
         userId, 
         type, 
@@ -173,14 +177,71 @@ class NotificationService {
         .single();
 
       if (error) {
-        console.error('Error creating translated notification:', error);
+        console.error('❌ [NOTIFICATION_PERF] Error creating translated notification:', error);
         return { success: false, error: error.message };
       }
 
+      const endTime = Date.now();
+      console.log(`🚀 [NOTIFICATION_PERF] Single notification created in ${endTime - startTime}ms`);
       return { success: true, data: notification };
     } catch (error) {
-      console.error('Error in createTranslatedNotification:', error);
+      console.error('❌ [NOTIFICATION_PERF] Error in createTranslatedNotification:', error);
       return { success: false, error: 'Failed to create notification' };
+    }
+  }
+
+  /**
+   * 🚀 OPTIMIZATION: Batch create multiple notifications efficiently
+   */
+  async createBatchTranslatedNotifications(
+    notifications: Array<{
+      userId: string;
+      type: NotificationData['type'];
+      data: NotificationData;
+      scheduledFor?: Date;
+    }>
+  ): Promise<ApiResponse<any[]>> {
+    const startTime = Date.now();
+    
+    try {
+      console.log(`🚀 [NOTIFICATION_PERF] Starting batch creation of ${notifications.length} notifications`);
+      
+      // 🚀 OPTIMIZATION: Use batch translation
+      const translatedContents = await NotificationTranslationService.batchTranslateNotifications(
+        notifications
+      );
+      
+      // 🚀 OPTIMIZATION: Batch database insert
+      const notificationInserts = notifications.map((notif, index) => ({
+        user_id: notif.userId,
+        type: notif.type,
+        title: translatedContents[index].title,
+        message: translatedContents[index].body,
+        scheduled_for: notif.scheduledFor ? notif.scheduledFor.toISOString() : new Date().toISOString(),
+        metadata: {
+          language: translatedContents[index].userLanguage,
+          original_data: notif.data,
+          translation_type: notif.type
+        },
+        is_read: false
+      }));
+      
+      const { data: createdNotifications, error } = await supabase
+        .from('notifications')
+        .insert(notificationInserts)
+        .select();
+
+      if (error) {
+        console.error('❌ [NOTIFICATION_PERF] Error creating batch notifications:', error);
+        return { success: false, error: error.message };
+      }
+
+      const endTime = Date.now();
+      console.log(`🚀 [NOTIFICATION_PERF] Batch created ${notifications.length} notifications in ${endTime - startTime}ms`);
+      return { success: true, data: createdNotifications || [] };
+    } catch (error) {
+      console.error('❌ [NOTIFICATION_PERF] Error in createBatchTranslatedNotifications:', error);
+      return { success: false, error: 'Failed to create batch notifications' };
     }
   }
 
@@ -657,110 +718,134 @@ class NotificationService {
     }
   }
 
-  // Send push notification to a specific user (original GitHub users.push_token approach)
+  // Send push notification to a specific user (MULTI-DEVICE SUPPORT)
   async sendPushNotificationToUser(userId: string, title: string, message: string): Promise<void> {
     try {
-      // Looking for user push_token
+      console.log(`📱 [sendPushNotificationToUser] Sending to user ${userId} with multi-device support`);
       
-      // Get user's push token from the database (original GitHub approach)
-      const { data: user, error } = await supabase
-        .from('users')
-        .select('push_token')
-        .eq('id', userId)
-        .single();
-        
-      // User query result
+      // STEP 1: Get all active tokens from push_tokens table (multi-device support)
+      const { data: activeTokens, error: tokensError } = await supabase
+        .from('push_tokens')
+        .select('token, device_type, device_name, is_active')
+        .eq('user_id', userId)
+        .eq('is_active', true);
 
-      if (error) {
-        console.error(`❌ [sendPushNotificationToUser] Database error for user ${userId}:`, error);
+      // STEP 2: Fallback to users.push_token if push_tokens table is empty or has RLS issues
+      let tokensToSend: Array<{ token: string; device_type: string; device_name?: string }> = [];
+      
+      if (tokensError || !activeTokens || activeTokens.length === 0) {
+        console.log(`📱 [sendPushNotificationToUser] No tokens in push_tokens table, trying users.push_token fallback`);
         
-        // If it's an RLS error, try without restrictions (system context)
-        if (error.code === '42501') {
-          console.log(`🔧 [sendPushNotificationToUser] RLS blocked query for user ${userId}, trying system query`);
-          // For now, we'll skip sending push notifications to users with RLS issues
-          // This should be fixed with proper RLS policies
+        // Fallback to legacy single token approach
+        const { data: user, error: userError } = await supabase
+          .from('users')
+          .select('push_token')
+          .eq('id', userId)
+          .single();
+        
+        if (userError || !user?.push_token) {
+          console.log(`⚠️ [sendPushNotificationToUser] No push token found for user ${userId}`);
           return;
         }
+
+        // Validate token format
+        if (!user.push_token.startsWith('ExponentPushToken[')) {
+          console.log(`⚠️ [sendPushNotificationToUser] User has old FCM token format, skipping`);
+          return;
+        }
+
+        tokensToSend = [{ token: user.push_token, device_type: 'unknown', device_name: 'Legacy Device' }];
+      } else {
+        // Use tokens from push_tokens table
+        tokensToSend = activeTokens
+          .filter(t => t.token && t.token.startsWith('ExponentPushToken['))
+          .map(t => ({
+            token: t.token,
+            device_type: t.device_type || 'unknown',
+            device_name: t.device_name
+          }));
+      }
+
+      if (tokensToSend.length === 0) {
+        console.log(`⚠️ [sendPushNotificationToUser] No valid tokens to send to for user ${userId}`);
         return;
       }
 
-      if (!user?.push_token) {
-        // No push token found - notification will be stored in database
+      console.log(`📱 [sendPushNotificationToUser] Sending to ${tokensToSend.length} device(s): ${tokensToSend.map(t => t.device_type).join(', ')}`);
+
+      // STEP 3: Send notification to ALL active tokens (multi-device support!)
+      const sendPromises = tokensToSend.map(async ({ token, device_type, device_name }) => {
+        const pushMessage = {
+          to: token,
+          title: title,
+          body: message,
+          sound: 'default',
+          badge: 1,
+          priority: 'high',
+          channelId: 'animo-notifications',
+          android: {
+            priority: 'max',
+            visibility: 'public',
+            importance: 'max',
+            sound: true,
+            vibrate: [0, 250, 250, 250],
+            lights: true,
+            channelId: 'animo-notifications',
+            showWhen: true,
+            when: Date.now(),
+            autoCancel: true,
+            ongoing: false,
+            timeoutAfter: null,
+            category: 'message',
+            actions: []
+          },
+          data: {
+            userId: userId,
+            type: 'class_notification',
+            timestamp: new Date().toISOString(),
+            deviceType: device_type
+          }
+        };
+
+        // Check if we're on web platform
+        const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
         
-        // Development fallback: Log notification details for debugging
-        if (__DEV__) {
-          // Development mode: notification stored in database
-        }
-        return;
-      }
-
-      // Found push token for user
-
-      // Send push notification using Expo's API
-      // Notification service Sending push notification to user ${userId}`);
-      
-      const pushMessage = {
-        to: user.push_token,
-        title: title,
-        body: message,
-        sound: 'default',
-        badge: 1,
-        priority: 'high',
-        data: {
-          userId: userId,
-          type: 'class_notification',
-          timestamp: new Date().toISOString()
-        }
-      };
-
-      // Enhanced error handling for production
-      // Notification service Sending push message:`, pushMessage);
-      
-      // Check if we're on web platform and handle CORS issues
-      const isWeb = typeof window !== 'undefined' && window.navigator && window.navigator.userAgent;
-      
-      if (isWeb) {
-        // Notification service Web platform detected - attempting push notification with no-cors mode`);
-        
-        try {
-          // Use no-cors mode to bypass CORS restrictions (fire-and-forget)
-          const response = await fetch('https://exp.host/--/api/v2/push/send', {
+        if (isWeb) {
+          // Web platform - use no-cors mode
+          await fetch('https://exp.host/--/api/v2/push/send', {
             method: 'POST',
-            mode: 'no-cors', // This bypasses CORS but we can't read the response
-            headers: {
-              'Content-Type': 'application/json',
-            },
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(pushMessage),
           });
-          
-          // Notification service Push notification sent via no-cors mode (response opaque)`);
-          // Notification service Database notification was also stored for reliability`);
-          return;
-        } catch (error) {
-          console.error(`❌ [notificationService] Even no-cors mode failed:`, error);
-          // Notification service Push notification failed, but database notification was stored`);
+          console.log(`📱 Sent to ${device_type} device (${device_name || 'unnamed'}) via no-cors`);
           return;
         }
-      }
-      
-      // Native platform - use direct Expo API
-      const response = await fetch('https://exp.host/--/api/v2/push/send', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify(pushMessage),
+        
+        // Native platform - get response
+        const response = await fetch('https://exp.host/--/api/v2/push/send', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify(pushMessage),
+        });
+        
+        const result = await response.json();
+        
+        if (result.data?.[0]?.status === 'ok') {
+          console.log(`✅ Sent to ${device_type} device (${device_name || 'unnamed'})`);
+        } else if (result.data?.[0]?.status === 'error') {
+          console.error(`❌ Failed to send to ${device_type}: ${result.data[0].message}`);
+        }
       });
+
+      // Wait for all notifications to be sent
+      await Promise.allSettled(sendPromises);
       
-      const result = await response.json();
-      // Notification service Push notification response:`, result);
-      
-      if (result.data && result.data[0] && result.data[0].status === 'ok') {
-        // Notification service Push notification sent successfully to user ${userId}`);
-      } else if (result.data && result.data[0] && result.data[0].status === 'error') {
-        console.error(`❌ [notificationService] Push notification error:`, result.data[0].message);
-      }
+      console.log(`✅ [sendPushNotificationToUser] Completed sending to ${tokensToSend.length} device(s) for user ${userId}`);
+
     } catch (error) {
       console.error(`❌ [notificationService] Error sending push notification to user ${userId}:`, error);
     }
@@ -982,6 +1067,61 @@ class NotificationService {
       }
     } catch (error) {
       console.error(`❌ [notificationService] Exception in sendNotificationToMultipleUsers:`, error);
+    }
+  }
+
+  // Cancel scheduled notifications for a specific user's class booking
+  async cancelUserClassNotifications(userId: string, classId: number | string): Promise<ApiResponse<any>> {
+    try {
+      console.log(`🚫 [cancelUserClassNotifications] Cancelling notifications for user ${userId} and class ${classId}`);
+      
+      // Find and remove/update user's specific class reminder notifications
+      // Get all class_reminder notifications for this user, then filter by metadata in JS
+      const { data: userNotifications, error: findError } = await supabase
+        .from('notifications')
+        .select('id, metadata, type, title, message')
+        .eq('user_id', userId)
+        .eq('type', 'class_reminder');
+      
+      if (findError) {
+        console.error(`❌ [cancelUserClassNotifications] Error finding user notifications:`, findError);
+        return { success: false, error: findError.message };
+      }
+      
+      // Filter notifications that match this class ID (check both metadata formats)
+      const notificationsToCancel = userNotifications?.filter(notification => {
+        const metadata = notification.metadata;
+        if (!metadata) return false;
+        
+        // Check both possible formats: classId (camelCase) and class_id (snake_case)
+        const metadataClassId = metadata.classId || metadata.class_id;
+        return metadataClassId && metadataClassId.toString() === classId.toString();
+      }) || [];
+      
+      if (!notificationsToCancel || notificationsToCancel.length === 0) {
+        console.log(`ℹ️ [cancelUserClassNotifications] No reminder notifications found for user ${userId} and class ${classId}`);
+        return { success: true, data: { cancelled: 0 } };
+      }
+      
+      console.log(`📋 [cancelUserClassNotifications] Found ${notificationsToCancel.length} user notifications to remove`);
+      
+      // Delete the notifications since the user cancelled their booking
+      const notificationIds = notificationsToCancel.map(n => n.id);
+      const { error: deleteError } = await supabase
+        .from('notifications')
+        .delete()
+        .in('id', notificationIds);
+      
+      if (deleteError) {
+        console.error(`❌ [cancelUserClassNotifications] Error deleting notifications:`, deleteError);
+        return { success: false, error: deleteError.message };
+      }
+      
+      console.log(`✅ [cancelUserClassNotifications] Successfully removed ${notificationIds.length} notifications for user ${userId} and class ${classId}`);
+      return { success: true, data: { cancelled: notificationIds.length } };
+    } catch (error) {
+      console.error(`❌ [cancelUserClassNotifications] Unexpected error:`, error);
+      return { success: false, error: 'Failed to cancel user notifications' };
     }
   }
 

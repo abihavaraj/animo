@@ -1,5 +1,6 @@
 import moment from 'moment';
 import { Alert } from 'react-native';
+import { supabase } from '../config/supabase.config';
 import i18n from '../i18n';
 import { bookingService } from '../services/bookingService';
 import { pushNotificationService } from '../services/pushNotificationService';
@@ -104,6 +105,34 @@ class BookingUtilsService implements UnifiedBookingUtils {
       const cutoffTime = new Date(classDateTime.getTime() - 15 * 60 * 1000);
       if (now > cutoffTime) return false;
       return true;
+    }
+  }
+
+  /**
+   * Check if a class has already passed (considering duration)
+   */
+  isClassPassed(classDate: string, classTime: string, duration: number = 60): boolean {
+    try {
+      // Get current time in Albanian timezone (Europe/Tirane)
+      const now = new Date();
+      const currentTimeInAlbania = new Date(now.toLocaleString("sv-SE", {timeZone: "Europe/Tirane"}));
+      
+      // Class times are stored as Albanian local time
+      const classDateTimeString = `${classDate}T${classTime}`;
+      const classDateTime = new Date(classDateTimeString);
+      const classTimeInAlbania = new Date(classDateTime.toLocaleString("sv-SE", {timeZone: "Europe/Tirane"}));
+
+      // Calculate class end time (add duration in minutes)
+      const classEndTime = new Date(classTimeInAlbania.getTime() + duration * 60000);
+      
+      // Class has passed if current time is after class end time
+      return currentTimeInAlbania > classEndTime;
+    } catch (error) {
+      // Fallback to original logic
+      const now = new Date();
+      const classDateTime = new Date(`${classDate}T${classTime}`);
+      const classEndTime = new Date(classDateTime.getTime() + duration * 60000);
+      return now > classEndTime;
     }
   }
 
@@ -232,24 +261,46 @@ class BookingUtilsService implements UnifiedBookingUtils {
         return false;
       }
 
-      // Check personal subscription restrictions (if class data is provided)
+      // Check subscription restrictions based on CLASS CATEGORY and CAPACITY
       if (classData) {
         const subscriptionCategory = subscription.category;
-        const isPersonalSubscription = subscriptionCategory === 'personal';
-        const isPersonalClass = classData.category === 'personal';
+        const classCategory = classData.category;
+        const classCapacity = classData.capacity;
 
-        if (isPersonalSubscription && !isPersonalClass) {
-          const title = t ? t('equipmentAccess.personalSubscriptionRequired') : 'Personal Subscription Required';
-          const message = t ? t('equipmentAccess.personalOnly') : 'Your personal subscription only allows booking personal/private classes. Please choose a personal training session.';
-          Alert.alert(title, message);
-          return false;
-        }
-
-        if (!isPersonalSubscription && isPersonalClass) {
-          const title = t ? t('equipmentAccess.personalTrainingSession') : 'Personal Training Session';
-          const message = t ? t('equipmentAccess.needPersonalSubscription') : 'This is a personal training session. You need a personal subscription to book this class.';
-          Alert.alert(title, message);
-          return false;
+        // BUSINESS LOGIC: Check class category and capacity matching
+        if (classCategory === 'group') {
+          // GROUP classes allow both group subscriptions AND daypass/monthly (which might be categorized as 'group')
+          // Only block personal subscription types from group classes
+          // Check if it's a daypass (duration = 1 day) - these should be allowed for group classes
+          const isDaypass = subscription.duration === 1 && subscription.duration_unit === 'days';
+          const isPersonalSubscription = (subscriptionCategory === 'personal' || subscriptionCategory === 'personal_duo' || subscriptionCategory === 'personal_trio') && !isDaypass;
+          
+          if (isPersonalSubscription) {
+            const title = t ? t('equipmentAccess.title') : 'Group Class Access Required';
+            const message = t ? t('equipmentAccess.needGroupSubscription') : 'This is a group class. Personal subscriptions cannot book group classes.';
+            Alert.alert(title, message);
+            return false;
+          }
+        } else if (classCategory === 'personal') {
+          // PERSONAL classes require matching personal subscription based on capacity
+          let requiredSubscription = '';
+          if (classCapacity === 1) requiredSubscription = 'personal';
+          else if (classCapacity === 2) requiredSubscription = 'personal_duo';
+          else if (classCapacity === 3) requiredSubscription = 'personal_trio';
+          
+          if (subscriptionCategory !== requiredSubscription) {
+            const title = t ? t('equipmentAccess.personalTrainingSession') : 'Personal Training Session';
+            let message = '';
+            if (classCapacity === 1) {
+              message = t ? t('equipmentAccess.needPersonalSubscription') : 'This is a personal training session (1 person). You need a personal subscription to book this class.';
+            } else if (classCapacity === 2) {
+              message = 'This is a personal duo session (2 people). You need a personal duo subscription to book this class.';
+            } else if (classCapacity === 3) {
+              message = 'This is a personal trio session (3 people). You need a personal trio subscription to book this class.';
+            }
+            Alert.alert(title, message);
+            return false;
+          }
         }
 
         // Check equipment access
@@ -376,10 +427,14 @@ class BookingUtilsService implements UnifiedBookingUtils {
                   if (response.success) {
                     // Cancel any reminder notifications for this class
                     // Cancelling reminder notifications
-                    await pushNotificationService.cancelClassReminder(
-                      (booking.classId || booking.class_id || booking.id).toString(),
-                      booking.class_name || 'Class'
-                    );
+                    // Get current user ID from Redux or auth
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (user?.id) {
+                      await pushNotificationService.cancelClassReminder(
+                        user.id,
+                        (booking.classId || booking.class_id || booking.id).toString()
+                      );
+                    }
                     
                     const cancelData = response.data as any;
                     const successTitle = t ? t('classes.bookingCancelled') : 'Booking Cancelled';
@@ -436,24 +491,47 @@ class BookingUtilsService implements UnifiedBookingUtils {
         return false;
       }
 
-      // Check personal subscription restrictions (if class data is provided)
+      // Check subscription restrictions based on CLASS CATEGORY and CAPACITY
       if (classData) {
         const subscriptionCategory = subscription.category;
-        const isPersonalSubscription = subscriptionCategory === 'personal';
-        const isPersonalClass = classData.category === 'personal';
+        const classCategory = classData.category;
+        const classCapacity = classData.capacity;
 
-        if (isPersonalSubscription && !isPersonalClass) {
-          const title = t ? t('equipmentAccess.personalSubscriptionRequired') : 'Personal Subscription Required';
-          const message = t ? t('equipmentAccess.personalOnly') : 'Your personal subscription only allows booking personal/private classes. Please choose a personal training session.';
-          Alert.alert(title, message);
-          return false;
-        }
 
-        if (!isPersonalSubscription && isPersonalClass) {
-          const title = t ? t('equipmentAccess.personalTrainingSession') : 'Personal Training Session';
-          const message = t ? t('equipmentAccess.needPersonalSubscription') : 'This is a personal training session. You need a personal subscription to book this class.';
-          Alert.alert(title, message);
-          return false;
+        // BUSINESS LOGIC: Check class category and capacity matching
+        if (classCategory === 'group') {
+          // GROUP classes allow both group subscriptions AND daypass/monthly (which might be categorized as 'group')
+          // Only block personal subscription types from group classes
+          // Check if it's a daypass (duration = 1 day) - these should be allowed for group classes
+          const isDaypass = subscription.duration === 1 && subscription.duration_unit === 'days';
+          const isPersonalSubscription = (subscriptionCategory === 'personal' || subscriptionCategory === 'personal_duo' || subscriptionCategory === 'personal_trio') && !isDaypass;
+          
+          if (isPersonalSubscription) {
+            const title = t ? t('equipmentAccess.title') : 'Group Class Access Required';
+            const message = t ? t('equipmentAccess.needGroupSubscription') : 'This is a group class. Personal subscriptions cannot book group classes.';
+            Alert.alert(title, message);
+            return false;
+          }
+        } else if (classCategory === 'personal') {
+          // PERSONAL classes require matching personal subscription based on capacity
+          let requiredSubscription = '';
+          if (classCapacity === 1) requiredSubscription = 'personal';
+          else if (classCapacity === 2) requiredSubscription = 'personal_duo';
+          else if (classCapacity === 3) requiredSubscription = 'personal_trio';
+          
+          if (subscriptionCategory !== requiredSubscription) {
+            const title = t ? t('equipmentAccess.personalTrainingSession') : 'Personal Training Session';
+            let message = '';
+            if (classCapacity === 1) {
+              message = t ? t('equipmentAccess.needPersonalSubscription') : 'This is a personal training session (1 person). You need a personal subscription to book this class.';
+            } else if (classCapacity === 2) {
+              message = 'This is a personal duo session (2 people). You need a personal duo subscription to book this class.';
+            } else if (classCapacity === 3) {
+              message = 'This is a personal trio session (3 people). You need a personal trio subscription to book this class.';
+            }
+            Alert.alert(title, message);
+            return false;
+          }
         }
 
         // Check equipment access

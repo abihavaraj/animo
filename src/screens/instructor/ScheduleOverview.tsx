@@ -14,8 +14,16 @@ import { activityService } from '../../services/activityService';
 import { bookingService } from '../../services/bookingService';
 import { classService } from '../../services/classService';
 import { instructorClientService } from '../../services/instructorClientService';
+import { notificationService } from '../../services/notificationService';
 import { AppDispatch, RootState } from '../../store';
 import { shadows } from '../../utils/shadows';
+
+// Helper function to check if a class has passed (finished)
+const isPastClass = (date: string, time: string, duration: number) => {
+  const classDateTime = new Date(`${date}T${time}`);
+  const endDateTime = new Date(classDateTime.getTime() + duration * 60000); // Add duration in minutes
+  return endDateTime < new Date();
+};
 
 interface Class {
   id: string;
@@ -887,6 +895,33 @@ function ScheduleOverview() {
       }
 
       if (response.success) {
+        // Check for time changes and send notifications (only if class hasn't passed)
+        if (editingClassId) {
+          const originalClass = classes.find(cls => cls.id === editingClassId);
+          if (originalClass) {
+            const timeChanged = originalClass.time !== newClass.time;
+            const isClassPassed = isPastClass(newClass.date, newClass.time, newClass.duration);
+            
+            if (timeChanged && !isClassPassed) {
+              try {
+                await notificationService.sendClassTimeChangeNotifications(
+                  editingClassId,
+                  newClass.name,
+                  newClass.date,
+                  originalClass.time,
+                  newClass.time
+                );
+                console.log('📢 [INSTRUCTOR] Time change notification sent for class:', newClass.name);
+              } catch (notificationError) {
+                console.error('❌ Failed to send time change notifications:', notificationError);
+                // Don't block the main operation for notification errors
+              }
+            } else if (isClassPassed) {
+              console.log('⏰ [INSTRUCTOR] Class has already passed - skipping time change notifications for:', newClass.name);
+            }
+          }
+        }
+
         // Log activity for reception
         if (user && response.data) {
           const activityType = editingClassId ? 'class_updated' : 'class_created';

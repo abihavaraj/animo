@@ -2,21 +2,21 @@ import { useNavigation } from '@react-navigation/native';
 import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import {
-  ActivityIndicator,
-  Avatar,
-  Button,
-  Card,
-  Chip,
-  FAB,
-  IconButton,
-  Menu,
-  Modal,
-  Paragraph,
-  Portal,
-  Searchbar,
-  SegmentedButtons,
-  TextInput,
-  Title
+    ActivityIndicator,
+    Avatar,
+    Button,
+    Card,
+    Chip,
+    FAB,
+    IconButton,
+    Menu,
+    Modal,
+    Paragraph,
+    Portal,
+    Searchbar,
+    SegmentedButtons,
+    TextInput,
+    Title
 } from 'react-native-paper';
 import { Colors } from '../../../constants/Colors';
 import { spacing } from '../../../constants/Spacing';
@@ -645,7 +645,7 @@ function UserManagement() {
                           Plan: {user.currentSubscription.plan_name}
                         </Paragraph>
                         <Paragraph style={styles.subscriptionText}>
-                          {user.currentSubscription.remaining_classes} classes remaining
+                          {user.currentSubscription.remaining_classes} {t('dashboard.classesRemaining')}
                         </Paragraph>
                       </View>
                     )}

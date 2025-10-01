@@ -1,6 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Alert, Dimensions, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
     ActivityIndicator,
@@ -124,6 +125,9 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
   const successColor = useThemeColor({}, 'success');
   const warningColor = useThemeColor({}, 'warning');
   const errorColor = useThemeColor({}, 'error');
+  
+  // Translation hook
+  const { t } = useTranslation();
   
   // Try to get route params, but handle case where useRoute fails (reception dashboard)
   let routeUserId: number | string | undefined;
@@ -2446,7 +2450,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
                   {activeSubscription.subscription_plans?.name || 'Subscription Plan'}
                 </H3>
                 <Body style={{ ...styles.subscriptionMetaModern, color: textSecondaryColor }}>
-                  {activeSubscription.remaining_classes || 0} classes remaining • Expires: {formatDate(activeSubscription.end_date)}
+                  {activeSubscription.remaining_classes || 0} {t('dashboard.classesRemaining')} • Expires: {formatDate(activeSubscription.end_date)}
                 </Body>
                 <Body style={{ ...styles.subscriptionMetaModern, color: textSecondaryColor }}>
                   Monthly: {formatCurrency(activeSubscription.subscription_plans?.monthly_price || 0)} • Status: {activeSubscription.status?.toUpperCase() || 'ACTIVE'}
@@ -2563,7 +2567,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
                 </View>
                 {subscription.remaining_classes !== undefined && (
                   <Body style={{ ...styles.subscriptionMetaModern, color: textSecondaryColor }}>
-                    {subscription.remaining_classes} classes remaining
+                    {subscription.remaining_classes} {t('dashboard.classesRemaining')}
                   </Body>
                 )}
                 

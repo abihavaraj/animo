@@ -3,18 +3,20 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Dimensions, Platform, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Dimensions, Platform, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { Dialog, Button as PaperButton, Portal } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AdminClassManagement from '../screens/admin/AdminClassManagement';
 import AdminDashboard from '../screens/admin/AdminDashboard';
 import AssignmentHistory from '../screens/admin/AssignmentHistory';
+import NotificationTestScreen from '../screens/admin/NotificationTestScreen';
 import PCClassManagement from '../screens/admin/PCClassManagement';
 import PCSubscriptionPlans from '../screens/admin/PCSubscriptionPlans';
 import PCUserManagement from '../screens/admin/PCUserManagement';
 import ReceptionClientProfile from '../screens/admin/ReceptionClientProfile';
 import ReportsAnalytics from '../screens/admin/ReportsAnalytics';
 
+import { supabase } from '../config/supabase.config';
 import SubscriptionPlans from '../screens/admin/SubscriptionPlans';
 import SystemSettings from '../screens/admin/SystemSettings';
 import UserManagement from '../screens/admin/UserManagement';
@@ -42,8 +44,33 @@ function AdminSidebar({ activeScreen, onNavigate, stats }: any) {
 
   const loadInitialNotifications = async () => {
     try {
-      // Since we don't have a backend notifications endpoint, use placeholder data
-      setNotifications([]);
+      console.log('🔔 Loading admin notifications...');
+      
+      // Get current user
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      if (!currentUser) {
+        console.log('🔔 No user logged in');
+        setNotifications([]);
+        return;
+      }
+
+      // Load notifications for current user
+      const { data: userNotifications, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', currentUser.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (error) {
+        console.error('🔔 Error loading notifications:', error);
+        setNotifications([]);
+        return;
+      }
+
+      console.log(`🔔 Loaded ${userNotifications?.length || 0} notifications for admin`);
+      setNotifications(userNotifications || []);
+      
     } catch (error) {
       console.error('🔔 Error loading initial notifications:', error);
       setNotifications([]);
@@ -52,7 +79,9 @@ function AdminSidebar({ activeScreen, onNavigate, stats }: any) {
 
   const handleNotificationPress = async () => {
     try {
-      // Show notification modal without API call
+      console.log('🔔 Opening notification modal...');
+      // Refresh notifications before showing modal
+      await loadInitialNotifications();
       setNotificationModalVisible(true);
     } catch (error) {
       console.error('🔔 Error handling notification press:', error);
@@ -174,10 +203,10 @@ function AdminSidebar({ activeScreen, onNavigate, stats }: any) {
           onPress={handleNotificationPress}
         >
           <MaterialIcons name="notifications" size={24} color="#666" />
-          {notifications.filter((n: any) => !n.read).length > 0 && (
+          {notifications.filter((n: any) => !n.is_read).length > 0 && (
             <View style={styles.notificationBadge}>
               <Text style={styles.notificationBadgeText}>
-                {notifications.filter((n: any) => !n.read).length}
+                {notifications.filter((n: any) => !n.is_read).length}
               </Text>
             </View>
           )}
@@ -221,6 +250,40 @@ function AdminSidebar({ activeScreen, onNavigate, stats }: any) {
             </PaperButton>
           </Dialog.Actions>
         </Dialog>
+
+        {/* Notification Modal */}
+        <Dialog visible={notificationModalVisible} onDismiss={() => setNotificationModalVisible(false)}>
+          <Dialog.Title>🔔 Notifications</Dialog.Title>
+          <Dialog.Content>
+            {notifications.length === 0 ? (
+              <Text>No notifications yet. Use the NotificationTestScreen to create test notifications!</Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 300 }}>
+                {notifications.map((notification, index) => (
+                  <View key={index} style={{ 
+                    padding: 12, 
+                    marginBottom: 8, 
+                    backgroundColor: notification.is_read ? '#f5f5f5' : '#e3f2fd',
+                    borderRadius: 8 
+                  }}>
+                    <Text style={{ fontWeight: 'bold', fontSize: 14 }}>
+                      {(notification.title || 'No Title').replace(/<[^>]*>/g, '')}
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+                      {(notification.message || 'No Message').replace(/<[^>]*>/g, '')}
+                    </Text>
+                    <Text style={{ fontSize: 10, color: '#999', marginTop: 4 }}>
+                      {notification.created_at ? new Date(notification.created_at).toLocaleString() : 'No Date'}
+                    </Text>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <PaperButton onPress={() => setNotificationModalVisible(false)}>Close</PaperButton>
+          </Dialog.Actions>
+        </Dialog>
       </Portal>
     </View>
   );
@@ -259,6 +322,8 @@ function AdminPCLayout({ navigation }: any) {
         return <PCSubscriptionPlans />;
       case 'Reports':
         return <ReportsAnalytics />;
+      case 'Notifications':
+        return <NotificationTestScreen />;
       case 'Settings':
         return <SystemSettings />;
       case 'Dashboard':
@@ -385,6 +450,11 @@ function AdminTabs() {
         name="Reports" 
         component={ReportsAnalytics}
         options={{ tabBarLabel: 'Reports' }}
+      />
+      <Tab.Screen 
+        name="Notifications" 
+        component={NotificationTestScreen}
+        options={{ tabBarLabel: 'Notifications' }}
       />
       <Tab.Screen 
         name="Settings" 

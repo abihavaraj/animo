@@ -3,19 +3,19 @@ import { RouteProp, useRoute } from '@react-navigation/native';
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Image, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
-  ActivityIndicator,
-  Avatar,
-  Button,
-  Card,
-  Checkbox,
-  Chip,
-  Dialog,
-  IconButton,
-  Paragraph,
-  Portal,
-  Surface,
-  TextInput,
-  Title
+    ActivityIndicator,
+    Avatar,
+    Button,
+    Card,
+    Checkbox,
+    Chip,
+    Dialog,
+    IconButton,
+    Paragraph,
+    Portal,
+    Surface,
+    TextInput,
+    Title
 } from 'react-native-paper';
 import { useSelector } from 'react-redux';
 import { supabase } from '../../config/supabase.config';
@@ -1501,7 +1501,7 @@ function ClientProfile({ userId: propUserId, userName: propUserName }: { userId?
                     {formatCurrency(client.currentSubscription.monthly_price)}/month
                   </Paragraph>
                   <Paragraph style={styles.planClasses}>
-                    {client.currentSubscription.remaining_classes} classes remaining
+                    {client.currentSubscription.remaining_classes} {t('dashboard.classesRemaining')}
                   </Paragraph>
                   <Paragraph style={styles.planEquipment}>
                     Equipment: {client.currentSubscription.equipment_access}
@@ -1780,7 +1780,7 @@ function ClientProfile({ userId: propUserId, userName: propUserName }: { userId?
                       </Chip>
                       {subscription.status === 'active' && (
                         <Paragraph style={styles.remainingClasses}>
-                          {subscription.remaining_classes} classes left
+                          {subscription.remaining_classes} {t('subscription.left')}
                         </Paragraph>
                       )}
                     </View>

@@ -2,7 +2,7 @@
   "expo": {
     "name": "ANIMO",
     "slug": "PilatesStudioApp",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "orientation": "portrait",
     "scheme": "animopilatesstudio",
     "userInterfaceStyle": "automatic",
@@ -18,7 +18,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.animo.pilatesstudio",
-      "buildNumber": "26",
+      "buildNumber": "27",
       "icon": "./assets/images/ios/iTunesArtwork@2x.png",
       "jsEngine": "jsc",
       "infoPlist": {
@@ -64,13 +64,14 @@
     },
     "android": {
       "package": "com.animo.pilatesstudio",
-      "icon": "./assets/images/icon.png",
+      "versionCode": 27,
       "jsEngine": "hermes",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/icon.png",
-        "backgroundColor": "#F5F2B8"
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#F4F1E0"
       },
-      "googleServicesFile": "./android/app/google-services.json",
+      "playStoreIcon": "./assets/images/android/play_store_512.png",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.READ_CALENDAR",
         "android.permission.WRITE_CALENDAR",
@@ -94,9 +95,10 @@
       [
         "expo-notifications",
         {
-          "color": "#F5F2B8",
+          "color": "#F4F1E0",
           "defaultChannel": "animo-notifications",
           "icon": "./assets/images/notification-icon.png",
+          "sounds": [],
           "mode": "production",
           "androidMode": "default",
           "androidCollapsedTitle": "ANIMO Notification"

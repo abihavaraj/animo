@@ -16,6 +16,13 @@ import { pushNotificationService } from '../../services/pushNotificationService'
 import { AppDispatch, RootState } from '../../store';
 import { shadows } from '../../utils/shadows';
 
+// Helper function to check if a class has passed (finished)
+const isPastClass = (date: string, time: string, duration: number) => {
+  const classDateTime = new Date(`${date}T${time}`);
+  const endDateTime = new Date(classDateTime.getTime() + duration * 60000); // Add duration in minutes
+  return endDateTime < new Date();
+};
+
 function InstructorDashboard() {
   const navigation = useNavigation();
   const dispatch = useDispatch<AppDispatch>();
@@ -327,6 +334,28 @@ function InstructorDashboard() {
       });
 
       if (response.success) {
+        // Check if class has already passed (considering duration)
+        const isClassPassed = isPastClass(selectedClassForTimeEdit.date, selectedClassForTimeEdit.time, selectedClassForTimeEdit.duration);
+        
+        // Send time change notifications only if class hasn't passed
+        if (!isClassPassed) {
+          try {
+            await notificationService.sendClassTimeChangeNotifications(
+              selectedClassForTimeEdit.id,
+              selectedClassForTimeEdit.name,
+              selectedClassForTimeEdit.date,
+              selectedClassForTimeEdit.time,
+              newTime
+            );
+            console.log('📢 [INSTRUCTOR] Time change notification sent for class:', selectedClassForTimeEdit.name);
+          } catch (notificationError) {
+            console.error('❌ Failed to send time change notifications:', notificationError);
+            // Don't block the main operation for notification errors
+          }
+        } else {
+          console.log('⏰ [INSTRUCTOR] Class has already passed - skipping time change notifications for:', selectedClassForTimeEdit.name);
+        }
+
         Alert.alert('Success', 'Class time updated successfully');
         setTimeEditModalVisible(false);
         setSelectedClassForTimeEdit(null);

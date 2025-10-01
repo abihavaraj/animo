@@ -484,7 +484,7 @@ function MyClients() {
                     <View style={styles.packageRow}>
                       <WebCompatibleIcon name="fitness-center" size={16} color={Colors.light.primary} />
                       <Caption style={styles.packageText}>
-                        {activeSubscription.remaining_classes} classes remaining
+                        {activeSubscription.remaining_classes} {t('dashboard.classesRemaining')}
                       </Caption>
                     </View>
                     {activeSubscription.subscription_plans && (
@@ -656,7 +656,7 @@ function MyClients() {
                         <View style={styles.detailRow}>
                           <WebCompatibleIcon name="fitness-center" size={20} color={Colors.light.success} />
                           <Body style={[styles.infoText, { color: Colors.light.success, fontWeight: '600' }]}>
-                            {activeSubscription.remaining_classes} classes remaining
+                            {activeSubscription.remaining_classes} {t('dashboard.classesRemaining')}
                           </Body>
                         </View>
                         <View style={styles.detailRow}>

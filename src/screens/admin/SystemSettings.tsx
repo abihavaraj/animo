@@ -194,19 +194,14 @@ function SystemSettings() {
   };
 
   const handleAutomaticCleanup = async () => {
-    console.log('🔧 [DEBUG] Automatic cleanup button pressed');
-    console.log('🔧 [DEBUG] Directly calling runAutomaticCleanup to bypass dialog');
     // Skip dialog for now and directly run cleanup
     await runAutomaticCleanup();
   };
 
   const runAutomaticCleanup = async () => {
-    console.log('🔧 [DEBUG] Starting automatic cleanup process');
     try {
       setCleanupInProgress(true);
-      console.log('🔧 [DEBUG] Calling dataCleanupService.runAutomaticCleanup()');
       const results = await dataCleanupService.runAutomaticCleanup();
-      console.log('🔧 [DEBUG] Cleanup results:', results);
       setLastCleanupResults(results);
       
       Alert.alert(
@@ -217,13 +212,10 @@ function SystemSettings() {
       );
       
       // Reload stats
-      console.log('🔧 [DEBUG] Reloading data stats');
       await loadDataStats();
     } catch (error) {
-      console.error('🔧 [DEBUG] Cleanup error:', error);
       Alert.alert('Error', 'Failed to run automatic cleanup');
     } finally {
-      console.log('🔧 [DEBUG] Cleanup process completed');
       setCleanupInProgress(false);
     }
   };

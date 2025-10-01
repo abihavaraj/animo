@@ -91,7 +91,8 @@
     "matReformerClasses": "Mat & Reformer Classes",
     "expertInstructors": "Expert Certified Instructors",
     "flexibleScheduling": "Flexible Scheduling",
-    "smallGroupClasses": "Small Group Classes"
+    "smallGroupClasses": "Small Group Classes",
+    "minutes": "minutes"
   },
   "classes": {
     "allClasses": "All Classes",
@@ -201,7 +202,11 @@
     "validFor": "Valid for",
     "enjoyUnlimited": "Enjoy unlimited classes this month!",
     "classesAvailable": "classes available",
-    "bonusCredits": "bonus credits added"
+    "bonusCredits": "bonus credits added",
+    "untilRenewal": "until renewal",
+    "expiresIn": "Expires in",
+    "expiresToday": "Expires today",
+    "dayPassExpired": "Day pass expired"
   },
   "booking": {
     "confirmed": "Confirmed",
@@ -304,8 +309,13 @@
     "generalNotificationTitle": "🧘‍♀️ Animo Pilates",
     "welcomeTitle": "🎉 Welcome to Animo Pilates!",
     "welcomeBody": "Welcome {{userName}}! We're excited to have you start your Pilates journey with us.",
-    "classAssignmentCancelledTitle": "📋 Class assignment cancelled",
-    "classAssignmentCancelledBody": "Your booking for {{className}} on {{date}} at {{time}} has been cancelled by {{staffName}}.{{creditRestored}}",
+    "classAssignmentCancelledTitle": "📋 Removed from class",
+    "classAssignmentCancelledBody": "You have been removed from {{className}} on {{date}} at {{time}} by {{staffName}}.{{creditRestored}}",
+    "classCreditRestored": "Your class credit has been restored.",
+    "studentJoinedClassTitle": "🎉 New Student Enrollment",
+    "studentJoinedClassBody": "{{studentName}} has enrolled in {{className}} on {{date}} at {{time}}.",
+    "studentCancelledBookingTitle": "📋 Student Cancellation",
+    "studentCancelledBookingBody": "{{studentName}} has cancelled their booking for {{className}} on {{date}} at {{time}}.",
     "noNotifications": "No notifications",
     "noNotificationsMessage": "You'll see notifications about your classes and subscription here",
     "loading": "Loading notifications...",
@@ -314,6 +324,18 @@
     "classReminderTitle": "Class Reminder",
     "classUpdateTitle": "Class Update",
     "subscriptionChangedTitle": "Subscription Updated"
+  },
+  "equipmentAccess": {
+    "title": "Equipment Access Required",
+    "matOnly": "Mat Only",
+    "reformerOnly": "Reformer Only",
+    "fullEquipment": "Full Equipment",
+    "requiresAccess": "This class requires {{equipment}} access. Your subscription includes only {{userAccess}} access. Please upgrade your plan.",
+    "personalSubscriptionRequired": "Personal Subscription Required",
+    "personalOnly": "Your personal subscription only allows booking personal/private classes. Please choose a personal training session.",
+    "personalTrainingSession": "Personal Training Session",
+    "needPersonalSubscription": "This is a personal training session. You need a personal subscription to book this class.",
+    "needGroupSubscription": "This is a group class. You need a group subscription to book this class."
   },
   "labels": {
     "with": "with",

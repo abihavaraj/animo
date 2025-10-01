@@ -721,57 +721,7 @@ class InstructorClientService {
     }
   }
 
-  // Auto-assign client to instructor when they book a class (called by booking service)
-  async autoAssignClientToInstructor(
-    clientId: string, 
-    instructorId: string, 
-    classId: number | string
-  ): Promise<ApiResponse<InstructorClientAssignment>> {
-    try {
-      devLog('🔗 [instructorClientService] Auto-assigning client to instructor');
-      
-      // Check if assignment already exists
-      const { data: existingAssignment } = await supabase
-        .from('instructor_client_assignments')
-        .select('id')
-        .eq('client_id', clientId)
-        .eq('instructor_id', instructorId)
-        .eq('status', 'active')
-        .single();
-
-      if (existingAssignment) {
-        devLog('✅ [instructorClientService] Assignment already exists');
-        return { success: true, data: existingAssignment as InstructorClientAssignment };
-      }
-
-      // Create new assignment
-      const { data, error } = await supabase
-        .from('instructor_client_assignments')
-        .insert({
-          client_id: clientId,
-          instructor_id: instructorId,
-          assigned_by: instructorId, // Use instructor's ID instead of "system"
-          assignment_type: 'primary',
-          start_date: new Date().toISOString().split('T')[0],
-          status: 'active',
-          notes: `Auto-assigned from class booking (Class ID: ${classId})`
-        })
-        .select()
-        .single();
-
-      if (error) {
-        devError('❌ [instructorClientService] Auto-assignment error:', error);
-        return { success: false, error: error.message };
-      }
-
-      devLog('✅ [instructorClientService] Client auto-assigned successfully');
-      return { success: true, data };
-      
-    } catch (error) {
-      devError('❌ [instructorClientService] Exception in autoAssignClientToInstructor:', error);
-      return { success: false, error: 'Failed to auto-assign client' };
-    }
-  }
+  // Auto-assignment has been disabled - clients must be manually assigned by reception
 
   // Manual assignment by reception/admin
   async assignClientToInstructor(
@@ -785,25 +735,52 @@ class InstructorClientService {
       devLog('👥 [instructorClientService] Manually assigning client to instructor');
       devLog('📋 Assignment details:', { clientId, instructorId, assignedBy, assignmentType });
       
-      // Check if assignment already exists - use maybeSingle() to avoid 406 error
-      const { data: existingAssignment, error: checkError } = await supabase
+      // Check if any assignment already exists (active or inactive)
+      const { data: existingAssignments, error: checkError } = await supabase
         .from('instructor_client_assignments')
-        .select('id')
+        .select('id, status')
         .eq('client_id', clientId)
         .eq('instructor_id', instructorId)
-        .eq('status', 'active')
-        .maybeSingle(); // Use maybeSingle() instead of single()
+        .order('created_at', { ascending: false }); // Get the most recent
 
       if (checkError) {
         devError('❌ [instructorClientService] Error checking existing assignment:', checkError);
         return { success: false, error: checkError.message };
       }
 
-      if (existingAssignment) {
-        return { success: false, error: 'Client is already assigned to this instructor' };
+      if (existingAssignments && existingAssignments.length > 0) {
+        const latestAssignment = existingAssignments[0];
+        
+        if (latestAssignment.status === 'active') {
+          return { success: false, error: 'Client is already assigned to this instructor' };
+        } else if (latestAssignment.status === 'inactive') {
+          // Reactivate the existing assignment instead of creating a new one
+          devLog('🔄 [instructorClientService] Reactivating existing inactive assignment');
+          const { data, error } = await supabase
+            .from('instructor_client_assignments')
+            .update({
+              status: 'active',
+              start_date: new Date().toISOString().split('T')[0],
+              end_date: null,
+              assigned_by: assignedBy,
+              assignment_type: assignmentType,
+              notes: notes || 'Manually reassigned'
+            })
+            .eq('id', latestAssignment.id)
+            .select()
+            .single();
+
+          if (error) {
+            devError('❌ [instructorClientService] Error reactivating assignment:', error);
+            return { success: false, error: error.message };
+          }
+
+          devLog('✅ [instructorClientService] Assignment reactivated successfully');
+          return { success: true, data };
+        }
       }
 
-      // Create new assignment
+      // Create new assignment if none exists
       const { data, error } = await supabase
         .from('instructor_client_assignments')
         .insert({

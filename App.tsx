@@ -25,6 +25,7 @@ import { notificationService } from './src/services/notificationService';
 import { pushNotificationService } from './src/services/pushNotificationService';
 import { RootState, store } from './src/store';
 import { authReady, loadUserProfile, restoreSession } from './src/store/authSlice';
+import './src/utils/logger'; // Disable console logs in production
 
 
 // Keep the splash screen visible while we fetch resources
@@ -111,6 +112,39 @@ function AppContent() {
         // pushNotificationService.scheduleClassReminders(user.id).catch(error => {
         //   console.error('❌ [App] Failed to schedule class reminders:', error);
         // });
+
+        // ANDROID FIX: Validate and fix invalid tokens on login
+        // Wait a bit for pushNotificationService to initialize
+        setTimeout(async () => {
+          try {
+            // Check current stored token
+            const { data: userData } = await supabase
+              .from('users')
+              .select('push_token')
+              .eq('id', user.id)
+              .single();
+
+            const storedToken = userData?.push_token;
+            
+            // Check if token is invalid (old FCM format or missing)
+            const isInvalidToken = !storedToken || !storedToken.startsWith('ExponentPushToken[');
+            
+            if (isInvalidToken) {
+              console.log('🔄 [App] User has invalid token format, forcing re-registration...');
+              console.log('   📱 Old token:', storedToken ? storedToken.substring(0, 30) + '...' : 'NULL');
+              console.log('   🤖 Platform:', Platform.OS);
+              
+              // Force token re-registration
+              await pushNotificationService.forceTokenReregistration();
+              
+              console.log('✅ [App] Token re-registration completed');
+            } else {
+              console.log('✅ [App] Token format is valid:', storedToken.substring(0, 30) + '...');
+            }
+          } catch (error) {
+            console.error('❌ [App] Token validation error (non-critical):', error);
+          }
+        }, 2000); // Wait 2 seconds for push service to initialize
       } else {
 
       }
@@ -120,15 +154,26 @@ function AppContent() {
         // Store token in Supabase when received
         if (user?.id && token.data) {
           try {
-            // Store the token in the users table (original GitHub approach)r
-            const { error } = await supabase
-              .from('users')
-              .update({ push_token: token.data })
-              .eq('id', user.id);
+            console.log('📱 [App] Push token received:', token.data.substring(0, 30) + '...');
             
-            // Silent push token registration
+            // Validate token format before saving
+            if (token.data.startsWith('ExponentPushToken[')) {
+              // Store the token in the users table (original GitHub approach)
+              const { error } = await supabase
+                .from('users')
+                .update({ push_token: token.data })
+                .eq('id', user.id);
+              
+              if (error) {
+                console.error('❌ [App] Failed to save push token:', error);
+              } else {
+                console.log('✅ [App] Push token saved successfully');
+              }
+            } else {
+              console.warn('⚠️ [App] Invalid token format received, skipping save:', token.data.substring(0, 30));
+            }
           } catch (error) {
-            // Silent error handling for production
+            console.error('❌ [App] Token save error:', error);
           }
         }
       });

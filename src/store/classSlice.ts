@@ -31,10 +31,17 @@ export const updateCompletedClassStatus = createAsyncThunk(
 
 export const fetchClasses = createAsyncThunk(
   'classes/fetchClasses',
-  async (filters: ClassFilters & { userRole?: string } = {}, { rejectWithValue, dispatch }) => {
-    // console.log('🔍 [Redux] fetchClasses called with filters:', filters);
-    // First update any completed class statuses
-    await dispatch(updateCompletedClassStatus());
+  async (filters: ClassFilters & { userRole?: string; skipStatusUpdate?: boolean } = {}, { rejectWithValue, dispatch }) => {
+    // 🚀 OPTIMIZATION: Only update status if explicitly requested or if it's been more than 5 minutes
+    const shouldUpdateStatus = !filters.skipStatusUpdate && (
+      !lastStatusUpdate || 
+      Date.now() - lastStatusUpdate > 5 * 60 * 1000 // 5 minutes
+    );
+    
+    if (shouldUpdateStatus) {
+      await dispatch(updateCompletedClassStatus());
+      lastStatusUpdate = Date.now();
+    }
     
     const response = await classService.getClasses(filters);
     if (!response.success) {
@@ -43,6 +50,9 @@ export const fetchClasses = createAsyncThunk(
     return response.data!;
   }
 );
+
+// 🚀 OPTIMIZATION: Track last status update to avoid frequent updates
+let lastStatusUpdate: number = 0;
 
 export const fetchClass = createAsyncThunk(
   'classes/fetchClass',

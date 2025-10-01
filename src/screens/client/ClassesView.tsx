@@ -889,12 +889,23 @@ function ClassesView() {
         marked[date] = { dots: [] };
       }
       
-      // Different colors for past vs future dates
+      // Different colors for past vs future dates and times
       let dotColor;
       const isPastDate = date < todayString;
       
-      if (isPastDate) {
-        // Gray dots for past dates
+      // Check if it's today and if the class time has passed
+      const isToday = date === todayString;
+      let isPastClass = false;
+      
+      if (isToday) {
+        // For today's classes, check if the class time has passed
+        const classDateTime = new Date(`${classItem.date}T${classItem.time}`);
+        const now = new Date();
+        isPastClass = classDateTime < now;
+      }
+      
+      if (isPastDate || isPastClass) {
+        // Gray dots for past dates or past classes on today
         dotColor = userBooking ? textMutedColor : textMutedColor;
       } else {
         // Normal colors for future dates - prioritize user booking status

@@ -31,41 +31,69 @@ class PushNotificationService {
   private initializationAttempted: boolean = false;
 
   async initialize(): Promise<void> {
+    console.log('🔍 [initialize] METHOD CALLED - Entry point');
+    
     // Prevent multiple initialization attempts
     if (this.isInitialized || this.initializationAttempted) {
-      // Already initialized
+      console.log('🔍 [initialize] EARLY EXIT - Already initialized or attempted');
+      console.log('🔍 [initialize] State:', { isInitialized: this.isInitialized, initializationAttempted: this.initializationAttempted });
       return;
     }
 
+    console.log('🔍 [initialize] PROCEEDING - Setting initializationAttempted = true');
     this.initializationAttempted = true;
 
     try {
-      // Starting initialization
+      console.log('🔍 [initialize] STARTING - Beginning initialization process');
       
       // Enhanced platform checks for production
+      console.log('🔍 [initialize] Platform check - OS:', Platform.OS);
       if (Platform.OS !== 'ios' && Platform.OS !== 'android') {
-        // Not on supported platform
+        console.log('❌ [initialize] Not on supported platform, exiting');
         return;
       }
 
       // Check if we're running in Expo Go
+      console.log('🔍 [initialize] Execution environment debug:', {
+        __DEV__,
+        executionEnvironment: Constants.executionEnvironment,
+        appOwnership: Constants.appOwnership,
+        isStandalone: Constants.executionEnvironment === 'standalone',
+        platform: Platform.OS
+      });
+      
       const isExpoGo = __DEV__ && Constants.executionEnvironment === 'standalone' === false;
+      
+      // TEMPORARILY DISABLE EXPO GO BLOCKING FOR TESTING
+      // if (isExpoGo && Platform.OS === 'android') {
+      //   console.log('⚠️ [initialize] Android push notifications not supported in Expo Go (SDK 53+)');
+      //   console.log('🏗️ [initialize] Use development build or EAS build to test Android push notifications');
+      //   return;
+      // }
+      
       if (isExpoGo && Platform.OS === 'android') {
-        // Android push notifications not supported in Expo Go
-        return;
+        console.log('⚠️ [initialize] WARNING: Running Android in Expo Go - push notifications may be limited');
+        console.log('🧪 [initialize] Attempting token generation anyway for testing...');
+        // Continue instead of returning - let's see what happens
       }
 
       // For production IPA builds, we need more robust device checking
+      console.log('🔍 [initialize] Device check - isDevice:', Device.isDevice, 'isDev:', __DEV__);
       if (!Device.isDevice) {
         // In production, this should never happen, but let's be safe
         if (__DEV__) {
-          // Running in simulator/emulator
-          return;
+          console.log('⚠️ [initialize] Device.isDevice is false - this might be an emulator or device detection issue');
+          console.log('🧪 [initialize] Continuing anyway for testing purposes...');
+          // CONTINUE instead of returning - let's try to generate tokens anyway
         } else {
-          // In production, Device.isDevice might sometimes give false negatives
+          console.log('⚠️ [initialize] Device.isDevice is false but continuing in production');
           // Continuing despite device check
         }
+      } else {
+        console.log('✅ [initialize] Device.isDevice is true - proceeding normally');
       }
+
+      console.log('✅ [initialize] Platform and device checks passed, proceeding to permissions...');
 
       // Wrap all native calls in individual try-catch blocks
       console.log('🔍 [initialize] Checking notification permissions...');
@@ -96,31 +124,45 @@ class PushNotificationService {
 
       if (finalStatus !== 'granted') {
         console.error('❌ [initialize] Permission not granted for push notifications. Status:', finalStatus);
+        console.error('❌ [initialize] Full permission result:', JSON.stringify(permissionsResult, null, 2));
         // TestFlight Debug - User denied notification permissions
         return;
       }
 
       console.log('✅ [initialize] Notification permissions granted');
+      console.log('🔍 [initialize] Moving to Android channel creation...');
 
       // Create Android notification channels for production builds
       if (Platform.OS === 'android') {
         try {
+          console.log('🤖 [initialize] Creating Android notification channels...');
           await this.createAndroidNotificationChannels();
+          console.log('✅ [initialize] Android channels created successfully');
         } catch (channelError) {
           console.error('❌ [initialize] Failed to create Android channels:', channelError);
           // Continue with token registration even if channels fail
         }
       }
 
+      console.log('🔍 [initialize] Starting push token generation...');
       // Get push token with maximum safety
       const token = await this.getPushTokenSafely();
+      console.log('🔍 [initialize] Token generation result:', token ? 'SUCCESS' : 'FAILED');
+      
       if (token) {
         this.pushToken = token;
+        console.log('🔍 [initialize] Starting token registration with server...');
         await this.registerTokenWithServerSafely(token);
         console.log('✅ Push notifications initialized successfully');
+      } else {
+        console.log('❌ [initialize] No token obtained - push notifications disabled');
       }
 
       this.isInitialized = true;
+      console.log('🔍 [initialize] Initialization completed. Final state:', {
+        isInitialized: this.isInitialized,
+        hasToken: !!this.pushToken
+      });
 
     } catch (error) {
       console.error('❌ Failed to initialize push notifications:', error);
@@ -131,10 +173,10 @@ class PushNotificationService {
   private async getPushTokenSafely(): Promise<string | null> {
     try {
       // Enhanced logging for production debugging
-      //console.log('🔍 [getPushTokenSafely] Starting push token generation...');
-      //console.log('🔍 [getPushTokenSafely] Platform:', Platform.OS);
-      //console.log('🔍 [getPushTokenSafely] Device type:', Device.deviceType);
-      //console.log('🔍 [getPushTokenSafely] Is device?', Device.isDevice);
+      console.log('🔍 [getPushTokenSafely] Starting push token generation...');
+      console.log('🔍 [getPushTokenSafely] Platform:', Platform.OS);
+      console.log('🔍 [getPushTokenSafely] Device type:', Device.deviceType);
+      console.log('🔍 [getPushTokenSafely] Is device?', Device.isDevice);
       
       // Enhanced project ID detection for production builds
       const projectId = (Constants as any).expoConfig?.extra?.eas?.projectId || 
@@ -142,11 +184,15 @@ class PushNotificationService {
                        ((Constants as any).manifest2?.extra ? (Constants as any).manifest2.extra.eas?.projectId : undefined) ||
                        'd4bdbfc4-ecbc-40d7-aabb-ad545c836ab3'; // Fallback to your project ID
       
-      // TestFlight Debug - Project ID from config
+      console.log('🔍 [getPushTokenSafely] Project ID from config:', projectId);
 
       if (!projectId) {
         console.error('❌ [getPushTokenSafely] Could not find Expo project ID. Push notifications disabled.');
-        // TestFlight Debug - Constants info
+        console.log('🔍 [getPushTokenSafely] Constants info:', JSON.stringify({
+          expoConfig: (Constants as any).expoConfig?.extra?.eas,
+          manifest: (Constants as any).manifest?.extra?.eas,
+          manifest2: (Constants as any).manifest2?.extra?.eas
+        }, null, 2));
         return null;
       }
 
@@ -155,6 +201,8 @@ class PushNotificationService {
       // Add extra debugging for Android
       if (Platform.OS === 'android') {
         console.log('🤖 [getPushTokenSafely] Android - Attempting FCM token generation...');
+        console.log('🤖 [getPushTokenSafely] Android - Constants.appOwnership:', Constants.appOwnership);
+        console.log('🤖 [getPushTokenSafely] Android - Constants.executionEnvironment:', Constants.executionEnvironment);
       }
       
       const token = await Notifications.getExpoPushTokenAsync({
@@ -173,6 +221,8 @@ class PushNotificationService {
     } catch (error) {
       console.error('❌ [getPushTokenSafely] Failed to get push token:', error);
       console.error('❌ [getPushTokenSafely] Error details:', JSON.stringify(error, null, 2));
+      console.error('❌ [getPushTokenSafely] Error message:', error?.message);
+      console.error('❌ [getPushTokenSafely] Error code:', error?.code);
       return null;
     }
   }
@@ -198,6 +248,23 @@ class PushNotificationService {
       }
 
       console.log('🔍 [registerTokenWithServerSafely] Registering push token for user:', user.id);
+
+      // Check if user has an old FCM token and this is a new ExponentPushToken
+      const { data: currentUserData } = await supabase
+        .from('users')
+        .select('push_token')
+        .eq('id', user.id)
+        .single();
+
+      const isUpgradeFromFCM = currentUserData?.push_token && 
+                               !currentUserData.push_token.startsWith('ExponentPushToken[') && 
+                               token.startsWith('ExponentPushToken[');
+
+      if (isUpgradeFromFCM) {
+        console.log('🔄 [registerTokenWithServerSafely] Upgrading from FCM to ExponentPushToken format');
+        console.log('   📱 Old FCM token:', currentUserData.push_token.substring(0, 20) + '...');
+        console.log('   📱 New ExponentPushToken:', token.substring(0, 20) + '...');
+      }
 
       // 1. Update user's push token in the users table (legacy approach)
       const { error: userError, data: updateResult } = await supabase
@@ -235,7 +302,13 @@ class PushNotificationService {
         .select('id, token, device_type, is_active');
 
       if (pushTokensError) {
-        console.error('❌ [registerTokenWithServerSafely] Failed to register push token in push_tokens table:', pushTokensError);
+        // Check if this is an RLS error (code 42501)
+        if (pushTokensError.code === '42501') {
+          console.log('⚠️ [registerTokenWithServerSafely] RLS policy prevents push_tokens table insert - this is expected');
+          console.log('✅ [registerTokenWithServerSafely] Main push token in users table was updated successfully, notifications will work');
+        } else {
+          console.error('❌ [registerTokenWithServerSafely] Failed to register push token in push_tokens table:', pushTokensError);
+        }
       } else {
         console.log('✅ [registerTokenWithServerSafely] Push token registered in push_tokens table successfully');
         console.log('📱 [registerTokenWithServerSafely] Push tokens result:', pushTokensResult);
@@ -315,19 +388,34 @@ class PushNotificationService {
 
   async forceTokenReregistration(): Promise<void> {
     try {
-      //console.log('🔄 Force re-registering push token...');
+      console.log('🔄 [forceTokenReregistration] Starting push token re-registration...');
+      console.log('🔍 [forceTokenReregistration] Current state:', {
+        isInitialized: this.isInitialized,
+        initializationAttempted: this.initializationAttempted,
+        hasToken: !!this.pushToken
+      });
       
       // Reset state
       this.isInitialized = false;
       this.initializationAttempted = false;
       this.pushToken = null;
       
+      console.log('🔄 [forceTokenReregistration] State reset, starting re-initialization...');
+      console.log('🔍 [forceTokenReregistration] About to call this.initialize()...');
+      
       // Re-initialize
       await this.initialize();
       
-      //console.log('✅ Token re-registration completed');
+      console.log('✅ [forceTokenReregistration] this.initialize() completed');
+      console.log('✅ [forceTokenReregistration] Token re-registration completed');
+      console.log('🔍 [forceTokenReregistration] Final state:', {
+        isInitialized: this.isInitialized,
+        hasToken: !!this.pushToken,
+        tokenPreview: this.pushToken ? this.pushToken.substring(0, 50) + '...' : 'none'
+      });
     } catch (error) {
-      console.error('❌ Failed to re-register token:', error);
+      console.error('❌ [forceTokenReregistration] Failed to re-register token:', error);
+      console.error('❌ [forceTokenReregistration] Error details:', JSON.stringify(error, null, 2));
     }
   }
 
@@ -344,7 +432,7 @@ class PushNotificationService {
       await Notifications.setNotificationChannelAsync('animo-notifications', {
         name: 'ANIMO Notifications',
         description: 'General notifications from ANIMO Pilates Studio',
-        importance: Notifications.AndroidImportance.HIGH,
+        importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#F5F2B8',
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
@@ -359,7 +447,7 @@ class PushNotificationService {
       await Notifications.setNotificationChannelAsync('class-reminders', {
         name: 'Class Reminders',
         description: 'Reminders for upcoming pilates classes',
-        importance: Notifications.AndroidImportance.HIGH,
+        importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#F5F2B8',
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
@@ -404,7 +492,7 @@ class PushNotificationService {
       await Notifications.setNotificationChannelAsync('test-notifications', {
         name: 'Test Notifications',
         description: 'Test notifications for debugging push notification issues',
-        importance: Notifications.AndroidImportance.HIGH,
+        importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#F5F2B8',
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
@@ -1010,13 +1098,34 @@ class PushNotificationService {
         await Notifications.cancelScheduledNotificationAsync(notification.identifier);
       }
       
-      // Also remove from database
-      await supabase
+      // Also remove from database - get all notifications for this user and filter in JS
+      const { data: userNotifications } = await supabase
         .from('notifications')
-        .delete()
+        .select('id, metadata')
         .eq('user_id', userId)
-        .eq('type', 'class_reminder')
-        .match({ 'metadata->>classId': classId.toString() });
+        .eq('type', 'class_reminder');
+
+      if (userNotifications && userNotifications.length > 0) {
+        // Filter notifications that match this class ID (check both metadata formats)
+        const notificationsToDelete = userNotifications.filter(notification => {
+          const metadata = notification.metadata;
+          if (!metadata) return false;
+          
+          // Check both possible formats: classId (camelCase) and class_id (snake_case)
+          const metadataClassId = metadata.classId || metadata.class_id;
+          return metadataClassId && metadataClassId.toString() === classId.toString();
+        });
+
+        if (notificationsToDelete.length > 0) {
+          const notificationIds = notificationsToDelete.map(n => n.id);
+          await supabase
+            .from('notifications')
+            .delete()
+            .in('id', notificationIds);
+          
+          console.log(`🗑️ [cancelClassReminder] Deleted ${notificationIds.length} database notifications`);
+        }
+      }
     } catch (error) {
       console.error(`❌ [pushNotificationService] Error canceling reminders:`, error);
     }
@@ -1149,6 +1258,37 @@ class PushNotificationService {
 
     } catch (error) {
       console.error(`❌ [pushNotificationService] Error scheduling reminder for user ${userId}, class ${classId}:`, error);
+    }
+  }
+
+  // Public method for testing re-registration (accessible from UI)
+  async testReregistration(): Promise<{ success: boolean; message: string; token?: string }> {
+    try {
+      console.log('🧪 [testReregistration] Starting test re-registration from UI...');
+      
+      await this.forceTokenReregistration();
+      
+      const token = this.pushToken;
+      if (token) {
+        console.log('✅ [testReregistration] Test re-registration successful!');
+        return {
+          success: true,
+          message: 'Push notification re-registration successful!',
+          token: token.substring(0, 50) + '...'
+        };
+      } else {
+        console.log('❌ [testReregistration] Test re-registration failed - no token obtained');
+        return {
+          success: false,
+          message: 'Re-registration failed: No push token obtained'
+        };
+      }
+    } catch (error) {
+      console.error('❌ [testReregistration] Test re-registration error:', error);
+      return {
+        success: false,
+        message: `Re-registration failed: ${error}`
+      };
     }
   }
 

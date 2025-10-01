@@ -386,19 +386,12 @@ function PCSubscriptionPlans() {
     try {
       setShowNotificationTestModal(false);
       
-      // Show available clients for debugging
-      const availableClients = clients.filter(u => u.role === 'client').map(u => u.name);
-      console.log('👥 Available clients for testing:', availableClients);
-      
       // Find a test user - prioritize "argjend" or use first client
       const testUser = clients.find(u => u.role === 'client' && u.name.toLowerCase().includes('argjend')) || 
                       clients.find(u => u.role === 'client');
       if (!testUser) {
-        console.log('❌ Error: No client users found to test with');
         return;
       }
-
-      console.log(`🧪 Testing welcome notification for ${testUser.name}...`);
       const notificationResult = await notificationService.createTranslatedNotification(
         testUser.id,
         'welcome',
@@ -414,12 +407,9 @@ function PCSubscriptionPlans() {
           notificationResult.data.title,
           notificationResult.data.message
         );
-        console.log(`✅ Welcome notification sent to ${testUser.name}`);
-      } else {
-        console.error('❌ Error:', notificationResult.error || 'Failed to send welcome notification');
       }
     } catch (error) {
-      console.error('❌ Error testing welcome notification:', error);
+      // Error handled silently
     }
   };
 

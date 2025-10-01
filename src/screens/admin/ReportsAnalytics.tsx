@@ -2128,7 +2128,7 @@ const ReportsAnalytics: React.FC = () => {
                       )}
                       {client.subscription_info.remaining_classes && (
                         <Text style={[styles.remainingClasses, { color: warningColor }]}>
-                          {client.subscription_info.remaining_classes} classes left
+                          {client.subscription_info.remaining_classes} {t('subscription.left')}
                         </Text>
                       )}
                     </View>
@@ -2745,7 +2745,7 @@ const ReportsAnalytics: React.FC = () => {
                       </Text>
           </View>
                     <Text style={[styles.remainingClasses, { color: primaryColor }]}>
-                      {client.remaining_classes} classes left
+                      {client.remaining_classes} {t('subscription.left')}
                     </Text>
         </View>
                     </View>
@@ -3048,7 +3048,7 @@ const ReportsAnalytics: React.FC = () => {
                   </View>
                   <View style={styles.subscriptionDetails}>
                     <Text style={[styles.remainingClasses, { color: warningColor, fontWeight: '600' }]}>
-                      {client.remaining_classes} classes left
+                      {client.remaining_classes} {t('subscription.left')}
                     </Text>
                     <Text style={[styles.subscriptionPrice, { color: textMutedColor, fontSize: 12 }]}>
                       {client.subscription_plan}
