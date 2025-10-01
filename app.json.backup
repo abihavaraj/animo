@@ -1,0 +1,131 @@
+{
+  "expo": {
+    "name": "ANIMO",
+    "slug": "PilatesStudioApp",
+    "version": "1.0.6",
+    "orientation": "portrait",
+    "scheme": "animopilatesstudio",
+    "userInterfaceStyle": "automatic",
+    "icon": "./assets/images/icon.png",
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.animo.pilatesstudio",
+      "buildNumber": "26",
+      "icon": "./assets/images/ios/iTunesArtwork@2x.png",
+      "jsEngine": "jsc",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCalendarsUsageDescription": "ANIMO Pilates Studio uses calendar access to help you schedule and manage your pilates classes and appointments.",
+        "NSCameraUsageDescription": "This app needs camera access to capture progress photos for client assessments and tracking.",
+        "NSMicrophoneUsageDescription": "This app may need microphone access for video features.",
+        "NSPhotoLibraryUsageDescription": "This app may need photo library access for profile photos.",
+        "NSUserNotificationsUsageDescription": "ANIMO Pilates Studio needs notification access to send you class reminders, subscription updates, and important studio announcements.",
+        "UIBackgroundModes": [
+          "remote-notification"
+        ],
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": false,
+          "NSAllowsArbitraryLoadsInWebContent": false,
+          "NSExceptionDomains": {
+            "animo-pilates-backend.fly.dev": {
+              "NSExceptionAllowsInsecureHTTPLoads": false,
+              "NSExceptionMinimumTLSVersion": "1.2",
+              "NSExceptionRequiresForwardSecrecy": true,
+              "NSIncludesSubdomains": true
+            },
+            "supabase.co": {
+              "NSExceptionAllowsInsecureHTTPLoads": false,
+              "NSExceptionMinimumTLSVersion": "1.2",
+              "NSExceptionRequiresForwardSecrecy": true,
+              "NSIncludesSubdomains": true
+            },
+            "byhqueksdwlbiwodpbbd.supabase.co": {
+              "NSExceptionAllowsInsecureHTTPLoads": false,
+              "NSExceptionMinimumTLSVersion": "1.2",
+              "NSExceptionRequiresForwardSecrecy": true,
+              "NSIncludesSubdomains": true
+            },
+            "localhost": {
+              "NSExceptionAllowsInsecureHTTPLoads": true,
+              "NSExceptionMinimumTLSVersion": "1.0",
+              "NSExceptionRequiresForwardSecrecy": false
+            }
+          }
+        }
+      }
+    },
+    "android": {
+      "package": "com.animo.pilatesstudio",
+      "icon": "./assets/images/icon.png",
+      "jsEngine": "hermes",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#F5F2B8"
+      },
+      "permissions": [
+        "android.permission.READ_CALENDAR",
+        "android.permission.WRITE_CALENDAR",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE",
+        "android.permission.WAKE_LOCK",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.WAKE_LOCK",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.POST_NOTIFICATIONS"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/images/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "color": "#F5F2B8",
+          "defaultChannel": "animo-notifications",
+          "icon": "./assets/images/notification-icon.png",
+          "mode": "production",
+          "androidMode": "default",
+          "androidCollapsedTitle": "ANIMO Notification"
+        }
+      ],
+      "expo-web-browser",
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "The app needs to access your calendar to manage class schedules."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app needs access to your photo library to select progress photos.",
+          "cameraPermission": "The app needs camera access to capture progress photos for client assessments."
+        }
+      ],
+      "expo-secure-store"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "d4bdbfc4-ecbc-40d7-aabb-ad545c836ab3"
+      }
+    },
+    "owner": "argjendi96",
+    "runtimeVersion": "1.0.0",
+    "updates": {
+      "url": "https://u.expo.dev/d4bdbfc4-ecbc-40d7-aabb-ad545c836ab3"
+    }
+  }
+}
