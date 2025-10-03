@@ -3,7 +3,7 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { SchedulableTriggerInputTypes } from 'expo-notifications';
 import { Alert, Platform } from 'react-native';
-import { supabase } from '../config/supabase.config';
+import { supabase, supabaseAdmin } from '../config/supabase.config';
 
 // Completely safe notification handler setup
 let notificationHandlerSet = false;
@@ -233,6 +233,13 @@ class PushNotificationService {
       console.log('📱 [registerTokenWithServerSafely] Token to register:', token.substring(0, 20) + '...');
       console.log('🤖 [registerTokenWithServerSafely] Platform:', Platform.OS);
       
+      // VALIDATION: Reject invalid token formats immediately
+      if (!token || !token.startsWith('ExponentPushToken[')) {
+        console.error('❌ [registerTokenWithServerSafely] Invalid token format! Token must start with "ExponentPushToken["');
+        console.error('❌ [registerTokenWithServerSafely] Received token:', token ? token.substring(0, 30) + '...' : 'NULL');
+        return; // Don't save invalid tokens
+      }
+      
       // Get current user ID from Supabase auth
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       console.log('🔍 [registerTokenWithServerSafely] Auth result:', { user: user?.id, authError });
@@ -280,7 +287,29 @@ class PushNotificationService {
         console.log('📱 [registerTokenWithServerSafely] Updated user data:', updateResult);
       }
 
-      // 2. Register token in push_tokens table (new approach for multi-device support)
+      // 2. CLEAN UP: DELETE all old tokens for this user in push_tokens table
+      // Use supabaseAdmin to bypass RLS
+      console.log('🧹 [registerTokenWithServerSafely] Deleting old tokens for user:', user.id);
+      
+      try {
+        const { error: deleteError, count } = await supabaseAdmin
+          .from('push_tokens')
+          .delete({ count: 'exact' })
+          .eq('user_id', user.id)
+          .neq('token', token); // Don't delete the new token if it already exists
+
+        if (deleteError) {
+          console.error('⚠️ [registerTokenWithServerSafely] Failed to delete old tokens:', deleteError);
+        } else {
+          console.log(`✅ [registerTokenWithServerSafely] Deleted ${count || 0} old tokens successfully`);
+        }
+      } catch (cleanupError) {
+        console.error('⚠️ [registerTokenWithServerSafely] Error during token cleanup:', cleanupError);
+        // Don't fail registration if cleanup fails
+      }
+
+      // 3. Register new token in push_tokens table (new approach for multi-device support)
+      // Use supabaseAdmin to bypass RLS - this is a system operation
       const deviceInfo = {
         user_id: user.id,
         token: token,
@@ -293,7 +322,7 @@ class PushNotificationService {
 
       console.log('🔍 [registerTokenWithServerSafely] Registering in push_tokens table:', deviceInfo);
 
-      const { error: pushTokensError, data: pushTokensResult } = await supabase
+      const { error: pushTokensError, data: pushTokensResult } = await supabaseAdmin
         .from('push_tokens')
         .upsert(deviceInfo, { 
           onConflict: 'token',
@@ -302,13 +331,7 @@ class PushNotificationService {
         .select('id, token, device_type, is_active');
 
       if (pushTokensError) {
-        // Check if this is an RLS error (code 42501)
-        if (pushTokensError.code === '42501') {
-          console.log('⚠️ [registerTokenWithServerSafely] RLS policy prevents push_tokens table insert - this is expected');
-          console.log('✅ [registerTokenWithServerSafely] Main push token in users table was updated successfully, notifications will work');
-        } else {
-          console.error('❌ [registerTokenWithServerSafely] Failed to register push token in push_tokens table:', pushTokensError);
-        }
+        console.error('❌ [registerTokenWithServerSafely] Failed to register push token in push_tokens table:', pushTokensError);
       } else {
         console.log('✅ [registerTokenWithServerSafely] Push token registered in push_tokens table successfully');
         console.log('📱 [registerTokenWithServerSafely] Push tokens result:', pushTokensResult);

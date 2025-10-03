@@ -750,7 +750,19 @@ class NotificationService {
 
         // Validate token format
         if (!user.push_token.startsWith('ExponentPushToken[')) {
-          console.log(`⚠️ [sendPushNotificationToUser] User has old FCM token format, skipping`);
+          console.log(`⚠️ [sendPushNotificationToUser] User has old FCM token format, auto-cleaning...`);
+          
+          // AUTO-CLEANUP: Clear invalid token from users table
+          try {
+            await supabase
+              .from('users')
+              .update({ push_token: null })
+              .eq('id', userId);
+            console.log(`✅ [sendPushNotificationToUser] Cleared invalid token for user ${userId}`);
+          } catch (cleanupError) {
+            console.error(`❌ [sendPushNotificationToUser] Failed to clear invalid token:`, cleanupError);
+          }
+          
           return;
         }
 

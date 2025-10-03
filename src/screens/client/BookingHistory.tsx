@@ -477,7 +477,8 @@ function BookingHistory() {
   
   // Only count upcoming/completed from ACTIVE subscription
   const activeSubscriptionBookings = getBookingsForActiveSubscription(safeBookings);
-  const upcomingBookings = activeSubscriptionBookings.filter(booking => booking && isUpcoming(booking));
+  // 🐛 FIX: Show ALL upcoming bookings, not just from active subscription
+  const upcomingBookings = safeBookings.filter(booking => booking && isUpcoming(booking));
   
   // Show ALL past bookings in history (including cancelled) but exclude from count
   const pastBookings = safeBookings.filter(booking => {

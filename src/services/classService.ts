@@ -1057,6 +1057,171 @@ class ClassService {
   invalidateUpcomingClassesCache(): void {
     this.upcomingClassesCache = null;
   }
+
+  // 🚀 OPTIMIZATION 9: Lightweight query for calendar dots only
+  async getClassesForDots(filters?: ClassFilters & { userRole?: string }): Promise<ApiResponse<any[]>> {
+    try {
+      const dotsQueryStart = Date.now();
+      console.log('🎯 [DOTS_PERF] Loading lightweight dot data...');
+      
+      // Minimal query - only data needed for calendar dots
+      let baseQuery = supabase
+        .from('classes')
+        .select(`
+          id,
+          date,
+          capacity,
+          status
+        `);
+      
+      // Apply same filters as getClasses
+      if (filters?.status) {
+        baseQuery = baseQuery.eq('status', filters.status);
+      } else {
+        baseQuery = baseQuery.in('status', ['active', 'full', 'completed']);
+      }
+
+      // Privacy filtering for clients
+      if (filters?.userRole === 'client') {
+        baseQuery = baseQuery.eq('visibility', 'public');
+        
+        if (!filters?.date_from) {
+          const today = new Date();
+          const oneMonthAgo = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate());
+          const oneMonthAgoStr = oneMonthAgo.toISOString().split('T')[0];
+          baseQuery = baseQuery.gte('date', oneMonthAgoStr);
+        }
+      }
+      
+      if (filters?.date_from) {
+        baseQuery = baseQuery.gte('date', filters.date_from);
+      }
+      
+      if (filters?.date_to) {
+        baseQuery = baseQuery.lte('date', filters.date_to);
+      }
+      
+      baseQuery = baseQuery.order('date').order('time');
+      
+      // Run minimal class query + enrollment counts in parallel
+      const [classesResult, enrollmentCountsResult] = await Promise.all([
+        baseQuery,
+        supabase
+          .from('bookings')
+          .select('class_id, status')
+          .eq('status', 'confirmed')
+      ]);
+
+      const { data: classesData, error: classesError } = classesResult;
+      const { data: enrollmentData } = enrollmentCountsResult;
+      
+      if (classesError) {
+        console.error('❌ [DOTS_PERF] Error:', classesError);
+        return { success: false, error: classesError.message };
+      }
+      
+      // Fast enrollment counting
+      const enrollmentMap = new Map<string, number>();
+      if (enrollmentData) {
+        enrollmentData.forEach(booking => {
+          const classId = booking.class_id.toString();
+          enrollmentMap.set(classId, (enrollmentMap.get(classId) || 0) + 1);
+        });
+      }
+      
+      // Minimal data transformation
+      const dotData = (classesData || []).map(cls => ({
+        id: cls.id,
+        date: cls.date,
+        capacity: cls.capacity,
+        enrolled: enrollmentMap.get(cls.id.toString()) || 0,
+        status: cls.status
+      }));
+      
+      console.log(`✅ [DOTS_PERF] Loaded ${dotData.length} classes for dots in ${Date.now() - dotsQueryStart}ms`);
+      return { success: true, data: dotData };
+    } catch (error) {
+      console.error('❌ Error in getClassesForDots:', error);
+      return { success: false, error: 'Failed to get classes for dots' };
+    }
+  }
+
+  // 🚀 OPTIMIZATION 10: Get full details for a specific date only
+  async getClassesForDate(date: string, userRole?: string): Promise<ApiResponse<BackendClass[]>> {
+    try {
+      const dateQueryStart = Date.now();
+      console.log(`🎯 [DATE_PERF] Loading full details for ${date}...`);
+      
+      // Full query for specific date
+      const baseQuery = supabase
+        .from('classes')
+        .select(`
+          id,
+          name,
+          date,
+          time,
+          duration,
+          capacity,
+          category,
+          equipment_type,
+          equipment,
+          room,
+          status,
+          visibility,
+          description,
+          notes,
+          instructor_id,
+          created_at,
+          updated_at,
+          users!classes_instructor_id_fkey (name)
+        `)
+        .eq('date', date)
+        .in('status', ['active', 'full', 'completed']);
+      
+      // Apply privacy filtering for clients
+      if (userRole === 'client') {
+        baseQuery.eq('visibility', 'public');
+      }
+      
+      const [classesResult, enrollmentCountsResult] = await Promise.all([
+        baseQuery,
+        supabase
+          .from('bookings')
+          .select('class_id, status')
+          .eq('status', 'confirmed')
+      ]);
+
+      const { data: classesData, error: classesError } = classesResult;
+      const { data: enrollmentData } = enrollmentCountsResult;
+      
+      if (classesError) {
+        console.error('❌ [DATE_PERF] Error:', classesError);
+        return { success: false, error: classesError.message };
+      }
+      
+      // Fast enrollment counting
+      const enrollmentMap = new Map<string, number>();
+      if (enrollmentData) {
+        enrollmentData.forEach(booking => {
+          const classId = booking.class_id.toString();
+          enrollmentMap.set(classId, (enrollmentMap.get(classId) || 0) + 1);
+        });
+      }
+      
+      // Full data transformation
+      const processedClasses = (classesData || []).map(cls => ({
+        ...cls,
+        enrolled: enrollmentMap.get(cls.id.toString()) || 0,
+        instructor_name: (cls.users as any)?.name || 'TBD'
+      })) as BackendClass[];
+      
+      console.log(`✅ [DATE_PERF] Loaded ${processedClasses.length} classes for ${date} in ${Date.now() - dateQueryStart}ms`);
+      return { success: true, data: processedClasses };
+    } catch (error) {
+      console.error('❌ Error in getClassesForDate:', error);
+      return { success: false, error: 'Failed to get classes for date' };
+    }
+  }
 }
 
 export const classService = new ClassService(); 

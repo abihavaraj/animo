@@ -27,7 +27,28 @@ const formatDate = (dateStr: string) => {
 };
 
 const formatTime = (time: string) => {
-  return moment(time, 'HH:mm:ss').format('h:mm A');
+  // Use Albanian locale and 24-hour format for Albanian language
+  const currentLang = i18n.language || 'en';
+  if (currentLang === 'sq') {
+    try {
+      return new Date(`2000-01-01T${time}`).toLocaleTimeString('sq-AL', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false, // Use 24-hour format for Albanian
+        timeZone: 'Europe/Tirane'
+      });
+    } catch (error) {
+      // Fallback to simple 24-hour format
+      const timeParts = time.split(':');
+      if (timeParts.length >= 2) {
+        return `${timeParts[0]}:${timeParts[1]}`;
+      }
+      return time;
+    }
+  } else {
+    // Use 12-hour format for English
+    return moment(time, 'HH:mm:ss').format('h:mm A');
+  }
 };
 
 export interface BookingData {
@@ -338,7 +359,18 @@ class BookingUtilsService implements UnifiedBookingUtils {
         const successTitle = t ? t('classes.bookingConfirmed') : '✅ Booking Confirmed!';
         const className = classData?.name || 'class';
         const classDate = classData?.date ? formatDate(classData.date) : '';
-        const classTime = classData?.time ? formatTime(classData.time) : '';
+        
+        // Handle different time field names (time vs startTime)
+        const rawTime = classData?.time || (classData as any)?.startTime || '';
+        const classTime = rawTime ? formatTime(rawTime) : '';
+        
+        // Debug logging for Albanian time formatting
+        console.log('🕐 [BOOKING_SUCCESS] Class time data:', {
+          classData,
+          rawTime,
+          formattedTime: classTime,
+          language: i18n.language
+        });
         
         const successMessage = t ? 
           t('booking.bookingConfirmedMessage', { 

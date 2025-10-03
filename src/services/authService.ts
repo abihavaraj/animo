@@ -45,14 +45,17 @@ class AuthService {
 
   // Simple unified login using only Supabase auth - works for both web and mobile
   async login(emailOrPhone: string, password: string): Promise<ApiResponse<{ user: UserProfile; token: string }>> {
+    const loginStartTime = Date.now();
     devLog(`🔐 [authService] Starting unified Supabase login for: ${emailOrPhone}`);
     
     try {
+      const authStartTime = Date.now();
       // Use Supabase auth directly for all platforms
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: emailOrPhone.includes('@') ? emailOrPhone : `${emailOrPhone}@temp.local`, // Handle phone login
         password: password
       });
+      devLog(`🔐 [authService] Auth took ${Date.now() - authStartTime}ms`);
 
       if (authError) {
         devLog(`❌ [authService] Supabase auth failed: ${authError.message}`);
@@ -85,9 +88,13 @@ class AuthService {
       this.setToken(authData.session.access_token);
 
       // Get user profile from our users table
+      const profileStartTime = Date.now();
       const profileResponse = await this.getProfile();
+      devLog(`🔐 [authService] Profile fetch took ${Date.now() - profileStartTime}ms`);
+      
       if (profileResponse.success && profileResponse.data) {
-        devLog('✅ [authService] Login successful with profile loaded');
+        const totalTime = Date.now() - loginStartTime;
+        devLog(`✅ [authService] Login successful with profile loaded (Total: ${totalTime}ms)`);
         return {
           success: true,
           data: {
@@ -156,6 +163,7 @@ class AuthService {
   async getProfile(): Promise<ApiResponse<UserProfile>> {
     try {
       devLog('👤 [authService] Getting user profile');
+      const startTime = Date.now();
       
       // Get current session from Supabase
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
@@ -166,21 +174,18 @@ class AuthService {
 
       const userId = session.user.id;
 
-      // Get user from our users table
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      if (userError || !userData) {
-        devLog('❌ [authService] User not found in users table');
-        return { success: false, error: 'User profile not found' };
-      }
-
-      // Get current subscription if user is a client
-      if (userData.role === 'client') {
-        const { data: subscription } = await supabase
+      // 🚀 OPTIMIZATION: Fetch user and subscription in parallel for clients
+      // For clients, we'll fetch both user data and subscription at the same time
+      const [userResult, subscriptionResult] = await Promise.allSettled([
+        // Query 1: Get user from our users table
+        supabase
+          .from('users')
+          .select('*')
+          .eq('id', userId)
+          .single(),
+        
+        // Query 2: Get current subscription (will be ignored if not a client)
+        supabase
           .from('user_subscriptions')
           .select(`
             *,
@@ -191,17 +196,30 @@ class AuthService {
           .gte('end_date', new Date().toISOString())
           .order('created_at', { ascending: false })
           .limit(1)
-          .single();
+          .maybeSingle() // Use maybeSingle to avoid error when no subscription exists
+      ]);
 
-        if (subscription) {
-          userData.currentSubscription = {
-            ...subscription,
-            plan_name: subscription.subscription_plans?.name,
-            equipment_access: subscription.subscription_plans?.equipment_access,
-            monthly_price: subscription.subscription_plans?.monthly_price
-          };
-        }
+      // Process user data
+      if (userResult.status === 'rejected' || !userResult.value.data) {
+        devLog('❌ [authService] User not found in users table');
+        return { success: false, error: 'User profile not found' };
       }
+
+      const userData = userResult.value.data;
+
+      // Process subscription data only for clients
+      if (userData.role === 'client' && subscriptionResult.status === 'fulfilled' && subscriptionResult.value.data) {
+        const subscription = subscriptionResult.value.data;
+        userData.currentSubscription = {
+          ...subscription,
+          plan_name: subscription.subscription_plans?.name,
+          equipment_access: subscription.subscription_plans?.equipment_access,
+          monthly_price: subscription.subscription_plans?.monthly_price
+        };
+      }
+
+      const endTime = Date.now();
+      devLog(`✅ [authService] Profile loaded in ${endTime - startTime}ms`);
 
       return { success: true, data: userData as UserProfile };
     } catch (error) {
@@ -228,16 +246,38 @@ class AuthService {
       // Clean up push notification tokens for this user
       if (currentUser?.id) {
         try {
-          // Clear user's push token (original GitHub approach)
+          // 1. Clear user's push token in users table (legacy single-device approach)
           const { error: tokenCleanupError } = await supabase
             .from('users')
             .update({ push_token: null })
             .eq('id', currentUser.id);
           
           if (tokenCleanupError) {
-            devError('⚠️ [authService] Push token cleanup failed:', tokenCleanupError);
+            devError('⚠️ [authService] Push token cleanup in users table failed:', tokenCleanupError);
           } else {
-            devLog('🔔 [authService] Push token cleared for user:', currentUser.id);
+            devLog('🔔 [authService] Push token cleared in users table for user:', currentUser.id);
+          }
+
+          // 2. 🔒 SECURITY: Deactivate ALL tokens in push_tokens table (multi-device approach)
+          // This prevents the logged-out device from receiving notifications
+          const { error: pushTokensCleanupError } = await supabaseAdmin
+            .from('push_tokens')
+            .update({ is_active: false })
+            .eq('user_id', currentUser.id);
+          
+          if (pushTokensCleanupError) {
+            devError('⚠️ [authService] Push tokens deactivation in push_tokens table failed:', pushTokensCleanupError);
+          } else {
+            devLog('🔔 [authService] All push tokens deactivated in push_tokens table for user:', currentUser.id);
+          }
+
+          // 3. 🧹 Clear local push notification service state
+          try {
+            const { pushNotificationService } = await import('./pushNotificationService');
+            pushNotificationService.clearToken();
+            devLog('🔔 [authService] Push notification service state cleared');
+          } catch (pushServiceError) {
+            devError('⚠️ [authService] Failed to clear push service state:', pushServiceError);
           }
         } catch (tokenError) {
           devError('⚠️ [authService] Push token cleanup error:', tokenError);

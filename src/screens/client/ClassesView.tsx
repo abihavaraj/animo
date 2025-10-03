@@ -51,7 +51,7 @@ LocaleConfig.locales['sq'] = {
 import { useTheme } from '../../contexts/ThemeContext';
 import { useThemeColor } from '../../hooks/useDynamicThemeColor';
 import { bookingService } from '../../services/bookingService';
-import { BackendClass } from '../../services/classService';
+import { BackendClass, classService } from '../../services/classService';
 import { AppDispatch, RootState } from '../../store';
 import { fetchBookings } from '../../store/bookingSlice';
 import { fetchClasses } from '../../store/classSlice';
@@ -200,15 +200,37 @@ function DayClassesModal({
 
     const formatTime = (timeString: string) => {
     if (!timeString) return '';
-    const timeParts = timeString.split(':');
-    if (timeParts.length >= 2) {
-      const hours = parseInt(timeParts[0]);
-      const minutes = timeParts[1];
-      const ampm = hours >= 12 ? 'PM' : 'AM';
-      const displayHours = hours > 12 ? hours - 12 : (hours === 0 ? 12 : hours);
-      return `${displayHours}:${minutes} ${ampm}`;
+    
+    // Use Albanian locale and 24-hour format for Albanian language
+    const currentLang = i18n.language || 'en';
+    if (currentLang === 'sq') {
+      try {
+        return new Date(`2000-01-01T${timeString}`).toLocaleTimeString('sq-AL', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false, // Use 24-hour format for Albanian
+          timeZone: 'Europe/Tirane'
+        });
+      } catch (error) {
+        // Fallback to simple 24-hour format
+        const timeParts = timeString.split(':');
+        if (timeParts.length >= 2) {
+          return `${timeParts[0]}:${timeParts[1]}`;
+        }
+        return timeString;
+      }
+    } else {
+      // Use 12-hour format for English
+      const timeParts = timeString.split(':');
+      if (timeParts.length >= 2) {
+        const hours = parseInt(timeParts[0]);
+        const minutes = timeParts[1];
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        const displayHours = hours > 12 ? hours - 12 : (hours === 0 ? 12 : hours);
+        return `${displayHours}:${minutes} ${ampm}`;
+      }
+      return timeString;
     }
-    return timeString;
   };
 
   const formatDate = (dateString: string) => {
@@ -597,6 +619,10 @@ function ClassesView() {
   const [userWaitlist, setUserWaitlist] = useState<any[]>([]);
   const [cancellingBookings, setCancellingBookings] = useState<Set<string>>(new Set());
   const [leavingWaitlist, setLeavingWaitlist] = useState<Set<string>>(new Set());
+  
+  // 🚀 NEW: Two-tier loading states
+  const [dotData, setDotData] = useState<any[]>([]); // Lightweight data for calendar dots
+  const [listViewLoaded, setListViewLoaded] = useState(false); // Track if list data is loaded
 
   // Helper function to get today's date string
   const getTodayString = () => {
@@ -758,12 +784,17 @@ function ClassesView() {
     }, [])
   );
 
+  // 🚀 UPDATED: Regenerate dots when dotData changes (not full classes)
   useEffect(() => {
-    if (classes && classes.length > 0) {
-      const dates = classes.map(c => c.date).sort();
-    }
     generateMarkedDates();
-  }, [classes, bookings, userWaitlist]);
+  }, [dotData, bookings, userWaitlist]);
+
+  // 🚀 NEW: Lazy load full data when switching to list view
+  useEffect(() => {
+    if (viewMode === 'list') {
+      loadListViewData();
+    }
+  }, [viewMode]);
 
   // Add effect to refresh when app comes back to foreground
   useEffect(() => {
@@ -820,29 +851,236 @@ function ClassesView() {
     }
   }, [classes, bookings, userWaitlist, dayClassesVisible, selectedDate]);
 
+  // 🚀 NEW: Load lightweight dot data for calendar (past + future classes)
+  const loadDotData = async () => {
+    try {
+      const startTime = Date.now();
+      console.log('🎯 [CALENDAR_PERF] Starting lightweight dot data load...');
+      
+      // Load dots for past 2 months + next 3 months (very lightweight)
+      const today = new Date();
+      const twoMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 2, today.getDate());
+      const threeMonthsAhead = new Date(today.getFullYear(), today.getMonth() + 3, today.getDate());
+      const dateFrom = twoMonthsAgo.toISOString().split('T')[0];
+      const dateTo = threeMonthsAhead.toISOString().split('T')[0];
+      
+      console.log(`📅 [CALENDAR_PERF] Loading dots from ${dateFrom} to ${dateTo}`);
+      
+      const dotsResult = await classService.getClassesForDots({
+        date_from: dateFrom,
+        date_to: dateTo,
+        userRole: 'client'
+      });
+      
+      if (dotsResult.success) {
+        const freshData = dotsResult.data || [];
+        setDotData(freshData);
+        console.log(`✅ [CALENDAR_PERF] Dot data loaded in ${Date.now() - startTime}ms (${freshData.length} classes)`);
+        return freshData; // Return fresh data for immediate use
+      }
+      return [];
+    } catch (error) {
+      console.error('Failed to load dot data:', error);
+      return [];
+    }
+  };
+
+  // 🚀 NEW: Load full details for a specific date (on-demand, always fresh)
+  const loadDateDetails = async (date: string) => {
+    try {
+      const startTime = Date.now();
+      console.log(`🎯 [CALENDAR_PERF] Loading fresh details for ${date}...`);
+      
+      const detailsResult = await classService.getClassesForDate(date, 'client');
+      
+      if (detailsResult.success && detailsResult.data) {
+        console.log(`✅ [CALENDAR_PERF] Fresh details loaded for ${date} in ${Date.now() - startTime}ms (${detailsResult.data.length} classes)`);
+        return detailsResult.data;
+      }
+      return [];
+    } catch (error) {
+      console.error(`Failed to load details for ${date}:`, error);
+      return [];
+    }
+  };
+
+  // 🚀 NEW: Load full data for list view (lazy)
+  const loadListViewData = async () => {
+    if (listViewLoaded) return; // Already loaded
+    
+    try {
+      const startTime = Date.now();
+      console.log('🎯 [LIST_PERF] Loading full data for list view...');
+      
+      // Load full class data only when switching to list view
+      await dispatch(fetchClasses({ 
+        userRole: 'client'
+      }));
+      
+      setListViewLoaded(true);
+      console.log(`✅ [LIST_PERF] List data loaded in ${Date.now() - startTime}ms`);
+    } catch (error) {
+      console.error('Failed to load list view data:', error);
+    }
+  };
+
+  // 🚀 UPDATED: Main data loading - lightweight by default
   const loadData = async () => {
     try {
-      // Load all classes for clients (service will apply 2-month rule automatically)
+      const startTime = Date.now();
+      console.log('🚀 [CALENDAR_PERF] Starting initial data load...');
+      
+      // Load in parallel: lightweight dots + bookings + subscriptions + waitlist
       await Promise.all([
-        dispatch(fetchClasses({ 
-          userRole: 'client'
-          // No date_from, date_to, or limit - truly unlimited classes
-        })),
+        loadDotData(), // Lightweight calendar dots
         dispatch(fetchBookings({})),
-        dispatch(fetchCurrentSubscription())
+        dispatch(fetchCurrentSubscription()),
+        user?.id ? bookingService.getUserWaitlist(user.id).then(res => {
+          if (res.success) setUserWaitlist(res.data || []);
+        }) : Promise.resolve()
       ]);
       
-      // Load user's waitlist
-      if (user?.id) {
-        const waitlistResponse = await bookingService.getUserWaitlist(user.id);
-        if (waitlistResponse.success) {
-          setUserWaitlist(waitlistResponse.data || []);
-        }
-      }
+      console.log(`✅ [CALENDAR_PERF] Initial load completed in ${Date.now() - startTime}ms`);
     } catch (error) {
       console.error('Failed to load data:', error);
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  // 🚀 NEW: Helper to refresh data after user actions
+  const refreshAfterAction = async () => {
+    console.log('🔄 [CALENDAR_PERF] Refreshing after user action...');
+    
+    // First, reload all data in parallel and wait for completion
+    const [freshDotData, bookingsResult, subscriptionResult, waitlistResult] = await Promise.all([
+      loadDotData(), // Now returns the fresh data
+      dispatch(fetchBookings({})),
+      dispatch(fetchCurrentSubscription()),
+      user?.id ? bookingService.getUserWaitlist(user.id) : Promise.resolve({ success: false, data: [] })
+    ]);
+    
+    // Update waitlist state
+    if (waitlistResult && waitlistResult.success) {
+      setUserWaitlist(waitlistResult.data || []);
+    }
+    
+    console.log(`✅ [CALENDAR_PERF] Base data refreshed, got ${freshDotData.length} dot classes`);
+    
+    // Small delay to ensure Redux state is updated
+    await new Promise(resolve => setTimeout(resolve, 150));
+    
+    // Force regenerate calendar dots with the FRESH data we just loaded
+    console.log(`🎨 [DOTS_REFRESH] Forcing calendar dots refresh with fresh data...`);
+    
+    // Get fresh bookings from Redux
+    const freshBookingsForDots = bookings.length > 0 ? bookings : (Array.isArray(bookingsResult?.payload) ? bookingsResult.payload : []);
+    console.log(`🎨 [DOTS_REFRESH] Using ${freshBookingsForDots.length} bookings for dot generation`);
+    
+    // Regenerate dots immediately with fresh data (don't wait for state)
+    const marked: any = {};
+    const dotsArray = freshDotData;
+    const bookingsArray = freshBookingsForDots;
+    
+    // Get today for comparison
+    const today = new Date();
+    const todayString = today.getFullYear() + '-' + 
+      String(today.getMonth() + 1).padStart(2, '0') + '-' + 
+      String(today.getDate()).padStart(2, '0');
+    
+    dotsArray.forEach((classItem: any) => {
+      if (!classItem.date) return;
+      
+      const date = classItem.date;
+      const enrolled = classItem.enrolled || 0;
+      const capacity = classItem.capacity || 0;
+      const isFull = enrolled >= capacity;
+      
+      // Check if user has booked this class
+      const userBooking = bookingsArray.find((booking: any) => 
+        booking.class_id === classItem.id && 
+        ['confirmed', 'waitlist'].includes(booking.status)
+      );
+      
+      if (!marked[date]) {
+        marked[date] = { dots: [] };
+      }
+      
+      // Check if class is in the past (same logic as generateMarkedDates)
+      let dotColor;
+      const isPastDate = date < todayString;
+      
+      // Check if it's today and if the class time has passed
+      const isToday = date === todayString;
+      let isPastClass = false;
+      
+      if (isToday) {
+        // For today's classes, check if the class time has passed
+        try {
+          const classDateTime = new Date(`${classItem.date}T${classItem.time}`);
+          isPastClass = classDateTime < today;
+        } catch (error) {
+          console.warn('Error parsing class time:', error);
+        }
+      }
+      
+      if (isPastDate || isPastClass) {
+        // Gray dots for past dates or past classes on today
+        dotColor = textMutedColor;
+      } else {
+        // Normal colors for future dates - prioritize user booking status
+        if (userBooking) {
+          // Use distinctive colors for user's bookings that stand out clearly
+          if (userBooking.status === 'confirmed') {
+            dotColor = '#00C851'; // Bright green for confirmed bookings - highly visible
+          } else {
+            dotColor = '#FF8800'; // Bright orange for waitlist - clearly different from available
+          }
+        } else if (isFull) {
+          dotColor = errorColor; // Red for full classes
+        } else {
+          dotColor = availableColor; // Blue for available classes
+        }
+      }
+      
+      // Add unique key to avoid React errors when multiple classes on same date
+      marked[date].dots.push({ key: `${classItem.id}`, color: dotColor });
+    });
+    
+    setMarkedDates(marked);
+    console.log(`✅ [DOTS_REFRESH] Calendar dots refreshed with ${Object.keys(marked).length} dates`);
+    
+    // If currently viewing a specific date, reload its details immediately
+    if (selectedDate && dayClassesVisible) {
+      console.log(`🔄 [MODAL_REFRESH] Refreshing modal for ${selectedDate}...`);
+      
+      // Load fresh details for the date
+      const dateDetails = await loadDateDetails(selectedDate);
+      console.log(`📋 [MODAL_REFRESH] Date details loaded: ${dateDetails.length} classes`);
+      
+      // Get bookings from the result we just fetched
+      const bookingsArray2 = Array.isArray(bookingsResult?.payload) ? bookingsResult.payload : [];
+      console.log(`📋 [MODAL_REFRESH] Using ${bookingsArray2.length} bookings from store`);
+      
+      // Get waitlist from the result we just fetched
+      const freshWaitlist = waitlistResult?.data || [];
+      console.log(`📋 [MODAL_REFRESH] Using ${freshWaitlist.length} waitlist entries`);
+      
+      const processedClasses = dateDetails.map((classItem: BackendClass) => {
+        const userBooking = bookingsArray2.find((booking: any) => 
+          booking.class_id === classItem.id && 
+          booking.status === 'confirmed'
+        );
+        const waitlistEntry = freshWaitlist.find(w => w.class_id === classItem.id);
+        return mapBackendClassToClassItem(classItem, userBooking, waitlistEntry);
+      }).sort((a, b) => {
+        if (!a.startTime || !b.startTime) return 0;
+        return a.startTime.localeCompare(b.startTime);
+      });
+      
+      console.log(`📋 [MODAL_REFRESH] Processed ${processedClasses.length} classes for modal`);
+      setSelectedDateClasses(processedClasses);
+      console.log(`✅ [MODAL_REFRESH] Modal refreshed with ${processedClasses.length} classes`);
     }
   };
 
@@ -851,9 +1089,10 @@ function ClassesView() {
     loadData();
   };
 
+  // 🚀 UPDATED: Generate marked dates from lightweight dotData
   const generateMarkedDates = () => {
     const marked: any = {};
-    const classesArray = Array.isArray(classes) ? classes : [];
+    const dotsArray = Array.isArray(dotData) ? dotData : [];
     const bookingsArray = Array.isArray(bookings) ? bookings : [];
     
     // Get today for comparison
@@ -864,7 +1103,7 @@ function ClassesView() {
     
 
     
-    classesArray.forEach((classItem: BackendClass) => {
+    dotsArray.forEach((classItem: any) => {
       if (!classItem.date) return;
       
       const date = classItem.date;
@@ -923,7 +1162,8 @@ function ClassesView() {
         }
       }
       
-      marked[date].dots.push({ color: dotColor });
+      // Add unique key to avoid React errors when multiple classes on same date
+      marked[date].dots.push({ key: `${classItem.id}`, color: dotColor });
       
 
     });
@@ -966,26 +1206,37 @@ function ClassesView() {
     if (!classes || classes.length === 0) return [];
     
     const allClasses: ClassItem[] = [];
+    const now = new Date();
     
     classes.forEach(cls => {
       const userBooking = bookings.find(booking => booking.class_id === cls.id && booking.status === 'confirmed');
       const waitlistEntry = userWaitlist.find(w => w.class_id === cls.id);
       const classItem = mapBackendClassToClassItem(cls, userBooking, waitlistEntry);
       
-      const today = new Date();
-      const todayString = today.getFullYear() + '-' + 
-        String(today.getMonth() + 1).padStart(2, '0') + '-' + 
-        String(today.getDate()).padStart(2, '0');
+      const todayString = now.getFullYear() + '-' + 
+        String(now.getMonth() + 1).padStart(2, '0') + '-' + 
+        String(now.getDate()).padStart(2, '0');
       
-      // Only include future classes and today's classes that haven't passed
+      // Only include future classes and today's classes that haven't finished (including duration)
       if (classItem.date > todayString) {
         allClasses.push(classItem);
       } else if (classItem.date === todayString) {
-        const [hours, minutes] = classItem.startTime.split(':').map(Number);
-        const classDateTime = new Date();
-        classDateTime.setHours(hours, minutes, 0, 0);
-        
-        if (new Date() <= classDateTime) {
+        try {
+          const [hours, minutes] = classItem.startTime.split(':').map(Number);
+          const classDateTime = new Date();
+          classDateTime.setHours(hours, minutes, 0, 0);
+          
+          // Calculate class end time by adding duration
+          const classDuration = classItem.duration || 60; // Default to 60 minutes if not specified
+          const classEndTime = new Date(classDateTime.getTime() + classDuration * 60000);
+          
+          // Only show if the class hasn't ended yet
+          if (now < classEndTime) {
+            allClasses.push(classItem);
+          }
+        } catch (error) {
+          console.warn('Error parsing class time:', error);
+          // If we can't parse the time, keep the class to be safe
           allClasses.push(classItem);
         }
       }
@@ -1040,11 +1291,32 @@ function ClassesView() {
     }
   };
 
-  const handleDayPress = (day: any) => {
+  // 🚀 UPDATED: Load full details on demand when user taps a date
+  const handleDayPress = async (day: any) => {
     const date = day.dateString;
     setSelectedDate(date);
-    setSelectedDateClasses(getClassesForDate(date));
     setDayClassesVisible(true);
+    
+    // Load full details for this date on demand
+    const dateDetails = await loadDateDetails(date);
+    
+    // Process the details into ClassItem format
+    const bookingsArray = Array.isArray(bookings) ? bookings : [];
+    const processedClasses = dateDetails.map((classItem: BackendClass) => {
+      const userBooking = bookingsArray.find((booking: any) => 
+        booking.class_id === classItem.id && 
+        booking.status === 'confirmed'
+      );
+      
+      const waitlistEntry = userWaitlist.find(w => w.class_id === classItem.id);
+      
+      return mapBackendClassToClassItem(classItem, userBooking, waitlistEntry);
+    }).sort((a, b) => {
+      if (!a.startTime || !b.startTime) return 0;
+      return a.startTime.localeCompare(b.startTime);
+    });
+    
+    setSelectedDateClasses(processedClasses);
   };
 
   const handleBookClass = async (classId: string) => {
@@ -1078,7 +1350,28 @@ function ClassesView() {
     };
 
     const formatTime = (time: string) => {
-      return moment(time, 'HH:mm:ss').format('h:mm A');
+      // Use Albanian locale and 24-hour format for Albanian language
+      const currentLang = i18n.language || 'en';
+      if (currentLang === 'sq') {
+        try {
+          return new Date(`2000-01-01T${time}`).toLocaleTimeString('sq-AL', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false, // Use 24-hour format for Albanian
+            timeZone: 'Europe/Tirane'
+          });
+        } catch (error) {
+          // Fallback to simple 24-hour format
+          const timeParts = time.split(':');
+          if (timeParts.length >= 2) {
+            return `${timeParts[0]}:${timeParts[1]}`;
+          }
+          return time;
+        }
+      } else {
+        // Use 12-hour format for English
+        return moment(time, 'HH:mm:ss').format('h:mm A');
+      }
     };
 
     // Show same confirmation dialog as Dashboard
@@ -1098,7 +1391,7 @@ function ClassesView() {
             try {
               const success = await unifiedBookingUtils.bookClass(classId, currentSubscription, class_, t);
               if (success) {
-                await loadData();
+                await refreshAfterAction();
                 // Modal will auto-refresh via useEffect when Redux state updates
               }
             } catch (error: any) {
@@ -1149,7 +1442,7 @@ function ClassesView() {
         },
         () => {
           // On success callback
-          loadData();
+          refreshAfterAction();
           // Modal will auto-refresh via useEffect when Redux state updates
         },
         t
@@ -1189,7 +1482,28 @@ function ClassesView() {
     };
 
     const formatTime = (time: string) => {
-      return moment(time, 'HH:mm:ss').format('h:mm A');
+      // Use Albanian locale and 24-hour format for Albanian language
+      const currentLang = i18n.language || 'en';
+      if (currentLang === 'sq') {
+        try {
+          return new Date(`2000-01-01T${time}`).toLocaleTimeString('sq-AL', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false, // Use 24-hour format for Albanian
+            timeZone: 'Europe/Tirane'
+          });
+        } catch (error) {
+          // Fallback to simple 24-hour format
+          const timeParts = time.split(':');
+          if (timeParts.length >= 2) {
+            return `${timeParts[0]}:${timeParts[1]}`;
+          }
+          return time;
+        }
+      } else {
+        // Use 12-hour format for English
+        return moment(time, 'HH:mm:ss').format('h:mm A');
+      }
     };
 
     // Show SAME confirmation dialog as Dashboard
@@ -1208,7 +1522,7 @@ function ClassesView() {
             try {
               const success = await unifiedBookingUtils.joinWaitlist(classId, currentSubscription, class_, t);
               if (success) {
-                await loadData();
+                await refreshAfterAction();
                 // Modal will auto-refresh via useEffect when Redux state updates
               }
             } catch (error: any) {
@@ -1238,7 +1552,7 @@ function ClassesView() {
         className,
         () => {
           // On success callback
-          loadData();
+          refreshAfterAction();
           // Modal will auto-refresh via useEffect when Redux state updates
         },
         t
@@ -1255,15 +1569,37 @@ function ClassesView() {
 
   const formatTime = (timeString: string) => {
     if (!timeString) return '';
-    const timeParts = timeString.split(':');
-    if (timeParts.length >= 2) {
-      const hours = parseInt(timeParts[0]);
-      const minutes = timeParts[1];
-      const ampm = hours >= 12 ? 'PM' : 'AM';
-      const displayHours = hours > 12 ? hours - 12 : (hours === 0 ? 12 : hours);
-      return `${displayHours}:${minutes} ${ampm}`;
+    
+    // Use Albanian locale and 24-hour format for Albanian language
+    const currentLang = i18n.language || 'en';
+    if (currentLang === 'sq') {
+      try {
+        return new Date(`2000-01-01T${timeString}`).toLocaleTimeString('sq-AL', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false, // Use 24-hour format for Albanian
+          timeZone: 'Europe/Tirane'
+        });
+      } catch (error) {
+        // Fallback to simple 24-hour format
+        const timeParts = timeString.split(':');
+        if (timeParts.length >= 2) {
+          return `${timeParts[0]}:${timeParts[1]}`;
+        }
+        return timeString;
+      }
+    } else {
+      // Use 12-hour format for English
+      const timeParts = timeString.split(':');
+      if (timeParts.length >= 2) {
+        const hours = parseInt(timeParts[0]);
+        const minutes = timeParts[1];
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        const displayHours = hours > 12 ? hours - 12 : (hours === 0 ? 12 : hours);
+        return `${displayHours}:${minutes} ${ampm}`;
+      }
+      return timeString;
     }
-    return timeString;
   };
 
   // getLevelColor function removed - level field no longer exists

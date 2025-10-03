@@ -1,20 +1,21 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import i18n from '../../i18n';
 import { Alert, Dimensions, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import {
-  ActivityIndicator,
-  Badge,
-  Button,
-  Card,
-  Chip,
-  FAB,
-  Modal,
-  Portal,
-  Searchbar,
-  SegmentedButtons,
-  Surface,
+    ActivityIndicator,
+    Badge,
+    Button,
+    Card,
+    Chip,
+    FAB,
+    Modal,
+    Portal,
+    Searchbar,
+    SegmentedButtons,
+    Surface,
 } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 import { Body, Caption, H1, H2, H3 } from '../../../components/ui/Typography';

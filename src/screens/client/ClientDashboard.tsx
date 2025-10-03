@@ -326,11 +326,8 @@ function ClientDashboard() {
         // 🚀 OPTIMIZATION: Status update runs in parallel, not blocking
         classService.updateCompletedClassStatus(),
         
-        // 🚀 OPTIMIZATION: Faster bookings query with date filtering
-        bookingService.getBookings({
-          from: dateHelpers.todayStr,
-          to: dateHelpers.futureDateStr
-        }),
+        // 🚀 OPTIMIZATION: Faster bookings query (no date filter - we filter by class date client-side)
+        bookingService.getBookings({}),
         
         // Load user waitlist (already optimized)
         bookingService.getUserWaitlist(user.id),
@@ -374,12 +371,31 @@ function ClientDashboard() {
             const classData = booking.classes;
             const classDate = classData?.date || booking.class_date;
             const classTime = classData?.time || booking.class_time;
+            const classDuration = classData?.duration || 60; // Default to 60 minutes if not specified
             
             if (!classDate || !classTime) return null;
             
-            // Fast date comparison using pre-calculated time
-            const classDateTime = new Date(`${classDate} ${classTime}`);
-            if (classDateTime.getTime() <= nowTime) return null;
+            // Check if the class has completely finished (date + time + duration)
+            const todayDateStr = dateHelpers.todayStr;
+            
+            // Filter out classes from past dates
+            if (classDate < todayDateStr) return null;
+            
+            // For today's classes, check if they have ended (including duration)
+            if (classDate === todayDateStr) {
+              try {
+                const classDateTime = new Date(`${classDate}T${classTime}`);
+                const classEndTime = new Date(classDateTime.getTime() + classDuration * 60000); // Add duration in milliseconds
+                
+                // If the class has ended, don't show it in My Bookings
+                if (classEndTime < dateHelpers.now) {
+                  return null;
+                }
+              } catch (error) {
+                console.warn('Error parsing class time:', error);
+                // If we can't parse the time, keep the booking to be safe
+              }
+            }
             
             // Add to booked IDs in same pass
             const classId = booking.class_id || booking.classId;

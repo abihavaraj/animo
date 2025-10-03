@@ -2,7 +2,7 @@
   "expo": {
     "name": "ANIMO",
     "slug": "PilatesStudioApp",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "orientation": "portrait",
     "scheme": "animopilatesstudio",
     "userInterfaceStyle": "automatic",
