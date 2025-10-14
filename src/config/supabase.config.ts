@@ -2,12 +2,18 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
 
-// Supabase configuration - use environment variables with fallback
-export const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://byhqueksdwlbiwodpbbd.supabase.co';
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5aHF1ZWtzZHdsYml3b2RwYmJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI4NjA0NzgsImV4cCI6MjA2ODQzNjQ3OH0.UpbbA73l8to48B42AWiGaL8sXkOmJIqeisbaDg-u-Io';
+// Supabase configuration - use environment variables only
+export const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
 // Service role key for admin operations (password updates, user management)
-const supabaseServiceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5aHF1ZWtzZHdsYml3b2RwYmJkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Mjg2MDQ3OCwiZXhwIjoyMDY4NDM2NDc4fQ.AaWYRUo7jZIb48uZtCl__49sNsU_jPFCA0Auyg2ffeQ';
+// IMPORTANT: Only used server-side, never exposed in client builds
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+// Validate required environment variables
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error('Missing required Supabase environment variables. Please check your .env file.');
+}
 
 // Create Supabase client with enhanced session persistence
 const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
@@ -42,6 +48,9 @@ const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
       }
     } : AsyncStorage,
     
+    // CRITICAL: Unique storage key to prevent conflicts with bar Supabase client
+    storageKey: 'animo-pilates-studio-auth',
+    
     // Disable debug logging for GoTrueClient
     debug: false,
     
@@ -58,7 +67,9 @@ const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
   global: {
     headers: {
       'X-Client-Info': 'animo-pilates-studio',
-      'X-Platform': Platform.OS
+      'X-Platform': Platform.OS,
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
     }
   },
   
@@ -98,17 +109,19 @@ if (__DEV__) {
 }
 
 // Create admin client for admin operations like password updates
-const supabaseAdminClient = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false
-  }
-});
+// Only create if service key is available (not needed on client-side)
+const supabaseAdminClient = supabaseServiceKey 
+  ? createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        storageKey: 'animo-pilates-studio-admin-auth',
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    })
+  : null;
 
 // Log configuration details
-if (__DEV__) {
-  // Supabase client initialized
-}
+console.log('🏢 Studio Supabase initialized with storageKey:', 'animo-pilates-studio-auth');
 
 export { supabaseClient as supabase, supabaseAdminClient as supabaseAdmin };
 

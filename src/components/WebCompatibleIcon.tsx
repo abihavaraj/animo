@@ -339,7 +339,16 @@ const WebCompatibleIcon: React.FC<WebCompatibleIconProps> = ({
         
         // Class management specific icons
         'account-plus': '👤➕',
-        'account-minus': '👤➖'
+        'account-minus': '👤➖',
+        'queue': '📋',
+        'format-list-numbered': '📋',
+        'room': '📍',
+        'place': '📍',
+        
+        // Reception portal sidebar icons
+        'local-cafe': '☕',
+        'campaign': '📢',
+        'color-lens': '🎨'
       };
       
       return iconMap[iconName] || iconName.charAt(0).toUpperCase();
@@ -360,57 +369,31 @@ const WebCompatibleIcon: React.FC<WebCompatibleIconProps> = ({
     );
   }
 
-  // For React Native, try to use @expo/vector-icons if available
+  // For React Native (mobile), use MaterialIcons directly
   try {
-    // Try to import MaterialIcons from @expo/vector-icons
-    const MaterialIcons = require('@expo/vector-icons/MaterialIcons').default;
+    const { MaterialIcons } = require('@expo/vector-icons');
     return (
-      <MaterialIcons
-        name={name}
-        size={size}
-        color={color}
+      <MaterialIcons 
+        name={name} 
+        size={size} 
+        color={color} 
         style={style}
       />
     );
   } catch (error) {
-    console.warn('Failed to load MaterialIcons, using fallback:', error);
-    // Try alternative import method
-    try {
-      const ExpoIcons = require('@expo/vector-icons');
-      const MaterialIcons = ExpoIcons.MaterialIcons;
-      return (
-        <MaterialIcons
-          name={name}
-          size={size}
-          color={color}
-          style={style}
-        />
-      );
-    } catch (secondError) {
-      console.warn('Alternative MaterialIcons import also failed:', secondError);
-      // Fallback for React Native if @expo/vector-icons is not available
-      const { Text } = require('react-native');
-      
-      // Simple text fallback
-      const iconText = name.charAt(0).toUpperCase() + name.charAt(1);
-      
-      return (
-        <Text
-          style={{
-            fontSize: size * 0.6,
-            color: color,
-            textAlign: 'center',
-            width: size,
-            height: size,
-            lineHeight: size,
-            fontWeight: 'bold',
-            ...style,
-          }}
-        >
-          {iconText}
-        </Text>
-      );
-    }
+    // Fallback to text if MaterialIcons fails to load
+    const { Text } = require('react-native');
+    return (
+      <Text style={{ 
+        fontSize: size * 0.8, 
+        color, 
+        fontWeight: 'bold',
+        textAlign: 'center',
+        ...style 
+      }}>
+        {name.charAt(0).toUpperCase()}
+      </Text>
+    );
   }
 };
 

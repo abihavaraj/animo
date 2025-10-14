@@ -103,17 +103,7 @@ By setting `is_active = false` on logout, the token is effectively disabled.
 
 ### push_tokens Table
 ```sql
-CREATE TABLE push_tokens (
-  id UUID PRIMARY KEY,
-  user_id UUID REFERENCES users(id),
-  token TEXT UNIQUE NOT NULL,
-  device_type TEXT,
-  device_id TEXT,
-  device_name TEXT,
-  is_active BOOLEAN DEFAULT true, -- ← This field controls notification delivery
-  last_used_at TIMESTAMP,
-  created_at TIMESTAMP DEFAULT NOW()
-);
+rr
 ```
 
 ## Security Benefits

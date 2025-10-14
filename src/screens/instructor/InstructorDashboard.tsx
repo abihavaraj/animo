@@ -50,26 +50,32 @@ function InstructorDashboard() {
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
 
   useEffect(() => {
-    loadInstructorData();
-    loadNotifications();
-    
-    // Initialize notification services for instructors (IPA build support)
-    const initializeNotifications = async () => {
+    // 🚀 OPTIMIZATION: Load all data in parallel
+    const loadAllData = async () => {
       try {
-        
-        // Initialize both notification services for production builds
-        await Promise.all([
-          notificationService.initialize(),
-          pushNotificationService.initialize()
+        await Promise.allSettled([
+          loadInstructorData(),
+          loadNotifications(),
+          // Initialize notification services for instructors (IPA build support)
+          (async () => {
+            try {
+              // Initialize both notification services for production builds
+              await Promise.all([
+                notificationService.initialize(),
+                pushNotificationService.initialize()
+              ]);
+            } catch (error) {
+              console.error('⚠️ [InstructorDashboard] Failed to initialize notification services:', error);
+              // Don't block dashboard loading if notification initialization fails
+            }
+          })()
         ]);
-        
       } catch (error) {
-        console.error('⚠️ [InstructorDashboard] Failed to initialize notification services:', error);
-        // Don't block dashboard loading if notification initialization fails
+        console.error('⚠️ [InstructorDashboard] Error loading dashboard data:', error);
       }
     };
     
-    initializeNotifications();
+    loadAllData();
   }, []);
 
   // Check for full classes and send notifications automatically
@@ -289,10 +295,13 @@ function InstructorDashboard() {
     }
   };
 
-  const onRefresh = () => {
+  const onRefresh = async () => {
     setRefreshing(true);
-    loadInstructorData();
-    loadNotifications();
+    // 🚀 OPTIMIZATION: Load all data in parallel on refresh
+    await Promise.allSettled([
+      loadInstructorData(),
+      loadNotifications()
+    ]);
   };
 
   const handleViewSchedule = () => {

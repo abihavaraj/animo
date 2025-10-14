@@ -60,12 +60,5 @@
       "path": "/api/cron/send-notifications",
       "schedule": "0 9 * * *"
     }
-  ],
-
-  "env": {
-    "SUPABASE_URL": "https://byhqueksdwlbiwodpbbd.supabase.co",
-    "SUPABASE_SERVICE_ROLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5aHF1ZWtzZHdsYml3b2RwYmJkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Mjg2MDQ3OCwiZXhwIjoyMDY4NDM2NDc4fQ.AaWYRUo7jZIb48uZtCl__49sNsU_jPFCA0Auyg2ffeQ",
-    "EXPO_PUBLIC_SUPABASE_URL": "https://byhqueksdwlbiwodpbbd.supabase.co",
-    "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5aHF1ZWtzZHdsYml3b2RwYmJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzcyMjg1ODUsImV4cCI6MjA1MjgwNDU4NX0.OJPrAg10yN7JZCC1mSCAfH2HTQ_7v-UBfmX7T1hKwj8"
-  }
+  ]
 } 

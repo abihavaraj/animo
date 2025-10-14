@@ -283,7 +283,10 @@
     "addedToWaitlistMessage": "Jeni #{{position}} në listën e pritjes për '{{className}}'.",
     "failedToJoinWaitlist": "Dështoi bashkimi në listën e pritjes",
     "bookingConfirmed": "Rezervimi u Konfirmua!",
-    "joinedWaitlist": "U Bashkuat në Listën e Pritjes!"
+    "joinedWaitlist": "U Bashkuat në Listën e Pritjes!",
+    "bookingFailed": "Rezervimi Dështoi",
+    "failedToBookClass": "Dështoi rezervimi i orës. Ju lutemi provoni përsëri.",
+    "bookingOutsideSubscription": "Kjo klasë është planifikuar për {{classDate}}, por abonimi juaj skadon më {{subscriptionEndDate}}. Ju lutemi rinovoni abonimin tuaj për të rezervuar klasa pas kësaj date."
   },
   "booking": {
     "confirmed": "Konfirmuar",

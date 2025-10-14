@@ -60,7 +60,7 @@ eas build --platform android --profile production
 
 ### Build AAB (Google Play)
 ```bash
-eas build --platform android --profile production-aab
+r
 ```
 
 ### Preview Build (Internal Testing)

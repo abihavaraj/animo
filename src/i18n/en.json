@@ -165,7 +165,10 @@
     "subscriptionRequiredWaitlistMessage": "You need an active subscription plan to join waitlists. Please contact reception to purchase a plan.",
     "needSubscriptionToJoinWaitlist": "You need an active subscription plan to join waitlists. Please contact reception to purchase a plan.",
     "bookingConfirmed": "Booking Confirmed!",
-    "joinedWaitlist": "Joined Waitlist!"
+    "joinedWaitlist": "Joined Waitlist!",
+    "bookingFailed": "Booking Failed",
+    "failedToBookClass": "Failed to book class. Please try again.",
+    "bookingOutsideSubscription": "This class is scheduled for {{classDate}}, but your subscription expires on {{subscriptionEndDate}}. Please renew your subscription to book classes beyond this date."
   },
   "subscription": {
     "currentPlan": "Current Plan",

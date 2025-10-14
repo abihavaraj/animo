@@ -19,7 +19,6 @@ function LoginScreen() {
   const [password, setPassword] = useState('');
   const [localError, setLocalError] = useState('');
   const [hasLoginError, setHasLoginError] = useState(false);
-  const [inputKey, setInputKey] = useState(0); // Force re-render to reset autocomplete
   const [showSavePasswordModal, setShowSavePasswordModal] = useState(false);
   const [credentialsToSave, setCredentialsToSave] = useState<{emailOrPhone: string, password: string} | null>(null);
   const [hasLoadedCredentials, setHasLoadedCredentials] = useState(false);
@@ -48,11 +47,8 @@ function LoginScreen() {
   // Handle Redux error and show alert
   useEffect(() => {
     if (reduxError) {
-      // Set error flag to disable autocomplete
+      // Set error flag when there's a login error
       setHasLoginError(true);
-      
-      // Force input fields to re-render and reset autocomplete
-      setInputKey(prev => prev + 1);
       
       // Clear password field when there's an error to prevent autocomplete of wrong credentials
       setPassword('');
@@ -271,7 +267,6 @@ function LoginScreen() {
             ) : null}
           
             <RNTextInput
-              key={`email-${inputKey}`}
               placeholder={t('auth.email')}
               value={emailOrPhone}
               onChangeText={(text) => {
@@ -292,8 +287,8 @@ function LoginScreen() {
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="email-address"
-              autoComplete={hasLoginError ? "off" : "username"}
-              textContentType={hasLoginError ? "none" : "username"}
+              autoComplete="username"
+              textContentType="username"
               returnKeyType="next"
               enablesReturnKeyAutomatically
               importantForAutofill="yes"
@@ -301,7 +296,6 @@ function LoginScreen() {
             />
             
             <RNTextInput
-              key={`password-${inputKey}`}
               ref={passwordInputRef}
               placeholder={t('auth.password')}
               value={password}
@@ -322,8 +316,8 @@ function LoginScreen() {
               secureTextEntry
               editable={!isLoading}
               placeholderTextColor={textSecondaryColor}
-              autoComplete={hasLoginError ? "off" : "current-password"}
-              textContentType={hasLoginError ? "none" : "password"}
+              autoComplete="current-password"
+              textContentType="password"
               returnKeyType="done"
               enablesReturnKeyAutomatically
               importantForAutofill="yes"

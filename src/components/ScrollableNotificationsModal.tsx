@@ -1,4 +1,3 @@
-import { MaterialIcons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Appearance, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -7,6 +6,7 @@ import { useSelector } from 'react-redux';
 import { useTheme } from '../contexts/ThemeContext';
 import { notificationService } from '../services/notificationService';
 import { RootState } from '../store';
+import WebCompatibleIcon from './WebCompatibleIcon';
 
 interface Notification {
   id: number;
@@ -240,20 +240,11 @@ export default function ScrollableNotificationsModal({ visible, onDismiss, onNot
         <Card.Content style={styles.notificationContent}>
           <View style={styles.notificationHeader}>
             <View style={[styles.iconContainer, { backgroundColor: getNotificationColor(item.type) + '20' }]}>
-              <MaterialIcons 
+              <WebCompatibleIcon 
                 name={getNotificationIcon(item.type)} 
                 size={20} 
                 color={getNotificationColor(item.type)} 
               />
-              {/* Fallback text if icon doesn't show */}
-              <Text style={{ 
-                position: 'absolute', 
-                fontSize: 10, 
-                color: getNotificationColor(item.type),
-                fontWeight: 'bold'
-              }}>
-                {item.type.charAt(0).toUpperCase()}
-              </Text>
             </View>
             <View style={styles.notificationText}>
               <Text style={[styles.notificationMessage, { color: textColor }]}>
@@ -284,7 +275,7 @@ export default function ScrollableNotificationsModal({ visible, onDismiss, onNot
 
   const renderEmpty = () => (
     <View style={styles.emptyState}>
-      <MaterialIcons name="notifications-none" size={48} color={textSecondaryColor} />
+      <WebCompatibleIcon name="notifications-off" size={48} color={textSecondaryColor} />
       <Text style={[styles.emptyTitle, { color: textColor }]}>
         {t('notifications.noNotifications')}
       </Text>

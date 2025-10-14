@@ -2,7 +2,7 @@
   "expo": {
     "name": "ANIMO",
     "slug": "PilatesStudioApp",
-    "version": "1.0.8",
+    "version": "1.1.0",
     "orientation": "portrait",
     "scheme": "animopilatesstudio",
     "userInterfaceStyle": "automatic",
@@ -18,7 +18,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.animo.pilatesstudio",
-      "buildNumber": "27",
+      "buildNumber": "29",
       "icon": "./assets/images/ios/iTunesArtwork@2x.png",
       "jsEngine": "jsc",
       "infoPlist": {
@@ -64,7 +64,7 @@
     },
     "android": {
       "package": "com.animo.pilatesstudio",
-      "versionCode": 27,
+      "versionCode": 28,
       "jsEngine": "hermes",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
@@ -118,7 +118,8 @@
           "cameraPermission": "The app needs camera access to capture progress photos for client assessments."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-font"
     ],
     "extra": {
       "eas": {

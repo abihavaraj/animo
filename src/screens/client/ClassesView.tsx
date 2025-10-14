@@ -367,7 +367,7 @@ function DayClassesModal({
             !isCancellable && styles.disabledButton
           ]}
           labelStyle={{ color: backgroundColor }}
-          icon="cancel"
+          icon={() => <MaterialIcons name="cancel" size={20} color={backgroundColor} />}
           disabled={!isCancellable}
         >
           {isCancellable ? t('classes.cancelBooking') : t('classes.cannotCancel')}
@@ -385,7 +385,7 @@ function DayClassesModal({
           onPress={() => onLeaveWaitlist(classItem.waitlistId!, classItem.name)}
           style={[styles.actionButton, { borderColor: warningColor }]}
           textColor={warningColor}
-          icon="queue"
+          icon={() => <MaterialIcons name="format-list-numbered" size={20} color={warningColor} />}
         >
           {t('classes.leaveWaitlist')} #{classItem.waitlistPosition}
         </Button>
@@ -394,18 +394,22 @@ function DayClassesModal({
 
     if (isFull && !isOnWaitlist) {
       const canJoin = canJoinWaitlist(classItem);
+      const hasActiveSubscription = currentSubscription && currentSubscription.status === 'active';
+      const canJoinWithSubscription = canJoin && hasActiveSubscription;
+      
       return (
         <Button 
           mode="contained" 
           onPress={() => onJoinWaitlist(classItem.id)}
           style={[styles.actionButton, { 
-            backgroundColor: canJoin ? warningColor : textSecondaryColor 
+            backgroundColor: canJoinWithSubscription ? warningColor : textSecondaryColor 
           }]}
           labelStyle={{ color: backgroundColor }}
-          icon="queue"
-          disabled={!canJoin}
+          icon={() => <MaterialIcons name="format-list-numbered" size={20} color={backgroundColor} />}
+          disabled={!canJoinWithSubscription}
         >
-          {canJoin ? t('classes.joinWaitlist') : t('classes.waitlistClosed')}
+          {!hasActiveSubscription ? t('classes.subscriptionRequired') : 
+           canJoin ? t('classes.joinWaitlist') : t('classes.waitlistClosed')}
         </Button>
       );
     }
@@ -420,7 +424,7 @@ function DayClassesModal({
           !isBookable && styles.disabledButton
         ]}
         labelStyle={{ color: backgroundColor }}
-        icon="calendar-today"
+        icon={() => <MaterialIcons name="calendar-today" size={20} color={backgroundColor} />}
         disabled={!isBookable || !currentSubscription || currentSubscription.status !== 'active'}
       >
         {(!currentSubscription || currentSubscription.status !== 'active') ? t('classes.subscriptionRequired') : t('classes.bookClass')}
@@ -547,7 +551,7 @@ function DayClassesModal({
                                 ...styles.statusChipText, 
                                 color: backgroundColor
                               }}
-                              icon="check-circle"
+                              icon={() => <MaterialIcons name="check-circle" size={16} color={backgroundColor} />}
                             >
                               Booked
                             </Chip>
@@ -563,7 +567,7 @@ function DayClassesModal({
                                 ...styles.statusChipText, 
                                 color: backgroundColor
                               }}
-                              icon="queue"
+                              icon={() => <MaterialIcons name="format-list-numbered" size={16} color={backgroundColor} />}
                             >
                               Waitlist #{classItem.waitlistPosition}
                             </Chip>
@@ -631,6 +635,7 @@ function ClassesView() {
       String(today.getMonth() + 1).padStart(2, '0') + '-' + 
       String(today.getDate()).padStart(2, '0');
   };
+
 
   const [currentMonth, setCurrentMonth] = useState(getTodayString());
 
@@ -845,17 +850,42 @@ function ClassesView() {
 
   // Auto-refresh modal content when Redux state changes (for booking/cancel actions)
   useEffect(() => {
-    if (dayClassesVisible && selectedDate) {
-      // Refresh the modal content when classes or bookings change and modal is open
-      setSelectedDateClasses(getClassesForDate(selectedDate));
+    // Only refresh if modal is visible and we have meaningful data changes
+    if (dayClassesVisible && selectedDate && (bookings.length > 0 || userWaitlist.length > 0)) {
+      const refreshModalData = async () => {
+        try {
+          const dateDetails = await loadDateDetails(selectedDate);
+          const classesArray = Array.isArray(bookings) ? bookings : [];
+          
+          const processedClasses = dateDetails.map((classItem: BackendClass) => {
+            const userBooking = classesArray.find((booking: any) => 
+              booking.class_id === classItem.id && 
+              booking.status === 'confirmed'
+            );
+            
+            const waitlistEntry = userWaitlist.find(w => w.class_id === classItem.id);
+            return mapBackendClassToClassItem(classItem, userBooking, waitlistEntry);
+          }).sort((a, b) => {
+            if (!a.startTime || !b.startTime) return 0;
+            return a.startTime.localeCompare(b.startTime);
+          });
+          
+          setSelectedDateClasses(processedClasses);
+        } catch (error) {
+          console.error('Failed to refresh modal:', error);
+          // Fallback to old method
+          setSelectedDateClasses(getClassesForDate(selectedDate));
+        }
+      };
+      
+      // Add a small delay to prevent conflicts with Today button
+      setTimeout(refreshModalData, 100);
     }
-  }, [classes, bookings, userWaitlist, dayClassesVisible, selectedDate]);
+  }, [bookings, userWaitlist]); // Only trigger on booking/waitlist changes, not on modal visibility changes
 
   // 🚀 NEW: Load lightweight dot data for calendar (past + future classes)
   const loadDotData = async () => {
     try {
-      const startTime = Date.now();
-      console.log('🎯 [CALENDAR_PERF] Starting lightweight dot data load...');
       
       // Load dots for past 2 months + next 3 months (very lightweight)
       const today = new Date();
@@ -864,7 +894,6 @@ function ClassesView() {
       const dateFrom = twoMonthsAgo.toISOString().split('T')[0];
       const dateTo = threeMonthsAhead.toISOString().split('T')[0];
       
-      console.log(`📅 [CALENDAR_PERF] Loading dots from ${dateFrom} to ${dateTo}`);
       
       const dotsResult = await classService.getClassesForDots({
         date_from: dateFrom,
@@ -875,7 +904,6 @@ function ClassesView() {
       if (dotsResult.success) {
         const freshData = dotsResult.data || [];
         setDotData(freshData);
-        console.log(`✅ [CALENDAR_PERF] Dot data loaded in ${Date.now() - startTime}ms (${freshData.length} classes)`);
         return freshData; // Return fresh data for immediate use
       }
       return [];
@@ -885,19 +913,16 @@ function ClassesView() {
     }
   };
 
-  // 🚀 NEW: Load full details for a specific date (on-demand, always fresh)
+  // Load full details for a specific date (on-demand, always fresh)
   const loadDateDetails = async (date: string) => {
     try {
-      const startTime = Date.now();
-      console.log(`🎯 [CALENDAR_PERF] Loading fresh details for ${date}...`);
-      
       const detailsResult = await classService.getClassesForDate(date, 'client');
       
       if (detailsResult.success && detailsResult.data) {
-        console.log(`✅ [CALENDAR_PERF] Fresh details loaded for ${date} in ${Date.now() - startTime}ms (${detailsResult.data.length} classes)`);
         return detailsResult.data;
+      } else {
+        return [];
       }
-      return [];
     } catch (error) {
       console.error(`Failed to load details for ${date}:`, error);
       return [];
@@ -910,7 +935,6 @@ function ClassesView() {
     
     try {
       const startTime = Date.now();
-      console.log('🎯 [LIST_PERF] Loading full data for list view...');
       
       // Load full class data only when switching to list view
       await dispatch(fetchClasses({ 
@@ -918,17 +942,14 @@ function ClassesView() {
       }));
       
       setListViewLoaded(true);
-      console.log(`✅ [LIST_PERF] List data loaded in ${Date.now() - startTime}ms`);
     } catch (error) {
       console.error('Failed to load list view data:', error);
     }
   };
 
-  // 🚀 UPDATED: Main data loading - lightweight by default
+  // Main data loading - lightweight by default
   const loadData = async () => {
     try {
-      const startTime = Date.now();
-      console.log('🚀 [CALENDAR_PERF] Starting initial data load...');
       
       // Load in parallel: lightweight dots + bookings + subscriptions + waitlist
       await Promise.all([
@@ -940,7 +961,6 @@ function ClassesView() {
         }) : Promise.resolve()
       ]);
       
-      console.log(`✅ [CALENDAR_PERF] Initial load completed in ${Date.now() - startTime}ms`);
     } catch (error) {
       console.error('Failed to load data:', error);
     } finally {
@@ -948,9 +968,8 @@ function ClassesView() {
     }
   };
 
-  // 🚀 NEW: Helper to refresh data after user actions
+  // Helper to refresh data after user actions
   const refreshAfterAction = async () => {
-    console.log('🔄 [CALENDAR_PERF] Refreshing after user action...');
     
     // First, reload all data in parallel and wait for completion
     const [freshDotData, bookingsResult, subscriptionResult, waitlistResult] = await Promise.all([
@@ -965,17 +984,14 @@ function ClassesView() {
       setUserWaitlist(waitlistResult.data || []);
     }
     
-    console.log(`✅ [CALENDAR_PERF] Base data refreshed, got ${freshDotData.length} dot classes`);
     
     // Small delay to ensure Redux state is updated
     await new Promise(resolve => setTimeout(resolve, 150));
     
     // Force regenerate calendar dots with the FRESH data we just loaded
-    console.log(`🎨 [DOTS_REFRESH] Forcing calendar dots refresh with fresh data...`);
     
     // Get fresh bookings from Redux
     const freshBookingsForDots = bookings.length > 0 ? bookings : (Array.isArray(bookingsResult?.payload) ? bookingsResult.payload : []);
-    console.log(`🎨 [DOTS_REFRESH] Using ${freshBookingsForDots.length} bookings for dot generation`);
     
     // Regenerate dots immediately with fresh data (don't wait for state)
     const marked: any = {};
@@ -1048,23 +1064,18 @@ function ClassesView() {
     });
     
     setMarkedDates(marked);
-    console.log(`✅ [DOTS_REFRESH] Calendar dots refreshed with ${Object.keys(marked).length} dates`);
     
     // If currently viewing a specific date, reload its details immediately
     if (selectedDate && dayClassesVisible) {
-      console.log(`🔄 [MODAL_REFRESH] Refreshing modal for ${selectedDate}...`);
       
       // Load fresh details for the date
       const dateDetails = await loadDateDetails(selectedDate);
-      console.log(`📋 [MODAL_REFRESH] Date details loaded: ${dateDetails.length} classes`);
       
       // Get bookings from the result we just fetched
       const bookingsArray2 = Array.isArray(bookingsResult?.payload) ? bookingsResult.payload : [];
-      console.log(`📋 [MODAL_REFRESH] Using ${bookingsArray2.length} bookings from store`);
       
       // Get waitlist from the result we just fetched
       const freshWaitlist = waitlistResult?.data || [];
-      console.log(`📋 [MODAL_REFRESH] Using ${freshWaitlist.length} waitlist entries`);
       
       const processedClasses = dateDetails.map((classItem: BackendClass) => {
         const userBooking = bookingsArray2.find((booking: any) => 
@@ -1078,9 +1089,7 @@ function ClassesView() {
         return a.startTime.localeCompare(b.startTime);
       });
       
-      console.log(`📋 [MODAL_REFRESH] Processed ${processedClasses.length} classes for modal`);
       setSelectedDateClasses(processedClasses);
-      console.log(`✅ [MODAL_REFRESH] Modal refreshed with ${processedClasses.length} classes`);
     }
   };
 
@@ -1882,7 +1891,7 @@ function ClassesView() {
                           </View>
                           {classItem.room && (
                             <View style={styles.classCardDetailRow}>
-                              <MaterialIcons name="room" size={16} color={textSecondaryColor} />
+                              <MaterialIcons name="place" size={16} color={textSecondaryColor} />
                               <Paragraph style={{...styles.classCardDetailText, color: textSecondaryColor}}>
                                 {classItem.room}
                               </Paragraph>
@@ -1902,7 +1911,7 @@ function ClassesView() {
                                 <Chip 
                                   style={[styles.bookedChip, { backgroundColor: successColor }]}
                                   textStyle={{ ...styles.statusChipText, color: backgroundColor }}
-                                  icon="check-circle"
+                                  icon={() => <MaterialIcons name="check-circle" size={16} color={backgroundColor} />}
                                   compact
                                 >
                                   Booked
@@ -1913,7 +1922,7 @@ function ClassesView() {
                                 <Chip 
                                   style={[styles.waitlistChip, { backgroundColor: warningColor, marginLeft: 4 }]}
                                   textStyle={{ ...styles.statusChipText, color: backgroundColor }}
-                                  icon="queue"
+                                  icon={() => <MaterialIcons name="format-list-numbered" size={16} color={backgroundColor} />}
                                   compact
                                 >
                                   Waitlist #{classItem.waitlistPosition}
@@ -1967,7 +1976,7 @@ function ClassesView() {
                                       style={[styles.actionButton, { borderColor: warningColor }]}
                                       textColor={warningColor}
                                       compact
-                                      icon="queue"
+                                      icon={() => <MaterialIcons name="format-list-numbered" size={20} color={warningColor} />}
                                       accessibilityLabel={`Leave waitlist for ${classItem.name} at ${classItem.startTime}`}
                                       accessibilityHint="Double tap to leave waitlist for this class"
                                     >
@@ -2030,13 +2039,54 @@ function ClassesView() {
         icon={() => <MaterialIcons name="today" size={24} color={backgroundColor} />}
         label={t('classes.today')}
         style={[styles.fab, { backgroundColor: accentColor }]}
-        onPress={() => {
+        onPress={async () => {
           const today = getTodayString();
-          console.log(`📅 Today button pressed - navigating to: ${today}`);
           setCurrentMonth(today);
           setSelectedDate(today);
-          setSelectedDateClasses(getClassesForDate(today)); // Update classes for today
-          setDayClassesVisible(true);
+          
+          // Load fresh data for today instead of relying on Redux state
+          try {
+            const todayClasses = await loadDateDetails(today);
+            
+            if (todayClasses.length === 0) {
+              setSelectedDateClasses([]);
+              setDayClassesVisible(true);
+              return;
+            }
+            
+            const classesArray = Array.isArray(bookings) ? bookings : [];
+            
+            const processedClasses = todayClasses.map((classItem: BackendClass) => {
+              const userBooking = classesArray.find((booking: any) => 
+                booking.class_id === classItem.id && 
+                booking.status === 'confirmed'
+              );
+              
+              // Check if user is on waitlist for this class
+              const waitlistEntry = userWaitlist.find(w => w.class_id === classItem.id);
+              
+              return mapBackendClassToClassItem(classItem, userBooking, waitlistEntry);
+            }).sort((a, b) => {
+              if (!a.startTime || !b.startTime) return 0;
+              return a.startTime.localeCompare(b.startTime);
+            });
+            
+            setSelectedDateClasses(processedClasses);
+            
+            setTimeout(() => {
+              setDayClassesVisible(true);
+            }, 50);
+          } catch (error) {
+            console.error('Failed to load today\'s classes:', error);
+            
+            // Fallback to existing method
+            const fallbackClasses = getClassesForDate(today);
+            setSelectedDateClasses(fallbackClasses);
+            
+            setTimeout(() => {
+              setDayClassesVisible(true);
+            }, 50);
+          }
         }}
       />
 

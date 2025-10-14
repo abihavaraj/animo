@@ -4,6 +4,7 @@ import { Colors } from '@/constants/Colors';
 import { spacing } from '@/constants/Spacing';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
     Alert,
     Image,
@@ -38,6 +39,7 @@ interface SelectedClient extends InstructorClientAssignment {
 }
 
 function MyClients() {
+  const { t } = useTranslation();
   const { user } = useSelector((state: RootState) => state.auth);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);

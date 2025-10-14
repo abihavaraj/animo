@@ -134,7 +134,20 @@ class InstructorClientService {
         return { success: false, error: assignmentsError.message };
       }
 
-      devLog('📋 [instructorClientService] Found manual assignments:', manualAssignments?.length || 0);
+      devLog('📋 [instructorClientService] Found all assignments:', manualAssignments?.length || 0);
+      
+      // Debug: Log assignment details to identify auto-assigned vs manual
+      if (manualAssignments && manualAssignments.length > 0) {
+        manualAssignments.forEach(assignment => {
+          devLog('📝 Assignment details:', {
+            id: assignment.id,
+            client_id: assignment.client_id,
+            assigned_by: assignment.assigned_by,
+            assignment_type: assignment.assignment_type,
+            notes: assignment.notes
+          });
+        });
+      }
 
       // Get user details for manually assigned clients
       let manualAssignmentUsers: any[] = [];
@@ -189,11 +202,15 @@ class InstructorClientService {
         }
       }
 
-      // Auto-assignment disabled - clients will only be assigned manually by reception
-      let autoAssignedClients: any[] = [];
+      // AUTO-ASSIGNMENT COMPLETELY DISABLED
+      // The following auto-assignment logic has been permanently disabled.
+      // Clients will ONLY show if manually assigned by reception via instructor_client_assignments table.
+      // 
+      // Previously, this code would auto-create virtual assignments for clients who booked
+      // personal classes, but this caused confusion and is no longer needed.
       
-      // Comment out auto-assignment logic
       /*
+      // OLD AUTO-ASSIGNMENT LOGIC (DISABLED):
       // Get personal classes taught by this instructor for auto-assignments
       const { data: instructorClasses, error: classesError } = await supabase
         .from('classes')
@@ -312,12 +329,18 @@ class InstructorClientService {
         };
       }) || [];
 
-      // Combine manual and auto assignments
-      const allClients = [...formattedManualAssignments, ...autoAssignedClients];
+      // Since auto-assignment is disabled, autoAssignedClients is always empty
+      // Only return real database assignments (formattedManualAssignments)
+      const allClients = formattedManualAssignments;
 
       devLog('✅ [instructorClientService] Total clients fetched:', allClients.length);
-      devLog('📋 Manual assignments only:', formattedManualAssignments.length);
+      devLog('📋 Manual assignments (all from database):', allClients.length);
       devLog('🤖 Auto assignments: DISABLED');
+      
+      // Log each client for debugging
+      allClients.forEach(client => {
+        devLog(`   - ${client.client_name} (assignment_id: ${client.id}, assigned_by: ${client.assigned_by}, type: ${client.assignment_type})`);
+      });
       
       return { success: true, data: allClients };
       
@@ -1140,6 +1163,18 @@ class InstructorClientService {
     try {
       devLog('📅 [instructorClientService] Assigning client to class');
 
+      // Get class details to check the class date
+      const { data: classDetails, error: classError } = await supabase
+        .from('classes')
+        .select('id, date')
+        .eq('id', classId)
+        .single();
+
+      if (classError || !classDetails) {
+        devError('❌ [instructorClientService] Error fetching class:', classError);
+        return { success: false, error: 'Class not found' };
+      }
+
       // First check if client has remaining classes in their active subscription
       const { data: subscriptionsData, error: subscriptionError } = await supabase
         .from('user_subscriptions')
@@ -1172,6 +1207,20 @@ class InstructorClientService {
 
       if (activeSubscription.remaining_classes <= 0) {
         return { success: false, error: 'Client has no remaining classes in their subscription' };
+      }
+
+      // Check if class date is within subscription period
+      if (activeSubscription.end_date && classDetails.date) {
+        const subscriptionEndDate = activeSubscription.end_date; // Format: "2025-10-06"
+        const classDate = classDetails.date; // Format: "2025-10-07"
+        
+        // Class date must be on or before subscription end date
+        if (classDate > subscriptionEndDate) {
+          return { 
+            success: false, 
+            error: `This class is scheduled for ${classDate}, but the client's subscription expires on ${subscriptionEndDate}. Please renew the subscription first.` 
+          };
+        }
       }
 
       // Check if client is already booked for this class

@@ -309,8 +309,6 @@ function ClientDashboard() {
 
     try {
       setLoading(true);
-      const dashboardStartTime = Date.now();
-      console.log('🚀 [DASHBOARD_PERF] Starting dashboard refresh...');
       
       // 🚀 OPTIMIZATION 1: Run status update in parallel with data fetching
       const apiCallsStart = Date.now();
@@ -350,11 +348,9 @@ function ClientDashboard() {
       const apiCallsEnd = Date.now();
               // Parallel API calls completed
 
-      console.log(`🚀 [DASHBOARD_PERF] Parallel API calls completed in ${apiCallsEnd - apiCallsStart}ms`);
       
       // 🚀 OPTIMIZATION 2: Ultra-fast data processing with single-pass filtering
       const dataProcessingStart = Date.now();
-      console.log('🚀 [DASHBOARD_PERF] Starting optimized data processing...');
       
       // Pre-calculate date for performance
       const nowTime = dateHelpers.now.getTime();
@@ -511,7 +507,6 @@ function ClientDashboard() {
         : [];
 
       const dataProcessingEnd = Date.now();
-      console.log(`🚀 [DASHBOARD_PERF] Data processing completed in ${dataProcessingEnd - dataProcessingStart}ms`);
       
       // 🚀 Single state update for better performance
       const finalDashboardData = {
@@ -525,7 +520,6 @@ function ClientDashboard() {
       setDashboardData(finalDashboardData);
       
       const dashboardEndTime = Date.now();
-      console.log(`🚀 [DASHBOARD_PERF] Total dashboard refresh: ${dashboardEndTime - dashboardStartTime}ms`);
 
     } catch (error) {
       console.error('❌ [DASHBOARD_PERF] Error loading dashboard data:', error);
@@ -1108,7 +1102,7 @@ function ClientDashboard() {
           <Card style={[styles.noSubscriptionCard, { backgroundColor: surfaceColor, borderColor: textMutedColor }]}>
             <Card.Content style={styles.statCardContent}>
               <View style={styles.statHeader}>
-                <MaterialIcons name="emoji-emotions" size={24} color={accentColor} />
+                <MaterialIcons name="sentiment-satisfied" size={24} color={accentColor} />
                 <Caption style={{ ...styles.statLabel, color: textSecondaryColor }}>{t('dashboard.welcome')}!</Caption>
               </View>
               <H3 style={{ ...styles.statValue, color: textColor }}>{t('dashboard.readyToStart')}?</H3>
@@ -1133,7 +1127,7 @@ function ClientDashboard() {
               mode="text" 
               // @ts-ignore - Navigation type issue
               onPress={() => navigation.navigate('History')}
-              icon="arrow-right"
+              icon={() => <MaterialIcons name="arrow-forward" size={20} color={accentColor} />}
               textColor={accentColor}
             >
               {t('dashboard.viewAll')}
@@ -1246,7 +1240,7 @@ function ClientDashboard() {
           <Card.Content>
             <View style={styles.sectionHeader}>
               <H2 style={{ ...styles.sectionTitle, color: textColor }}>{`${t('classes.waitlist')} (${dashboardData.waitlistClasses.length})`}</H2>
-              <MaterialIcons name="queue" size={24} color={warningColor} />
+              <MaterialIcons name="format-list-numbered" size={24} color={warningColor} />
             </View>
 
             <View style={styles.classList}>
@@ -1260,7 +1254,7 @@ function ClientDashboard() {
                       </View>
                       <View style={styles.classIcons}>
                         <View style={[styles.iconBadge, { backgroundColor: warningColor }]}>
-                          <MaterialIcons name="queue" size={16} color="white" />
+                          <MaterialIcons name="format-list-numbered" size={16} color="white" />
                         </View>
                         <View style={[styles.iconBadge, { backgroundColor: warningColor }]}>
                           <Body style={{ color: 'white', fontWeight: 'bold' }}>#{waitlistEntry.position}</Body>
@@ -1279,12 +1273,12 @@ function ClientDashboard() {
                       </View>
                       {waitlistEntry.room && (
                         <View style={styles.classDetailItem}>
-                          <MaterialIcons name="room" size={16} color={textSecondaryColor} />
+                          <MaterialIcons name="place" size={16} color={textSecondaryColor} />
                           <Caption style={{ ...styles.classDetailText, color: textSecondaryColor }}>{waitlistEntry.room}</Caption>
                         </View>
                       )}
                       <View style={styles.classDetailItem}>
-                        <MaterialIcons name="queue" size={16} color={warningColor} />
+                        <MaterialIcons name="format-list-numbered" size={16} color={warningColor} />
                         <Caption style={{ ...styles.classDetailText, color: warningColor }}>{t('classes.position')} #{waitlistEntry.position}</Caption>
                       </View>
                     </View>
@@ -1308,7 +1302,7 @@ function ClientDashboard() {
                       }}
                       textColor={errorColor}
                       style={[styles.bookButton, { borderColor: errorColor }]}
-                      icon="cancel"
+                      icon={() => <MaterialIcons name="cancel" size={20} color={errorColor} />}
                     >
                       {t('classes.leaveWaitlist')}
                     </Button>
@@ -1413,7 +1407,7 @@ function ClientDashboard() {
                             mode="contained" 
                             style={[styles.bookButton, { backgroundColor: successColor }]}
                             textColor="white"
-                            icon="check-circle"
+                            icon={() => <MaterialIcons name="check-circle" size={20} color="white" />}
                             disabled
                           >
                             {t('classes.booked')}
@@ -1428,7 +1422,7 @@ function ClientDashboard() {
                             mode="outlined" 
                             style={[styles.bookButton, { borderColor: warningColor }]}
                             textColor={warningColor}
-                            icon="queue"
+                            icon={() => <MaterialIcons name="format-list-numbered" size={20} color={warningColor} />}
                             onPress={async () => {
                               try {
                                 const success = await unifiedBookingUtils.leaveWaitlist(
@@ -1461,7 +1455,7 @@ function ClientDashboard() {
                             }]}
                             textColor={canJoinWaitlist ? warningColor : backgroundColor}
                             labelStyle={canJoinWaitlist ? {} : { color: backgroundColor }}
-                            icon="queue"
+                            icon={() => <MaterialIcons name="format-list-numbered" size={20} color={canJoinWaitlist ? warningColor : backgroundColor} />}
                             onPress={() => handleJoinWaitlist(cls.id)}
                             disabled={!canJoinWaitlist || !currentSubscription || currentSubscription.status !== 'active'}
                           >
@@ -1477,7 +1471,7 @@ function ClientDashboard() {
                             mode="contained" 
                             style={[styles.bookButton, { backgroundColor: textSecondaryColor }]}
                             textColor={backgroundColor}
-                            icon="event-busy"
+                            icon={() => <MaterialIcons name="event-busy" size={20} color={backgroundColor} />}
                             disabled
                           >
                             {t('classes.bookingClosed')}
@@ -1490,7 +1484,7 @@ function ClientDashboard() {
                           mode="outlined" 
                           style={[styles.bookButton, { borderColor: accentColor }]}
                           textColor={accentColor}
-                          icon="event"
+                          icon={() => <MaterialIcons name="event" size={20} color={accentColor} />}
                           onPress={() => handleBookClass(cls.id)}
                           disabled={!currentSubscription || currentSubscription.status !== 'active'}
                         >
@@ -1507,7 +1501,7 @@ function ClientDashboard() {
                <Button 
                  mode="outlined" 
                  onPress={() => (navigation as any).navigate('Book')}
-                 icon="calendar-today"
+                 icon={() => <MaterialIcons name="calendar-today" size={20} color={accentColor} />}
                  textColor={accentColor}
                  style={[styles.seeMoreButton, { borderColor: accentColor }]}
                >

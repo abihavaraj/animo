@@ -169,10 +169,9 @@ class ClassService {
     filters: string;
   } | null = null;
 
-  // 🚀 OPTIMIZATION: Cache invalidation method
+  // Cache invalidation method
   invalidateClassesCache(): void {
     this.classesCache = null;
-    console.log('🗑️ [CLASS_PERF] Classes cache invalidated');
   }
 
   // 🚨 CRITICAL: Force fresh data for booking-critical operations
@@ -182,7 +181,6 @@ class ClassService {
     this.classesCache = null;
     
     try {
-      console.log('🔄 [CLASS_PERF] Forcing fresh class data for real-time accuracy');
       const result = await this.getClasses(filters);
       return result;
     } finally {
@@ -193,8 +191,6 @@ class ClassService {
 
   async getClasses(filters?: ClassFilters & { userRole?: string }): Promise<ApiResponse<BackendClass[]>> {
     try {
-      const classQueryStart = Date.now();
-      console.log('🚀 [CLASS_PERF] Starting class loading...');
       
       // 🚀 OPTIMIZATION 2: Real-time aware caching
       const cacheKey = JSON.stringify(filters || {});
@@ -212,7 +208,6 @@ class ClassService {
                       this.classesCache.filters === cacheKey;
       
       if (useCache) {
-        console.log(`🚀 [CLASS_PERF] Using cached data (${this.classesCache.data.length} classes) - 15s cache`);
         return { success: true, data: this.classesCache.data };
       }
       
@@ -310,7 +305,6 @@ class ClassService {
         return { success: false, error: classesError.message };
       }
       
-      console.log(`🚀 [CLASS_PERF] Parallel queries completed in ${Date.now() - classQueryStart}ms`);
       
       // 🚀 OPTIMIZATION 7: Fast enrollment counting using Map
       const enrollmentMap = new Map<string, number>();
@@ -336,7 +330,6 @@ class ClassService {
         filters: cacheKey
       };
       
-      console.log(`🚀 [CLASS_PERF] Total class loading time: ${Date.now() - classQueryStart}ms (${processedClasses.length} classes)`);
       return { success: true, data: processedClasses };
     } catch (error) {
       console.error('❌ Error in getClasses:', error);
@@ -1061,8 +1054,6 @@ class ClassService {
   // 🚀 OPTIMIZATION 9: Lightweight query for calendar dots only
   async getClassesForDots(filters?: ClassFilters & { userRole?: string }): Promise<ApiResponse<any[]>> {
     try {
-      const dotsQueryStart = Date.now();
-      console.log('🎯 [DOTS_PERF] Loading lightweight dot data...');
       
       // Minimal query - only data needed for calendar dots
       let baseQuery = supabase
@@ -1138,7 +1129,6 @@ class ClassService {
         status: cls.status
       }));
       
-      console.log(`✅ [DOTS_PERF] Loaded ${dotData.length} classes for dots in ${Date.now() - dotsQueryStart}ms`);
       return { success: true, data: dotData };
     } catch (error) {
       console.error('❌ Error in getClassesForDots:', error);
@@ -1149,8 +1139,6 @@ class ClassService {
   // 🚀 OPTIMIZATION 10: Get full details for a specific date only
   async getClassesForDate(date: string, userRole?: string): Promise<ApiResponse<BackendClass[]>> {
     try {
-      const dateQueryStart = Date.now();
-      console.log(`🎯 [DATE_PERF] Loading full details for ${date}...`);
       
       // Full query for specific date
       const baseQuery = supabase
@@ -1215,7 +1203,6 @@ class ClassService {
         instructor_name: (cls.users as any)?.name || 'TBD'
       })) as BackendClass[];
       
-      console.log(`✅ [DATE_PERF] Loaded ${processedClasses.length} classes for ${date} in ${Date.now() - dateQueryStart}ms`);
       return { success: true, data: processedClasses };
     } catch (error) {
       console.error('❌ Error in getClassesForDate:', error);

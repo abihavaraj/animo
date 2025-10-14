@@ -182,7 +182,6 @@ class NotificationService {
       }
 
       const endTime = Date.now();
-      console.log(`🚀 [NOTIFICATION_PERF] Single notification created in ${endTime - startTime}ms`);
       return { success: true, data: notification };
     } catch (error) {
       console.error('❌ [NOTIFICATION_PERF] Error in createTranslatedNotification:', error);
@@ -204,7 +203,6 @@ class NotificationService {
     const startTime = Date.now();
     
     try {
-      console.log(`🚀 [NOTIFICATION_PERF] Starting batch creation of ${notifications.length} notifications`);
       
       // 🚀 OPTIMIZATION: Use batch translation
       const translatedContents = await NotificationTranslationService.batchTranslateNotifications(
@@ -237,7 +235,6 @@ class NotificationService {
       }
 
       const endTime = Date.now();
-      console.log(`🚀 [NOTIFICATION_PERF] Batch created ${notifications.length} notifications in ${endTime - startTime}ms`);
       return { success: true, data: createdNotifications || [] };
     } catch (error) {
       console.error('❌ [NOTIFICATION_PERF] Error in createBatchTranslatedNotifications:', error);
@@ -592,9 +589,9 @@ class NotificationService {
   // Send subscription expiry notifications
   async sendSubscriptionExpiryNotifications(): Promise<ApiResponse<any>> {
     try {
-      // Get subscriptions expiring in the next 5 days (changed from 7)
-      const fiveDaysFromNow = new Date();
-      fiveDaysFromNow.setDate(fiveDaysFromNow.getDate() + 5);
+      // Get subscriptions expiring in the next 7 days
+      const sevenDaysFromNow = new Date();
+      sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
       
       const { data: expiringSubscriptions, error } = await supabase
         .from('user_subscriptions')
@@ -604,7 +601,7 @@ class NotificationService {
           subscription_plans (name)
         `)
         .eq('status', 'active')
-        .lte('end_date', fiveDaysFromNow.toISOString())
+        .lte('end_date', sevenDaysFromNow.toISOString())
         .gt('end_date', new Date().toISOString()); // Not yet expired
 
       if (error) {

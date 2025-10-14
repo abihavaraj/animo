@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, TextStyle } from 'react-native';
+import { StyleProp, StyleSheet, Text, TextStyle } from 'react-native';
 
 /**
  * ANIMO Pilates Studio - Typography Scale
@@ -10,7 +10,7 @@ import { StyleSheet, Text, TextStyle } from 'react-native';
 
 interface TypographyProps {
   children: React.ReactNode;
-  style?: TextStyle;
+  style?: StyleProp<TextStyle>;
   color?: string;
   textAlign?: 'left' | 'center' | 'right';
   numberOfLines?: number;

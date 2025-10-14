@@ -2313,22 +2313,22 @@ class SubscriptionService {
     }
   }
 
-  // Automatic daily notification checking
-  static lastNotificationCheck: { [key: string]: string } = {};
-
+  // Automatic daily notification checking with persistent storage
   async checkAndSendAutomaticNotifications(): Promise<void> {
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
     const checkKey = 'daily_notification_check';
 
-    // Only run once per day
-    if (SubscriptionService.lastNotificationCheck[checkKey] === today) {
-      return;
-    }
-
     try {
-      // Running automatic subscription notifications
+      // Check if we already ran today using persistent storage
+      const AsyncStorage = await import('@react-native-async-storage/async-storage');
+      const lastCheckDate = await AsyncStorage.default.getItem(checkKey);
       
-      // Send expiring notifications (5 days warning)
+      // Only run once per day
+      if (lastCheckDate === today) {
+        return;
+      }
+
+      // Send expiring notifications (7 days warning)
       const expiringResult = await notificationService.sendSubscriptionExpiryNotifications();
       if (expiringResult.success) {
         const expiringCount = expiringResult.data?.notificationCount || 0;
@@ -2342,8 +2342,8 @@ class SubscriptionService {
         // Sent expired subscription notifications
       }
 
-      // Mark as completed for today
-      SubscriptionService.lastNotificationCheck[checkKey] = today;
+      // Mark as completed for today in persistent storage
+      await AsyncStorage.default.setItem(checkKey, today);
       // Automatic notification check completed
 
     } catch (error) {

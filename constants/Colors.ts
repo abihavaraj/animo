@@ -11,13 +11,26 @@
 // 2.1 Brand & Neutrals
 const neutralWhite = '#FFFFFF';        // Card / Surface 00
 const softBeige = '#F8F6F3';          // App background 01
-const forestGreen = '#6B8E7F';        // Brand primary 02 (Updated to match accent)
+const forestGreen = '#8FA8A3';        // Brand primary 02 (Updated to softer accent)
 const charcoal = '#2C2C2C';           // Primary text
 
 // 2.2 Accent & States
-const accent = '#6B8E7F';             // Primary CTAs, Success
-const warning = '#D4A574';            // Pending / Alert
-const error = '#C47D7D';              // Destructive, Validation
+const accent = '#8FA8A3';             // Primary CTAs, Success (softer)
+const warning = '#E6B17A';            // Pending / Alert (softer)
+const error = '#D4A5A5';              // Destructive, Validation (softer)
+
+// 2.3 Unified Clean Colors (Authentic & Minimal)
+const cleanPrimary = '#8FA8A3';       // Main brand color - forest green
+const cleanSecondary = '#6B8E7F';     // Darker forest green for contrast
+const cleanNeutral = '#9CA3AF';       // Clean gray for secondary elements
+const cleanSuccess = '#10B981';       // Clean green for success states
+const cleanWarning = '#F59E0B';       // Clean amber for warnings
+const cleanDanger = '#EF4444';        // Clean red for danger/full states
+
+// Transparent backgrounds for class status
+const transparentRed = 'rgba(239, 68, 68, 0.1)';     // For full classes
+const transparentOrange = 'rgba(245, 158, 11, 0.1)';  // For almost full classes
+const transparentGreen = 'rgba(16, 185, 129, 0.1)';   // For available classes
 
 export const Colors = {
   light: {
@@ -48,7 +61,7 @@ export const Colors = {
     
     // Surface Variations
     surfaceElevated: neutralWhite,     // Cards with elevation
-    surfaceVariant: '#FAFAF9',         // Subtle surface variant
+    surfaceVariant: '#F8F9F8',         // Subtle surface variant (softer)
     
     // Text Variations
     textSecondary: '#666666',          // Secondary text
@@ -56,8 +69,21 @@ export const Colors = {
     textOnAccent: neutralWhite,        // Text on accent colors
     
     // Borders & Dividers
-    border: '#E8E6E3',                // Subtle borders
-    divider: '#F0EFED',               // Very subtle dividers
+    border: '#E8EBE8',                // Subtle borders (softer)
+    divider: '#F0F2F0',               // Very subtle dividers (softer)
+    
+    // Unified Clean Colors (Minimal & Authentic)
+    cleanPrimary: cleanPrimary,       // Main brand color
+    cleanSecondary: cleanSecondary,   // Darker brand color for contrast
+    cleanNeutral: cleanNeutral,       // Clean gray for secondary elements
+    cleanSuccess: cleanSuccess,       // Clean green for success
+    cleanWarning: cleanWarning,       // Clean amber for warnings
+    cleanDanger: cleanDanger,         // Clean red for danger/full
+    
+    // Transparent Status Backgrounds
+    transparentRed: transparentRed,       // Full classes background
+    transparentOrange: transparentOrange, // Almost full classes background
+    transparentGreen: transparentGreen,   // Available classes background
   },
   dark: {
     // Base Colors

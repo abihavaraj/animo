@@ -303,10 +303,10 @@ function ScheduleOverview() {
         
         setCalendarClasses(allClasses);
         
-        // Load waitlist data for all classes
-        allClasses.forEach(cls => {
-          loadWaitlistForClass(cls.id);
-        });
+        // 🚀 OPTIMIZATION: Load waitlist data for all classes in parallel
+        await Promise.all(
+          allClasses.map(cls => loadWaitlistForClass(cls.id))
+        );
       }
     } catch (error) {
       console.error('❌ [ScheduleOverview] Failed to load calendar classes:', error);
@@ -400,10 +400,10 @@ function ScheduleOverview() {
         
         setClasses(classesData);
         
-        // Load waitlist data for all classes
-        classesData.forEach(cls => {
-          loadWaitlistForClass(cls.id);
-        });
+        // 🚀 OPTIMIZATION: Load waitlist data for all classes in parallel
+        await Promise.all(
+          classesData.map(cls => loadWaitlistForClass(cls.id))
+        );
       } else {
         setClasses([]);
       }

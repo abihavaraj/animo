@@ -277,7 +277,7 @@ function HomeScreen() {
 
                       {classItem.room && (
                         <View style={styles.classDetailItem}>
-                          <MaterialIcons name="room" size={16} color={Colors.light.textSecondary} />
+                          <MaterialIcons name="place" size={16} color={Colors.light.textSecondary} />
                           <Caption style={styles.classDetailText}>{classItem.room}</Caption>
                         </View>
                       )}

@@ -1,4 +1,6 @@
+import { MaterialIcons } from '@expo/vector-icons';
 import { NavigationContainer } from '@react-navigation/native';
+import * as Font from 'expo-font';
 import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect, useState } from 'react';
@@ -30,6 +32,18 @@ import './src/utils/logger'; // Disable console logs in production
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
+
+// Load icon fonts for proper rendering in Expo Go
+async function loadIconFonts() {
+  try {
+    await Font.loadAsync({
+      ...MaterialIcons.font,
+    });
+    console.log('✅ MaterialIcons font loaded successfully');
+  } catch (error) {
+    console.warn('⚠️ Failed to load MaterialIcons font:', error);
+  }
+}
 
 // Set up notification handler for when app is in background/closed
 Notifications.setNotificationHandler({
@@ -91,7 +105,16 @@ const DynamicPaperProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 function AppContent() {
   const { isLoggedIn, isLoading, user } = useSelector((state: RootState) => state.auth);
   const isReception = user?.role === 'reception';
+  const [fontsLoaded, setFontsLoaded] = useState(false);
   
+  // Load fonts on mount
+  useEffect(() => {
+    async function prepare() {
+      await loadIconFonts();
+      setFontsLoaded(true);
+    }
+    prepare();
+  }, []);
 
   useEffect(() => {
     if (isLoggedIn && user?.id) {
@@ -230,8 +253,8 @@ function AppContent() {
     };
   }, [isLoggedIn]); // Include isLoggedIn in dependencies to get current state
 
-  // Show splash screen while checking session
-  if (isLoading) {
+  // Show splash screen while loading fonts or checking session
+  if (!fontsLoaded || isLoading) {
     return null;
   }
   

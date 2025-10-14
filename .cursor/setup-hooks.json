@@ -1,0 +1,15 @@
+{
+  "setupHooks": [
+    {
+      "name": "Check Node Environment",
+      "command": "node",
+      "args": ["--version"]
+    },
+    {
+      "name": "Validate Supabase Config",
+      "command": "node",
+      "args": ["-e", "const fs = require('fs'); const config = require('./src/config/supabase.config.ts'); console.log('✅ Supabase config loaded'); process.exit(0);"]
+    }
+  ]
+}
+

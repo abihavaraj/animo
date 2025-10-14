@@ -41,3 +41,17 @@ app-example
 .env*.local
 
 .env.local
+
+# Cursor IDE
+.cursor/mcp.json
+
+# Firebase configuration (contains API keys)
+google-services.json
+GoogleService-Info.plist
+
+# Environment variables (contains sensitive keys)
+.env
+.env.local
+.env.development
+.env.production
+.env.*.local

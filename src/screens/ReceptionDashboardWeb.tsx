@@ -15,6 +15,7 @@ import ClientProfile from './admin/ClientProfile';
 import PCClassManagement from './admin/PCClassManagement';
 import PCSubscriptionPlans from './admin/PCSubscriptionPlans';
 import PCUserManagement from './admin/PCUserManagement';
+import BarPortalWeb from './reception/BarPortalWeb';
 import ReceptionReports from './ReceptionReports';
 // Import the enhanced client profile
 
@@ -117,6 +118,7 @@ const NavigationWrappedClientProfile = () => {
     />
   );
 };
+
 
 
 
@@ -1009,10 +1011,28 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation, waitlistMod
   const handleWaitlistClick = () => {
     let filteredWaitlist: any[] = [];
     let title = '';
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+
+    // 🚀 FIX: Always filter out past/expired waitlist entries
+    const activewaitlistData = rawWaitlistData.filter((waitlistEntry: any) => {
+      const classDate = waitlistEntry.classes?.date;
+      const classTime = waitlistEntry.classes?.time;
+      
+      if (!classDate) return false;
+      
+      // Check if class has already started
+      if (classTime) {
+        const classDateTime = new Date(`${classDate}T${classTime}`);
+        return classDateTime > now; // Only show waitlist for future classes
+      }
+      
+      // If no time, just check date
+      return classDate >= today;
+    });
 
     if (activeClassFilter === 'today') {
-      const today = new Date().toISOString().split('T')[0];
-      filteredWaitlist = rawWaitlistData.filter((waitlistEntry: any) => {
+      filteredWaitlist = activewaitlistData.filter((waitlistEntry: any) => {
         const classDate = waitlistEntry.classes?.date;
         return classDate === today;
       });
@@ -1021,14 +1041,22 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation, waitlistMod
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowStr = tomorrow.toISOString().split('T')[0];
-      filteredWaitlist = rawWaitlistData.filter((waitlistEntry: any) => {
+      filteredWaitlist = activewaitlistData.filter((waitlistEntry: any) => {
         const classDate = waitlistEntry.classes?.date;
         return classDate === tomorrowStr;
       });
       title = 'Waitlist Tomorrow';
     } else {
-      filteredWaitlist = rawWaitlistData;
-      title = 'All Waitlist Entries';
+      // 🚀 FIX: For 'week', show only this week's waitlist (not all past data)
+      const endOfWeek = new Date();
+      endOfWeek.setDate(endOfWeek.getDate() + (7 - endOfWeek.getDay())); // Sunday
+      const endOfWeekStr = endOfWeek.toISOString().split('T')[0];
+      
+      filteredWaitlist = activewaitlistData.filter((waitlistEntry: any) => {
+        const classDate = waitlistEntry.classes?.date;
+        return classDate >= today && classDate <= endOfWeekStr;
+      });
+      title = 'Waitlist This Week';
     }
 
     // Update the parent component with the filtered data
@@ -1411,40 +1439,74 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation, waitlistMod
             <TouchableOpacity onPress={handleWaitlistClick} style={styles.clickableMetricNumber}>
               <Text style={[styles.classMetricNumber, { color: '#FF9800' }]}>
                 {(() => {
+                  const now = new Date();
+                  const today = now.toISOString().split('T')[0];
+                  
+                  // 🚀 FIX: Filter out past waitlist entries from counts
+                  const activewaitlistData = rawWaitlistData.filter((waitlistEntry: any) => {
+                    const classDate = waitlistEntry.classes?.date;
+                    const classTime = waitlistEntry.classes?.time;
+                    if (!classDate) return false;
+                    
+                    if (classTime) {
+                      const classDateTime = new Date(`${classDate}T${classTime}`);
+                      return classDateTime > now;
+                    }
+                    return classDate >= today;
+                  });
+                  
                   if (activeClassFilter === 'today') {
-                    return classMetrics.waitlistToday.length;
+                    return activewaitlistData.filter((w: any) => w.classes?.date === today).length;
                   } else if (activeClassFilter === 'tomorrow') {
-                    // Calculate waitlist for tomorrow using waitlist data
                     const tomorrow = new Date();
                     tomorrow.setDate(tomorrow.getDate() + 1);
                     const tomorrowStr = tomorrow.toISOString().split('T')[0];
-                    
-                    return rawWaitlistData.filter((waitlistEntry: any) => {
-                      const classDate = waitlistEntry.classes?.date;
-                      return classDate === tomorrowStr;
-                    }).length;
+                    return activewaitlistData.filter((w: any) => w.classes?.date === tomorrowStr).length;
                   } else {
-                    // For 'all' or other filters, show total waitlist count
-                    return additionalStats.waitlistCount || 0;
+                    // For 'week', show only this week's waitlist count
+                    const endOfWeek = new Date();
+                    endOfWeek.setDate(endOfWeek.getDate() + (7 - endOfWeek.getDay()));
+                    const endOfWeekStr = endOfWeek.toISOString().split('T')[0];
+                    return activewaitlistData.filter((w: any) => {
+                      const classDate = w.classes?.date;
+                      return classDate >= today && classDate <= endOfWeekStr;
+                    }).length;
                   }
                 })()}
             </Text>
             </TouchableOpacity>
             <Text style={styles.classMetricSubtext}>
               {(() => {
+                const now = new Date();
+                const today = now.toISOString().split('T')[0];
+                
+                const activewaitlistData = rawWaitlistData.filter((waitlistEntry: any) => {
+                  const classDate = waitlistEntry.classes?.date;
+                  const classTime = waitlistEntry.classes?.time;
+                  if (!classDate) return false;
+                  if (classTime) {
+                    const classDateTime = new Date(`${classDate}T${classTime}`);
+                    return classDateTime > now;
+                  }
+                  return classDate >= today;
+                });
+                
                 const waitlistCount = (() => {
                   if (activeClassFilter === 'today') {
-                    return classMetrics.waitlistToday.length;
+                    return activewaitlistData.filter((w: any) => w.classes?.date === today).length;
                   } else if (activeClassFilter === 'tomorrow') {
                     const tomorrow = new Date();
                     tomorrow.setDate(tomorrow.getDate() + 1);
                     const tomorrowStr = tomorrow.toISOString().split('T')[0];
-                    return rawWaitlistData.filter((waitlistEntry: any) => {
-                      const classDate = waitlistEntry.classes?.date;
-                      return classDate === tomorrowStr;
-                    }).length;
+                    return activewaitlistData.filter((w: any) => w.classes?.date === tomorrowStr).length;
                   } else {
-                    return additionalStats.waitlistCount || 0;
+                    const endOfWeek = new Date();
+                    endOfWeek.setDate(endOfWeek.getDate() + (7 - endOfWeek.getDay()));
+                    const endOfWeekStr = endOfWeek.toISOString().split('T')[0];
+                    return activewaitlistData.filter((w: any) => {
+                      const classDate = w.classes?.date;
+                      return classDate >= today && classDate <= endOfWeekStr;
+                    }).length;
                   }
                 })();
                 
@@ -1814,141 +1876,190 @@ function ReceptionDashboard({ onNavigate, onStatsUpdate, navigation, waitlistMod
       {/* Bottom padding for scroll */}
       <View style={styles.bottomPadding} />
 
-      {/* Client Modal */}
+      {/* Client Modal - New PC-Optimized Design */}
       <Portal>
         <Modal
           visible={clientModalVisible}
           onDismiss={() => setClientModalVisible(false)}
           contentContainerStyle={styles.modalContainer}
         >
-          <View style={styles.modalCard}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <View style={styles.modalIcon}>
-                  <WebCompatibleIcon name="people" size={24} color="#2196F3" />
+          <View style={styles.modernModalCard}>
+            {/* Header */}
+            <View style={styles.modernModalHeader}>
+              <View style={styles.modernHeaderLeft}>
+                <View style={styles.modernModalIconWrapper}>
+                  <WebCompatibleIcon name="calendar" size={20} color="#FFFFFF" />
                 </View>
-                <Text style={styles.modalTitle}>
-                  {selectedClass?.name || 'Class'} - Client List
-                </Text>
-                <TouchableOpacity 
-                  onPress={() => setClientModalVisible(false)}
-                  style={styles.closeButton}
-                >
-                  <WebCompatibleIcon name="close" size={24} color="#666" />
-                </TouchableOpacity>
+                <View>
+                  <Text style={styles.modernModalTitle}>
+                    {selectedClass?.name || 'Class Details'}
+                  </Text>
+                  <Text style={styles.modernModalSubtitle}>
+                    {selectedClass?.date} • {selectedClass?.time || 'No time'}
+                  </Text>
+                </View>
               </View>
-              
-              {selectedClass && (
-                <View style={styles.clientModalContent}>
-                  {/* Class Info */}
-                  <View style={styles.classInfoCard}>
-                    <Text style={styles.classInfoTitle}>Class Information</Text>
-                    <View style={styles.classInfoGrid}>
-                      <View style={styles.classInfoItem}>
-                        <Text style={styles.classInfoLabel}>Date & Time:</Text>
-                        <Text style={styles.classInfoValue}>
-                          {selectedClass.date} at {selectedClass.time || 'No time'}
+              <TouchableOpacity 
+                onPress={() => setClientModalVisible(false)}
+                style={styles.modernCloseButton}
+              >
+                <WebCompatibleIcon name="close" size={20} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Body - Two Column Layout */}
+            {selectedClass && (
+              <View style={styles.modernModalBody}>
+                {/* Left Column - Class Info */}
+                <View style={styles.modernLeftColumn}>
+                  <View style={styles.modernInfoSection}>
+                    <Text style={styles.modernSectionTitle}>Class Information</Text>
+                    
+                    <View style={styles.modernInfoItem}>
+                      <View style={styles.modernInfoIconBox}>
+                        <WebCompatibleIcon name="person" size={16} color="#3B82F6" />
+                      </View>
+                      <View style={styles.modernInfoContent}>
+                        <Text style={styles.modernInfoLabel}>Instructor</Text>
+                        <Text style={styles.modernInfoValue}>
+                          {selectedClass.instructorDetails?.name || selectedClass.instructor_name || 'Not assigned'}
                         </Text>
                       </View>
-                                             <View style={styles.classInfoItem}>
-                         <Text style={styles.classInfoLabel}>Instructor:</Text>
-                         <Text style={styles.classInfoValue}>
-                           {selectedClass.instructorDetails?.name || selectedClass.instructor_name || 'No instructor'}
-                         </Text>
-                       </View>
-                      <View style={styles.classInfoItem}>
-                        <Text style={styles.classInfoLabel}>Capacity:</Text>
-                        <Text style={styles.classInfoValue}>
-                          {selectedClass.confirmedBookings || 0}/{selectedClass.max_capacity || selectedClass.capacity || 8}
+                    </View>
+
+                    <View style={styles.modernInfoItem}>
+                      <View style={styles.modernInfoIconBox}>
+                        <WebCompatibleIcon name="people" size={16} color="#10B981" />
+                      </View>
+                      <View style={styles.modernInfoContent}>
+                        <Text style={styles.modernInfoLabel}>Attendance</Text>
+                        <Text style={styles.modernInfoValue}>
+                          {selectedClass.confirmedBookings || 0} / {selectedClass.max_capacity || selectedClass.capacity || 8}
                         </Text>
                       </View>
-                      <View style={styles.classInfoItem}>
-                        <Text style={styles.classInfoLabel}>Waitlist:</Text>
-                        <Text style={styles.classInfoValue}>
-                          {selectedClass.waitlistCount || 0}
-                        </Text>
+                    </View>
+
+                    <View style={styles.modernInfoItem}>
+                      <View style={styles.modernInfoIconBox}>
+                        <WebCompatibleIcon name="time" size={16} color="#F59E0B" />
                       </View>
-                      <View style={styles.classInfoItem}>
-                        <Text style={styles.classInfoLabel}>Instructor:</Text>
-                        <Text style={styles.classInfoValue}>
-                          {selectedClass.instructorDetails?.name || selectedClass.instructor_name || 'No instructor'}
+                      <View style={styles.modernInfoContent}>
+                        <Text style={styles.modernInfoLabel}>Waitlist</Text>
+                        <Text style={styles.modernInfoValue}>
+                          {selectedClass.waitlistCount || 0} {selectedClass.waitlistCount === 1 ? 'person' : 'people'}
                         </Text>
                       </View>
                     </View>
                   </View>
 
-                  {/* Confirmed Clients */}
-                  {selectedClass.confirmedClients && selectedClass.confirmedClients.length > 0 && (
-                    <View style={styles.clientSection}>
-                      <Text style={styles.clientSectionTitle}>
-                        ✅ Confirmed Clients ({selectedClass.confirmedClients.length})
-                      </Text>
-                      <View style={styles.clientList}>
-                        {selectedClass.confirmedClients.map((client: any, index: number) => (
-                          <View key={client.id || index} style={styles.clientItem}>
-                            <View style={styles.clientAvatar}>
-                              <WebCompatibleIcon name="person" size={20} color="#4CAF50" />
-                            </View>
-                            <View style={styles.clientInfo}>
-                              <Text style={styles.clientName}>{client.name}</Text>
-                              <Text style={styles.clientEmail}>{client.email}</Text>
-                            </View>
-                            <View style={styles.clientStatus}>
-                              <Text style={styles.confirmedStatus}>Confirmed</Text>
-                            </View>
-                          </View>
-                        ))}
-                      </View>
+                  {/* Quick Stats */}
+                  <View style={styles.modernStatsRow}>
+                    <View style={styles.modernStatBox}>
+                      <Text style={styles.modernStatNumber}>{selectedClass.confirmedBookings || 0}</Text>
+                      <Text style={styles.modernStatLabel}>Confirmed</Text>
                     </View>
-                  )}
-
-                  {/* Waitlist Clients */}
-                  {selectedClass.waitlistClients && selectedClass.waitlistClients.length > 0 && (
-                    <View style={styles.clientSection}>
-                      <Text style={styles.clientSectionTitle}>
-                        ⏳ Waitlist Clients ({selectedClass.waitlistClients.length})
-                      </Text>
-                      <View style={styles.clientList}>
-                        {selectedClass.waitlistClients.map((client: any, index: number) => (
-                          <View key={client.id || index} style={styles.clientItem}>
-                            <View style={styles.clientAvatar}>
-                              <WebCompatibleIcon name="person" size={20} color="#FF9800" />
-                            </View>
-                            <View style={styles.clientInfo}>
-                              <Text style={styles.clientName}>{client.name}</Text>
-                              <Text style={styles.clientEmail}>{client.email}</Text>
-                            </View>
-                            <View style={styles.clientStatus}>
-                              <Text style={styles.waitlistStatus}>Waitlist</Text>
-                            </View>
-                          </View>
-                        ))}
-                      </View>
+                    <View style={styles.modernStatBox}>
+                      <Text style={[styles.modernStatNumber, { color: '#F59E0B' }]}>{selectedClass.waitlistCount || 0}</Text>
+                      <Text style={styles.modernStatLabel}>Waiting</Text>
                     </View>
-                  )}
-
-                  {/* No Clients Message */}
-                  {(!selectedClass.confirmedClients || selectedClass.confirmedClients.length === 0) && 
-                   (!selectedClass.waitlistClients || selectedClass.waitlistClients.length === 0) && (
-                    <View style={styles.noClientsMessage}>
-                      <WebCompatibleIcon name="people-outline" size={48} color="#9CA3AF" />
-                      <Text style={styles.noClientsText}>No clients registered for this class</Text>
-                      <Text style={styles.noClientsSubtext}>
-                        Clients will appear here once they book or join the waitlist
+                    <View style={styles.modernStatBox}>
+                      <Text style={[styles.modernStatNumber, { color: '#6B7280' }]}>
+                        {(selectedClass.max_capacity || selectedClass.capacity || 8) - (selectedClass.confirmedBookings || 0)}
                       </Text>
+                      <Text style={styles.modernStatLabel}>Available</Text>
                     </View>
-                  )}
+                  </View>
                 </View>
-              )}
-              
-              <View style={styles.modalActions}>
-                <TouchableOpacity 
-                  onPress={() => setClientModalVisible(false)}
-                  style={styles.modalCancelButton}
-                >
-                  <Text style={styles.modalCancelButtonText}>Close</Text>
-                </TouchableOpacity>
+
+                {/* Right Column - Client Lists */}
+                <View style={styles.modernRightColumn}>
+                  <Text style={styles.modernSectionTitle}>Participants</Text>
+                  
+                  <ScrollView style={styles.modernClientScrollArea} showsVerticalScrollIndicator={true}>
+                    {/* Confirmed Clients */}
+                    {selectedClass.confirmedClients && selectedClass.confirmedClients.length > 0 && (
+                      <View style={styles.modernClientGroup}>
+                        <View style={styles.modernGroupHeader}>
+                          <View style={[styles.modernGroupBadge, { backgroundColor: '#D1FAE5' }]}>
+                            <Text style={[styles.modernGroupBadgeText, { color: '#065F46' }]}>
+                              Confirmed ({selectedClass.confirmedClients.length})
+                            </Text>
+                          </View>
+                        </View>
+                        {selectedClass.confirmedClients.map((client: any, index: number) => (
+                          <View key={client.id || index} style={styles.modernClientCard}>
+                            <View style={[styles.modernClientAvatar, { backgroundColor: '#DBEAFE' }]}>
+                              <Text style={[styles.modernClientInitial, { color: '#1E40AF' }]}>
+                                {client.name?.charAt(0).toUpperCase()}
+                              </Text>
+                            </View>
+                            <View style={styles.modernClientDetails}>
+                              <Text style={styles.modernClientName}>{client.name}</Text>
+                              <Text style={styles.modernClientEmail}>{client.email}</Text>
+                            </View>
+                            <View style={[styles.modernStatusBadge, { backgroundColor: '#D1FAE5' }]}>
+                              <View style={[styles.modernStatusDot, { backgroundColor: '#10B981' }]} />
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+
+                    {/* Waitlist Clients */}
+                    {selectedClass.waitlistClients && selectedClass.waitlistClients.length > 0 && (
+                      <View style={styles.modernClientGroup}>
+                        <View style={styles.modernGroupHeader}>
+                          <View style={[styles.modernGroupBadge, { backgroundColor: '#FEF3C7' }]}>
+                            <Text style={[styles.modernGroupBadgeText, { color: '#92400E' }]}>
+                              Waitlist ({selectedClass.waitlistClients.length})
+                            </Text>
+                          </View>
+                        </View>
+                        {selectedClass.waitlistClients.map((client: any, index: number) => (
+                          <View key={client.id || index} style={styles.modernClientCard}>
+                            <View style={[styles.modernClientAvatar, { backgroundColor: '#FEF3C7' }]}>
+                              <Text style={[styles.modernClientInitial, { color: '#D97706' }]}>
+                                {client.name?.charAt(0).toUpperCase()}
+                              </Text>
+                            </View>
+                            <View style={styles.modernClientDetails}>
+                              <Text style={styles.modernClientName}>{client.name}</Text>
+                              <Text style={styles.modernClientEmail}>{client.email}</Text>
+                            </View>
+                            <View style={[styles.modernStatusBadge, { backgroundColor: '#FEF3C7' }]}>
+                              <View style={[styles.modernStatusDot, { backgroundColor: '#F59E0B' }]} />
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+
+                    {/* No Clients */}
+                    {(!selectedClass.confirmedClients || selectedClass.confirmedClients.length === 0) && 
+                     (!selectedClass.waitlistClients || selectedClass.waitlistClients.length === 0) && (
+                      <View style={styles.modernEmptyState}>
+                        <View style={styles.modernEmptyIcon}>
+                          <WebCompatibleIcon name="people-outline" size={40} color="#D1D5DB" />
+                        </View>
+                        <Text style={styles.modernEmptyTitle}>No participants yet</Text>
+                        <Text style={styles.modernEmptyText}>
+                          Clients will appear here when they book this class
+                        </Text>
+                      </View>
+                    )}
+                  </ScrollView>
+                </View>
               </View>
+            )}
+
+            {/* Footer */}
+            <View style={styles.modernModalFooter}>
+              <TouchableOpacity 
+                onPress={() => setClientModalVisible(false)}
+                style={styles.modernFooterButton}
+              >
+                <Text style={styles.modernFooterButtonText}>Close</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </Modal>
@@ -2505,6 +2616,7 @@ function ReceptionSidebar({ activeScreen, onNavigate, stats, onOpenAnnouncements
     { key: 'Classes', icon: 'fitness-center', label: 'Class Management', badge: stats?.todayClasses?.toString() || '0' },
     { key: 'Plans', icon: 'card-membership', label: 'Subscription Plans', badge: null },
     { key: 'Reports', icon: 'assessment', label: 'Reports & Analytics', badge: null },
+    { key: 'BarPortal', icon: 'local-cafe', label: 'Bar Portal', badge: null },
   ];
 
   const specialItems = [
@@ -2828,6 +2940,9 @@ function ReceptionPCLayout({ navigation }: any) {
       case 'Plans':
 
         return <PCSubscriptionPlans />;
+      case 'BarPortal':
+
+        return <BarPortalWeb navigation={navigation} />;
       case 'Reports':
 
         return <ReceptionReports />;
@@ -2922,6 +3037,8 @@ function ReceptionPCLayout({ navigation }: any) {
             <Text style={styles.contentTitle}>
               {activeScreen === 'Clients' 
                 ? 'User Management'
+                : activeScreen === 'BarPortal'
+                ? 'Bar Management Portal'
                 : activeScreen}
             </Text>
           </View>
@@ -3889,7 +4006,7 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     width: '100%',
-    maxWidth: 400,
+    maxWidth: 600,
     backgroundColor: '#ffffff',
     borderRadius: 12,
   },
@@ -3911,8 +4028,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#2c3e50',
-    textAlign: 'center',
-    marginBottom: 20,
+    flex: 1,
   },
   modalSubtitle: {
     fontSize: 14,
@@ -4319,12 +4435,14 @@ const styles = StyleSheet.create({
     //
   },
   waitlistItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
+    flexDirection: 'column',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
+    backgroundColor: '#FAFAFA',
+    borderRadius: 8,
+    marginBottom: 12,
   },
   waitlistInfo: {
     flex: 1,
@@ -4538,6 +4656,264 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     marginTop: 4,
     textAlign: 'center',
+  },
+
+  // Modern Modal Styles - New Design
+  modernModalCard: {
+    width: '100%',
+    maxWidth: 1100,
+    maxHeight: '85%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.15,
+    shadowRadius: 30,
+    elevation: 15,
+  },
+  modernModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 28,
+    paddingVertical: 20,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  modernHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  modernModalIconWrapper: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#3B82F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modernModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+    letterSpacing: -0.3,
+  },
+  modernModalSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  modernCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#F9FAFB',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modernModalBody: {
+    flexDirection: 'row',
+    flex: 1,
+    overflow: 'hidden',
+  },
+  modernLeftColumn: {
+    width: 340,
+    backgroundColor: '#F9FAFB',
+    paddingHorizontal: 24,
+    paddingVertical: 24,
+    borderRightWidth: 1,
+    borderRightColor: '#E5E7EB',
+  },
+  modernRightColumn: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingVertical: 24,
+  },
+  modernSectionTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#374151',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 16,
+  },
+  modernInfoSection: {
+    marginBottom: 24,
+  },
+  modernInfoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modernInfoIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  modernInfoContent: {
+    flex: 1,
+  },
+  modernInfoLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#9CA3AF',
+    marginBottom: 3,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  modernInfoValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  modernStatsRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modernStatBox: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+  },
+  modernStatNumber: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#3B82F6',
+    marginBottom: 4,
+  },
+  modernStatLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#6B7280',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  modernClientScrollArea: {
+    flex: 1,
+    maxHeight: 480,
+  },
+  modernClientGroup: {
+    marginBottom: 24,
+  },
+  modernGroupHeader: {
+    marginBottom: 12,
+  },
+  modernGroupBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    alignSelf: 'flex-start',
+  },
+  modernGroupBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  modernClientCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+  },
+  modernClientAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  modernClientInitial: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  modernClientDetails: {
+    flex: 1,
+  },
+  modernClientName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  modernClientEmail: {
+    fontSize: 13,
+    color: '#6B7280',
+  },
+  modernStatusBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modernStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  modernEmptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 32,
+  },
+  modernEmptyIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#F9FAFB',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modernEmptyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  modernEmptyText: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  modernModalFooter: {
+    paddingHorizontal: 28,
+    paddingVertical: 20,
+    backgroundColor: '#F9FAFB',
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    alignItems: 'flex-end',
+  },
+  modernFooterButton: {
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+    backgroundColor: '#3B82F6',
+    borderRadius: 10,
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  modernFooterButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 
   // Subscriptions Ending Soon Modal Styles
@@ -5173,7 +5549,7 @@ const styles = StyleSheet.create({
   
   // Additional modal styles
   modalBody: {
-    maxHeight: 400,
+    maxHeight: 500,
     paddingVertical: 16,
   },
   emptyState: {
