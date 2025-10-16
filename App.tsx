@@ -172,8 +172,9 @@ function AppContent() {
 
       }
 
-      // Handle push notification registration
-      const tokenListener = Notifications.addPushTokenListener(async token => {
+      // Handle push notification registration (gate on non-web to avoid Expo web warning)
+      const tokenListener: { remove: () => void } = Platform.OS !== 'web'
+        ? Notifications.addPushTokenListener(async token => {
         // Store token in Supabase when received
         if (user?.id && token.data) {
           try {
@@ -199,10 +200,11 @@ function AppContent() {
             console.error('❌ [App] Token save error:', error);
           }
         }
-      });
+      })
+        : { remove: () => {} };
 
       return () => {
-        tokenListener.remove();
+        try { tokenListener.remove?.(); } catch {}
       };
     }
   }, [isLoggedIn, user?.id]);

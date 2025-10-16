@@ -437,6 +437,19 @@ function MyClients() {
               );
 
               if (response.success) {
+                // 🚨 CRITICAL FIX: Cancel any class reminders for this user
+                try {
+                  const { pushNotificationService } = await import('../../services/pushNotificationService');
+                  await pushNotificationService.cancelClassReminder(
+                    selectedClient.client_id,
+                    classId
+                  );
+                  console.log('✅ [INSTRUCTOR_MY_CLIENTS] Class reminder notifications cancelled');
+                } catch (reminderError) {
+                  console.error('⚠️ [INSTRUCTOR_MY_CLIENTS] Failed to cancel reminder (non-blocking):', reminderError);
+                  // Don't fail the unassignment if reminder cancellation fails
+                }
+
                 Alert.alert('Success', 'Client unassigned from class successfully!');
                 loadClientBookings(selectedClient.client_id); // Refresh bookings
               } else {

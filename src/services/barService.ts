@@ -364,9 +364,16 @@ class BarService {
       const orders = await this.getTableOrders(tableId);
       console.log(`📋 Found ${orders.length} orders for table ${tableId}`);
       
+      // If no orders, just close the table without creating a sale
       if (orders.length === 0) {
-        console.error('❌ No orders to close');
-        throw new Error('No orders to close');
+        console.log('ℹ️ No orders found - closing table without creating sale');
+        const success = await this.updateTableStatus(tableId, 'available');
+        if (success) {
+          console.log(`✅ Table ${tableId} closed successfully (no orders)`);
+          return null; // Return null to indicate successful closure but no sale created
+        } else {
+          throw new Error('Failed to update table status');
+        }
       }
 
       // 3. Calculate totals

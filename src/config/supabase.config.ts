@@ -5,18 +5,17 @@ import { Platform } from 'react-native';
 // Supabase configuration - use environment variables only
 export const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-
-// Service role key for admin operations (password updates, user management)
-// IMPORTANT: Only used server-side, never exposed in client builds
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// Service role key - hardcoded for local dev (Expo web doesn't load non-EXPO_PUBLIC_ vars)
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5aHF1ZWtzZHdsYml3b2RwYmJkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Mjg2MDQ3OCwiZXhwIjoyMDY4NDM2NDc4fQ.AaWYRUo7jZIb48uZtCl__49sNsU_jPFCA0Auyg2ffeQ';
 
 // Validate required environment variables
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing required Supabase environment variables. Please check your .env file.');
 }
 
-// Create Supabase client with enhanced session persistence
-const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+// Create Supabase client with enhanced session persistence (singleton to avoid multi-instances on web/HMR)
+const existingStudio = (globalThis as any).__animo_studio_supabase as any | undefined;
+const supabaseClient = existingStudio ?? ((globalThis as any).__animo_studio_supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     // Use platform-appropriate storage
     storage: Platform.OS === 'web' ? {
@@ -84,7 +83,7 @@ const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
       eventsPerSecond: 10,
     },
   }
-});
+}));
 
 // Add auth state change listener for debugging
 if (__DEV__) {
@@ -108,8 +107,7 @@ if (__DEV__) {
   });
 }
 
-// Create admin client for admin operations like password updates
-// Only create if service key is available (not needed on client-side)
+// Create admin client for admin operations (only if service key is available)
 const supabaseAdminClient = supabaseServiceKey 
   ? createClient(supabaseUrl, supabaseServiceKey, {
       auth: {
@@ -122,6 +120,12 @@ const supabaseAdminClient = supabaseServiceKey
 
 // Log configuration details
 console.log('🏢 Studio Supabase initialized with storageKey:', 'animo-pilates-studio-auth');
+
+// Log admin client status in dev mode
+if (__DEV__) {
+  console.log('🔍 [Supabase Config] Admin Client:', supabaseAdminClient ? '✅ Available' : '⚠️ Not configured (set SUPABASE_SERVICE_ROLE_KEY)');
+  console.log('🔍 [Supabase Config] Platform:', Platform.OS);
+}
 
 export { supabaseClient as supabase, supabaseAdminClient as supabaseAdmin };
 

@@ -358,13 +358,16 @@ export default function BarPortalWeb({ navigation }: any) {
       );
       
       if (sale) {
+        // Table closed with orders - sale created
         await loadTables();
         await loadSales();
         closeModal();
         alert(`Table closed! Total: Lek ${sale.total.toFixed(2)}`);
       } else {
-        alert('Error closing table. Please try again.');
-        console.error('Failed to create sale - no sale object returned');
+        // Table closed without orders - no sale created (this is normal)
+        await loadTables();
+        closeModal();
+        alert('Table closed successfully (no orders).');
       }
     } catch (error) {
       console.error('Error closing table:', error);

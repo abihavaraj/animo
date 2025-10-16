@@ -18,9 +18,10 @@ if (!barSupabaseUrl || !barSupabaseAnonKey) {
   console.warn('⚠️ Bar Supabase NOT configured - missing environment variables');
 }
 
-// Create Bar-specific Supabase client only if configured
+// Create Bar-specific Supabase client only if configured (singleton to avoid multiple instances)
+const existingBar = (globalThis as any).__animo_bar_supabase as any | undefined;
 const barSupabaseClient = barSupabaseUrl && barSupabaseAnonKey 
-  ? createClient(barSupabaseUrl, barSupabaseAnonKey, {
+  ? (existingBar ?? ((globalThis as any).__animo_bar_supabase = createClient(barSupabaseUrl, barSupabaseAnonKey, {
   auth: {
     // Use platform-appropriate storage
     storage: Platform.OS === 'web' ? {
@@ -72,7 +73,7 @@ const barSupabaseClient = barSupabaseUrl && barSupabaseAnonKey
       eventsPerSecond: 10,
     },
   },
-})
+})))
   : null; // Return null if bar is not configured
 
 // Export the bar client

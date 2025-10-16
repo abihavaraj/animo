@@ -156,6 +156,10 @@ class UserService {
     try {
       devLog('🔐 [userService] Updating user password directly:', userId);
       
+      if (!supabaseAdmin) {
+        return { success: false, error: 'Admin operations not available. Please set SUPABASE_SERVICE_ROLE_KEY in your environment variables.' };
+      }
+
       // Update password using Supabase admin client (has service role key)
       const { data, error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
         password: passwordData.newPassword
@@ -180,6 +184,10 @@ class UserService {
     try {
       devLog('📧 [userService] Updating user email directly:', userId, emailData.newEmail);
       
+      if (!supabaseAdmin) {
+        return { success: false, error: 'Admin operations not available. Please set SUPABASE_SERVICE_ROLE_KEY in your environment variables.' };
+      }
+
       // Update email using Supabase admin client (has service role key)
       const { data, error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
         email: emailData.newEmail,
@@ -220,6 +228,10 @@ class UserService {
     try {
       devLog('🔨 [userService] Creating new user:', userData.email);
       
+      if (!supabaseAdmin) {
+        return { success: false, error: 'Admin operations not available. Please set SUPABASE_SERVICE_ROLE_KEY in your environment variables.' };
+      }
+
       // Create auth user using admin API (bypasses email confirmation)
       const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
         email: userData.email,
@@ -317,6 +329,10 @@ class UserService {
     try {
       devLog('🗑️ [userService] Deleting user:', id);
       
+      if (!supabaseAdmin) {
+        return { success: false, error: 'Admin operations not available. Please set SUPABASE_SERVICE_ROLE_KEY in your environment variables.' };
+      }
+
       // First delete from users table
       const { error: profileError } = await supabase
         .from('users')

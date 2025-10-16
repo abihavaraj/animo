@@ -683,6 +683,19 @@ function ScheduleOverview() {
       );
       
       if (response.success) {
+        // 🚨 CRITICAL FIX: Cancel any class reminders for this user
+        try {
+          const { pushNotificationService } = await import('../../services/pushNotificationService');
+          await pushNotificationService.cancelClassReminder(
+            selectedClientForUnassignment.user_id || selectedClientForUnassignment.id,
+            selectedClassForUnassignment.id
+          );
+          console.log('✅ [INSTRUCTOR_UNASSIGN] Class reminder notifications cancelled');
+        } catch (reminderError) {
+          console.error('⚠️ [INSTRUCTOR_UNASSIGN] Failed to cancel reminder (non-blocking):', reminderError);
+          // Don't fail the unassignment if reminder cancellation fails
+        }
+
         // Log activity for reception
         if (selectedClientForUnassignment && selectedClassForUnassignment && user) {
           await activityService.logActivity({

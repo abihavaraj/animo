@@ -4,18 +4,18 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Dimensions, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
-    ActivityIndicator,
-    Avatar,
-    Button,
-    Card,
-    Checkbox,
-    Chip,
-    Dialog,
-    IconButton,
-    Paragraph,
-    Portal,
-    Searchbar,
-    TextInput
+  ActivityIndicator,
+  Avatar,
+  Button,
+  Card,
+  Checkbox,
+  Chip,
+  Dialog,
+  IconButton,
+  Paragraph,
+  Portal,
+  Searchbar,
+  TextInput
 } from 'react-native-paper';
 import { useDispatch, useSelector } from 'react-redux';
 import { Body, Caption, H1, H2, H3 } from '../../../components/ui/Typography';
@@ -24,10 +24,10 @@ import WebCompatibleIcon from '../../components/WebCompatibleIcon';
 import { supabase } from '../../config/supabase.config';
 import { activityService, StaffActivity } from '../../services/activityService';
 import {
-    ClientMedicalUpdate,
-    ClientProgressPhoto,
-    InstructorClientAssignment,
-    instructorClientService
+  ClientMedicalUpdate,
+  ClientProgressPhoto,
+  InstructorClientAssignment,
+  instructorClientService
 } from '../../services/instructorClientService';
 import { subscriptionService } from '../../services/subscriptionService';
 import { BackendUser, userService } from '../../services/userService';
@@ -590,13 +590,19 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
       const activeSubscriptionData = subscriptions?.[0];
       
       // Get actual payment history from database (both payments and manual_credits)
+      // AND link them to subscription status to show cancelled vs completed
       
-      // Query regular payments
+      // Query regular payments with subscription info
       let { data: payments, error: paymentError } = await supabase
         .from('payments')
         .select('*')
         .eq('user_id', String(userId))
         .order('created_at', { ascending: false });
+      
+      // Log any errors for debugging
+      if (paymentError) {
+        console.log('Payment query error:', paymentError);
+      }
       
       // Also try to get payments using the client's auth_id if available
       if ((client as any)?.auth_id && (!payments || payments.length === 0)) {
@@ -609,6 +615,105 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         if (authPayments && authPayments.length > 0) {
           payments = authPayments;
         }
+      }
+
+      // Fetch subscription details to check if cancelled
+      let subscriptionMap: any = {};
+      // NOTE: Subscription lookup disabled due to RLS policy issues preventing direct ID queries
+      // Payments now show as-is from database without cancellation status
+      // Future: Consider adding subscription_status field directly to payments table or use event-based tracking
+
+      // Combine payments and manual credits into a unified payment history
+      const allPayments = [];
+      
+      // Add regular payments - show real data as-is
+      if (payments) {
+        // First, fetch all subscriptions for this user to match by date
+        const { data: allUserSubscriptions } = await supabase
+          .from('user_subscriptions')
+          .select('id, status, start_date, end_date, created_at, subscription_plans(name, monthly_price)')
+          .eq('user_id', String(userId))
+          .order('start_date', { ascending: false });
+
+        // Create a map for quick lookup by date
+        const subscriptionsByDate: any[] = allUserSubscriptions || [];
+
+        payments.forEach(payment => {
+          // Try to find matching subscription by date overlap
+          let matchedSub = null;
+          const paymentDate = new Date(payment.payment_date || payment.created_at);
+
+          if (subscriptionsByDate.length > 0) {
+            // Find all subscriptions that overlap with payment date
+            const overlappingSubs = subscriptionsByDate.filter(sub => {
+              const startDate = new Date(sub.start_date);
+              const endDate = new Date(sub.end_date);
+              return paymentDate >= startDate && paymentDate <= endDate;
+            });
+
+            if (overlappingSubs.length > 0) {
+              const paymentCreatedAt = new Date(payment.created_at);
+              
+              // Filter to only subscriptions that match price and existed at payment time
+              const priceAndTimeMatches = overlappingSubs.filter(sub => {
+                const subPrice = parseFloat(sub.subscription_plans?.monthly_price || 0);
+                const paymentAmount = parseFloat(payment.amount || 0);
+                const subCreatedAt = new Date(sub.created_at);
+                
+                const priceMatches = Math.abs(subPrice - paymentAmount) < 0.01;
+                const timelineMatches = subCreatedAt <= paymentCreatedAt;
+                
+                return priceMatches && timelineMatches;
+              });
+              
+              // PRIORITY 1: Price+time match AND closest to payment time (for same-day subscriptions)
+              if (priceAndTimeMatches.length > 0) {
+                // Sort by created_at descending (newest first) to get the closest subscription to payment time
+                priceAndTimeMatches.sort((a, b) => {
+                  const timeA = new Date(a.created_at).getTime();
+                  const timeB = new Date(b.created_at).getTime();
+                  return timeB - timeA; // Descending
+                });
+                
+                // Pick the one closest to payment time (newest subscription before payment)
+                matchedSub = priceAndTimeMatches[0];
+              }
+              
+              // PRIORITY 2: If no price+time match, try price only
+              if (!matchedSub) {
+                matchedSub = overlappingSubs.find(sub => {
+                  const subPrice = parseFloat(sub.subscription_plans?.monthly_price || 0);
+                  const paymentAmount = parseFloat(payment.amount || 0);
+                  return Math.abs(subPrice - paymentAmount) < 0.01;
+                });
+              }
+              
+              // PRIORITY 3: If no price match, prioritize non-cancelled subscriptions
+              if (!matchedSub) {
+                matchedSub = overlappingSubs.find(sub => sub.status !== 'cancelled');
+              }
+              
+              // PRIORITY 4: If all are cancelled, just use the first one
+              if (!matchedSub) {
+                matchedSub = overlappingSubs[0];
+              }
+            }
+          }
+
+          allPayments.push({
+            id: payment.id,
+            amount: payment.amount,
+            payment_method: payment.payment_method || 'card',
+            created_at: payment.created_at,
+            payment_date: payment.payment_date,
+            status: matchedSub?.status === 'cancelled' ? 'cancelled' : (payment.status || 'completed'),
+            display_status: matchedSub?.status === 'cancelled' ? 'CANCELLED' : 'COMPLETED',
+            subscription_status: matchedSub?.status || null,
+            notes: payment.notes || `Payment transaction`,
+            type: 'payment',
+            subscription_name: matchedSub?.subscription_plans?.name
+          });
+        });
       }
 
       // Query manual credits - use string format for UUID compatibility
@@ -640,35 +745,21 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         }
       }
 
-      // Combine payments and manual credits into a unified payment history
-      const allPayments = [];
-      
-      // Add regular payments
-      if (payments) {
-        payments.forEach(payment => {
-          allPayments.push({
-            id: payment.id,
-            amount: payment.amount,
-            payment_method: payment.payment_method || 'card',
-            created_at: payment.created_at,
-            payment_date: payment.payment_date,
-            status: payment.status || 'completed',
-            notes: `Payment for subscription`,
-            type: 'payment'
-          });
-        });
-      }
+      // Sort all payments by created_at (newest first)
+      allPayments.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-      // Add manual credits
-      if (finalManualCredits) {
+      // Add manual credits to payment history
+      if (finalManualCredits && finalManualCredits.length > 0) {
         finalManualCredits.forEach(credit => {
           allPayments.push({
             id: credit.id,
             amount: credit.amount,
             payment_method: 'manual',
             created_at: credit.created_at,
-            payment_date: credit.created_at.split('T')[0], // Use created_at as payment_date
+            payment_date: credit.created_at.split('T')[0],
             status: 'completed',
+            display_status: 'CREDIT',
+            subscription_status: null,
             notes: `${credit.reason}: ${credit.description || 'Manual credit'}`,
             type: 'manual_credit',
             admin_name: credit.admins?.name || 'Admin'
@@ -676,73 +767,14 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         });
       }
 
-      // Sort all payments by created_at (newest first)
+      // Re-sort all payments combined (real + manual credits) by created_at (newest first)
       allPayments.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
       // Create fallback payment data - check if we have specific data for this user
       let fallbackPayments: any[] = [];
       
-      // For argjend user, use the actual payment data from logs
-      if (userId === '0c6754c3-1c84-438a-8b56-f8a6a3f44fcc') {
-        fallbackPayments = [
-          {
-            amount: 8500,
-            payment_method: 'manual',
-            created_at: '2025-07-21T15:37:51.38735+00:00',
-            status: 'completed',
-            notes: 'Manual payment entry'
-          },
-          {
-            amount: -1062.5,
-            payment_method: 'manual', 
-            created_at: '2025-07-21T16:14:59.88242+00:00',
-            status: 'completed',
-            notes: 'Refund transaction'
-          },
-          {
-            amount: 37.5,
-            payment_method: 'manual',
-            created_at: '2025-07-21T16:15:10.065058+00:00', 
-            status: 'completed',
-            notes: 'Partial payment'
-          },
-          {
-            amount: 150,
-            payment_method: 'manual',
-            created_at: '2025-07-21T16:16:52.980052+00:00',
-            status: 'completed', 
-            notes: 'Service fee'
-          },
-          {
-            amount: 8500,
-            payment_method: 'manual',
-            created_at: '2025-07-21T16:38:23.4084+00:00',
-            status: 'completed',
-            notes: 'Monthly subscription payment'
-          }
-        ];
-      } else {
-        // For other users, create sample payments if total spent > 0
-        const subscriptionPrice = activeSubscriptionData?.subscription_plans?.monthly_price || 10000;
-        if (subscriptionPrice > 0) {
-          fallbackPayments = [
-            {
-              amount: subscriptionPrice,
-              payment_method: 'card',
-              created_at: new Date().toISOString(),
-              status: 'completed',
-              notes: 'Monthly subscription payment'
-            },
-            {
-              amount: subscriptionPrice * 0.8,
-              payment_method: 'card',
-              created_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days ago
-              status: 'completed',
-              notes: 'Previous monthly payment'
-            }
-          ];
-        }
-      }
+      // NOTE: Removed hardcoded fallback data - now using only real database records
+      // If no real payments exist, the payments table will be empty which is correct
 
       // Store combined payment history in state
       if (allPayments.length > 0) {
@@ -754,7 +786,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
       }
 
       // Calculate total spent from subscription data (ALWAYS excludes cancelled subscriptions)
-      // Business Logic: cancelled = refund/mistake (excluded), active/terminated = completed service (included)
+      // Business Logic: cancelled = refund/mistake (excluded), active/terminated/expired = completed service (included)
       let totalSpent = 0;
       
 
@@ -776,32 +808,31 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
 
         totalSpent = 0;
       } else {
-        // Exclude 'cancelled' subscriptions (refunded/mistakes), include 'active', 'expired', 'terminated' (completed services)
-
-        totalSpent = allSubscriptions?.reduce((sum: number, sub: any) => {
-
-          if (sub.status === 'cancelled') {
-
-            return sum;
-          }
-          const price = sub.subscription_plans?.monthly_price || 0;
-
-          return sum + price;
-        }, 0) || 0;
-
+        // Calculate total from actual payments matched to non-cancelled subscriptions
+        // This is more accurate than using plan prices
+        totalSpent = (allPayments || [])
+          .filter(payment => {
+            // Only count completed payments that aren't refunds
+            if (payment.type === 'manual_credit') return false; // Don't count manual credits in revenue
+            if ((payment.amount || 0) < 0) return false; // Don't count negative amounts (refunds)
+            if (payment.status === 'cancelled' || payment.subscription_status === 'cancelled') return false; // Don't count cancelled
+            return true;
+          })
+          .reduce((sum: number, payment: any) => sum + (payment.amount || 0), 0);
       }
 
       // Use payment records for display/verification but not for total calculation
+      // NOTE: Subscription total is calculated from subscription_plans.monthly_price, not payment records
       if (payments && !paymentError && payments.length > 0) {
-
+        // For reference only - don't use this for totalSpent calculation
         const completedPayments = payments.filter((p: any) => p.status === 'completed' || !p.status);
-        const paymentTotal = completedPayments.reduce((sum: number, payment: any) => sum + (payment.amount || 0), 0);
-
+        const positivePayments = completedPayments.filter((p: any) => (p.amount || 0) > 0);
+        // Only for display/reference, not used for totalSpent calculation
       } else if (fallbackPayments.length > 0) {
-
+        // For reference only - don't use this for totalSpent calculation
         const completedPayments = fallbackPayments.filter((p: any) => p.status === 'completed' || !p.status);
-        const paymentTotal = completedPayments.reduce((sum: number, payment: any) => sum + (payment.amount || 0), 0);
-
+        const positivePayments = completedPayments.filter((p: any) => (p.amount || 0) > 0);
+        // Only for display/reference, not used for totalSpent calculation
       }
 
       const totalBookings = allBookings?.length || 0;
@@ -1119,8 +1150,10 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
         
         return {
           ...assignment,
-          instructor_name: instructor?.name || 'Unknown Instructor',
-          assigned_by_name: assignment.assigned_by === 'system' ? 'System' : (assignedBy?.name || 'Unknown')
+          instructor_name: (instructor && typeof instructor === 'object' && 'name' in instructor) ? (instructor as any).name : 'Unknown Instructor',
+          assigned_by_name: assignment.assigned_by === 'system'
+            ? 'System'
+            : ((assignedBy && typeof assignedBy === 'object' && 'name' in assignedBy) ? (assignedBy as any).name : 'Unknown')
         };
       });
 
@@ -2883,7 +2916,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
               remainingClasses: activeSubscription.remaining_classes,
               status: activeSubscription.status,
               reason: 'Cancelled by reception',
-              refundAmount: result.data?.refundAmount || 0
+              refundAmount: (result as any).data?.refundAmount || 0
             }
           });
         }
@@ -2933,7 +2966,7 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
               status: activeSubscription.status,
               reason: 'Terminated by reception',
               terminationType: 'immediate',
-              refundAmount: result.data?.refundAmount || 0
+              refundAmount: (result as any).data?.refundAmount || 0
             }
           });
         }
@@ -3088,9 +3121,14 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
     return (
       <View style={styles.tabContent}>
         <View style={styles.tabHeaderModern}>
-          <Body style={{ ...styles.tabHeaderTitleModern, color: textColor }}>
-            Payment History (Total: {formatCurrency(clientStats?.totalSpent || 0)})
-          </Body>
+          <View>
+            <Body style={{ ...styles.tabHeaderTitleModern, color: textColor }}>
+              Payment History (Total Paid: {formatCurrency(clientStats?.totalSpent || 0)})
+            </Body>
+            <Caption style={{ color: textMutedColor, marginTop: 4 }}>
+              Total excludes cancelled subscriptions (refunded)
+            </Caption>
+          </View>
         </View>
 
         {recentPayments.length > 0 ? (
@@ -3099,45 +3137,76 @@ const ReceptionClientProfile: React.FC<{ userId?: number | string; userName?: st
             <H2 style={{ ...styles.sectionTitleModern, color: textColor }}>All Payments</H2>
             
             {/* All payment entries */}
-            {recentPayments.map((payment, index) => (
-              <View key={index} style={styles.paymentItemModern}>
-                <View style={styles.paymentHeaderModern}>
-                  <MaterialIcons 
-                    name={payment.type === 'manual_credit' ? 'account-balance-wallet' : 'attach-money'} 
-                    size={24} 
-                    color={payment.type === 'manual_credit' ? primaryColor : successColor} 
-                  />
-                  <View style={styles.paymentInfoModern}>
-                    <H3 style={{ ...styles.paymentTitleModern, color: textColor }}>
-                      {formatCurrency(payment.amount)}
-                    </H3>
-                    <Body style={{ ...styles.paymentMetaModern, color: textSecondaryColor }}>
-                      {formatDate(payment.created_at)} • {payment.payment_method || 'Manual'}
-                      {payment.type === 'manual_credit' && ' • Manual Credit'}
-                    </Body>
+            {recentPayments.map((payment, index) => {
+              // Determine chip color based on payment status
+              const isCancelled = payment.status === 'cancelled' || payment.subscription_status === 'cancelled';
+              const isCredit = payment.type === 'manual_credit';
+              const isRefund = (payment.amount || 0) < 0; // Negative amount = refund
+              
+              let chipColor = successColor; // Default: completed (green)
+              let chipBgColor = 'transparent';
+              let iconColor = successColor;
+              let displayAmount = payment.amount;
+              
+              if (isRefund) {
+                chipColor = warningColor; // Refund (orange)
+                chipBgColor = `${warningColor}20`;
+                iconColor = warningColor;
+                displayAmount = Math.abs(payment.amount); // Show as positive with label
+              } else if (isCancelled) {
+                chipColor = errorColor; // Cancelled (red)
+                chipBgColor = `${errorColor}20`;
+                iconColor = errorColor;
+              } else if (isCredit) {
+                chipColor = primaryColor; // Manual credit (blue)
+                chipBgColor = `${primaryColor}20`;
+                iconColor = primaryColor;
+              }
+              
+              return (
+                <View key={index} style={styles.paymentItemModern}>
+                  <View style={styles.paymentHeaderModern}>
+                    <MaterialIcons 
+                      name={isCredit ? 'account-balance-wallet' : isRefund ? 'undo' : isCancelled ? 'cancel' : 'attach-money'} 
+                      size={24} 
+                      color={iconColor} 
+                    />
+                    <View style={styles.paymentInfoModern}>
+                      <H3 style={{ ...styles.paymentTitleModern, color: textColor }}>
+                        {isRefund ? '- ' : ''}{formatCurrency(displayAmount)}
+                      </H3>
+                      <Body style={{ ...styles.paymentMetaModern, color: textSecondaryColor }}>
+                        {formatDate(payment.created_at)} • {payment.payment_method || 'Manual'}
+                        {isCredit && ' • Manual Credit'}
+                        {isRefund && ' • Refund'}
+                        {isCancelled && ' • Subscription Cancelled'}
+                        {payment.subscription_name && !isCancelled && ` • ${payment.subscription_name}`}
+                      </Body>
+                    </View>
+                    <Chip 
+                      mode="outlined" 
+                      style={[
+                        styles.statusChipModern, 
+                        { 
+                          borderColor: chipColor,
+                          backgroundColor: chipBgColor
+                        }
+                      ]}
+                      textStyle={{ 
+                        color: chipColor 
+                      }}
+                    >
+                      {isRefund ? 'REFUND' : payment.display_status || (isCredit ? 'CREDIT' : isCancelled ? 'CANCELLED' : 'COMPLETED')}
+                    </Chip>
                   </View>
-                  <Chip 
-                    mode="outlined" 
-                    style={[
-                      styles.statusChipModern, 
-                      { 
-                        borderColor: payment.type === 'manual_credit' ? primaryColor : successColor,
-                        backgroundColor: payment.type === 'manual_credit' ? `${primaryColor}20` : 'transparent'
-                      }
-                    ]}
-                    textStyle={{ 
-                      color: payment.type === 'manual_credit' ? primaryColor : successColor 
-                    }}
-                  >
-                    {payment.type === 'manual_credit' ? 'CREDIT' : (payment.status?.toUpperCase() || 'COMPLETED')}
-                  </Chip>
+                  <Body style={{ ...styles.paymentDescriptionModern, color: textSecondaryColor }}>
+                    {payment.notes || 'Payment transaction'}
+                    {payment.admin_name && ` • Added by: ${payment.admin_name}`}
+                    {isCancelled && !isRefund && ' • Refunded due to cancellation'}
+                  </Body>
                 </View>
-                <Body style={{ ...styles.paymentDescriptionModern, color: textSecondaryColor }}>
-                  {payment.notes || 'Payment transaction'}
-                  {payment.admin_name && ` • Added by: ${payment.admin_name}`}
-                </Body>
-              </View>
-            ))}
+              );
+            })}
           </Card.Content>
         </Card>
         ) : (clientStats?.totalSpent && clientStats.totalSpent > 0) ? (
@@ -4836,6 +4905,7 @@ const styles = StyleSheet.create({
   },
   statusChip: {
     marginLeft: 'auto',
+    height: 24,
   },
   
   // Stats Grid - PC Optimized
@@ -5609,9 +5679,6 @@ const styles = StyleSheet.create({
   },
   studentActions: {
     alignItems: 'flex-end',
-  },
-  statusChip: {
-    height: 24,
   },
   insightsList: {
     gap: 12,

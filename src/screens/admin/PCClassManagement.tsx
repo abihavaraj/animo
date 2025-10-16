@@ -2318,7 +2318,7 @@ function PCClassManagement() {
   const performRemoveClient = async (booking: any) => {
     try {
       console.log('🚀 Starting client unassignment...');
-      console.log('📋 [DEBUG] Booking object received:', {
+      console.log('📋 [DEBUG] Booking object received FROM REACT STATE:', {
         id: booking.id,
         user_id: booking.user_id,
         class_id: booking.class_id,
@@ -2326,14 +2326,43 @@ function PCClassManagement() {
         userEmail: booking.users?.email,
         userName: booking.users?.name
       });
-      const clientName = booking.users?.name || booking.client_name || booking.user_name || 'Unknown Client';
       
       setUpdatingBooking(booking.id);
       
-      // Use cancelClientBooking which handles refunds intelligently
+      // 🔒 CRITICAL FIX: Fetch FRESH booking data from database FIRST
+      // This prevents using stale React state which could point to wrong user!
+      const { data: freshBooking, error: fetchError } = await supabase
+        .from('bookings')
+        .select('id, user_id, class_id, status, users(id, name, email)')
+        .eq('id', booking.id)
+        .single();
+      
+      if (fetchError || !freshBooking) {
+        console.error('❌ [UNASSIGN] Could not fetch fresh booking:', fetchError);
+        const errorMsg = 'Could not find booking in database';
+        if (Platform.OS === 'web') {
+          window.alert('Error: ' + errorMsg);
+        } else {
+          Alert.alert('Error', errorMsg);
+        }
+        return;
+      }
+      
+      console.log('📋 [DEBUG] FRESH booking from database:', {
+        id: freshBooking.id,
+        user_id: freshBooking.user_id,
+        class_id: freshBooking.class_id,
+        status: freshBooking.status,
+        userEmail: (freshBooking.users as any)?.email,
+        userName: (freshBooking.users as any)?.name
+      });
+      
+      const clientName = (freshBooking.users as any)?.name || 'Unknown Client';
+      
+      // Use cancelClientBooking with FRESH user_id from database
       // It will refund ONLY if the client was actually charged for the class
       const response = await (bookingService.cancelClientBooking as any)(
-        booking.user_id,
+        freshBooking.user_id,  // ✅ USING FRESH DATA FROM DATABASE!
         selectedClassForBookings!.id,
         undefined, // notes
         shouldRefundCredit
@@ -2348,8 +2377,8 @@ function PCClassManagement() {
         try {
           const pushNotificationService = (await import('../../services/pushNotificationService')).pushNotificationService;
           await pushNotificationService.cancelClassReminder(
-            booking.user_id, 
-            booking.class_id || selectedClassForBookings!.id
+            freshBooking.user_id,  // ✅ Using fresh data
+            freshBooking.class_id || selectedClassForBookings!.id
           );
         } catch (reminderError) {
           // Don't fail the operation if reminder cancellation fails
@@ -2363,7 +2392,7 @@ function PCClassManagement() {
             staff_role: user.role as 'reception' | 'instructor' | 'admin',
             activity_type: 'client_unassigned_from_class',
             activity_description: `Removed ${clientName} from "${selectedClassForBookings!.name}"`,
-            client_id: String(booking.user_id),
+            client_id: String(freshBooking.user_id),  // ✅ Using fresh data
             client_name: clientName,
             metadata: {
               classId: selectedClassForBookings!.id,
@@ -2372,8 +2401,8 @@ function PCClassManagement() {
               classTime: selectedClassForBookings!.time,
               instructor: selectedClassForBookings!.instructor_name,
               category: selectedClassForBookings!.category,
-              bookingId: booking.id,
-              bookingStatus: booking.status,
+              bookingId: freshBooking.id,  // ✅ Using fresh data
+              bookingStatus: freshBooking.status,  // ✅ Using fresh data
               creditRestored: response.data?.creditRestored || false,
               waitlistPromoted: response.data?.waitlistPromoted || false,
               promotedClient: response.data?.promotedClientName || null,
@@ -2383,29 +2412,14 @@ function PCClassManagement() {
         }
         
         // Send notification to the removed client
-        // 🔒 CRITICAL FIX: Fetch fresh booking data to ensure correct user_id
+        // ✅ We already have fresh booking data, no need to fetch again!
         try {
           const staffName = user?.name || 'Studio Staff';
-          
-          // Fetch the actual cancelled booking from database to get correct user_id
-          const { data: actualBooking, error: bookingFetchError } = await supabase
-            .from('bookings')
-            .select('user_id, users(id, name, email)')
-            .eq('id', booking.id)
-            .eq('class_id', selectedClassForBookings!.id)
-            .eq('status', 'cancelled')
-            .single();
-          
-          if (bookingFetchError || !actualBooking) {
-            console.error('❌ [UNASSIGN_NOTIFICATION] Could not fetch cancelled booking:', bookingFetchError);
-            return;
-          }
-          
-          const removedUserId = actualBooking.user_id;
+          const removedUserId = freshBooking.user_id;
           
           console.log('🔔 [UNASSIGN_NOTIFICATION] Sending to user ID from FRESH DB data:', removedUserId);
-          console.log('🔔 [UNASSIGN_NOTIFICATION] User from DB:', (actualBooking.users as any)?.email);
-          console.log('🔔 [UNASSIGN_NOTIFICATION] Booking ID:', booking.id);
+          console.log('🔔 [UNASSIGN_NOTIFICATION] User from DB:', (freshBooking.users as any)?.email);
+          console.log('🔔 [UNASSIGN_NOTIFICATION] Booking ID:', freshBooking.id);
           
           const notificationResult = await notificationService.createTranslatedNotification(
             removedUserId,
@@ -2586,7 +2600,7 @@ function PCClassManagement() {
   const performUnassignClient = async (booking: any, classItem: BackendClass, shouldRefund: boolean = true) => {
     try {
       console.log('🚀 Starting client unassignment (performUnassignClient)...');
-      console.log('📋 [DEBUG] Booking object received:', {
+      console.log('📋 [DEBUG] Booking object received FROM REACT STATE:', {
         id: booking.id,
         user_id: booking.user_id,
         class_id: booking.class_id,
@@ -2594,15 +2608,44 @@ function PCClassManagement() {
         userEmail: booking.users?.email,
         userName: booking.users?.name
       });
-      const clientName = booking.users?.name || booking.client_name || booking.user_name || 'Unknown Client';
       
       setUpdatingBooking(booking.id);
       
-      // Use cancelClientBooking which handles refunds intelligently
+      // 🔒 CRITICAL FIX: Fetch FRESH booking data from database FIRST
+      // This prevents using stale React state which could point to wrong user!
+      const { data: freshBooking, error: fetchError } = await supabase
+        .from('bookings')
+        .select('id, user_id, class_id, status, users(id, name, email)')
+        .eq('id', booking.id)
+        .single();
+      
+      if (fetchError || !freshBooking) {
+        console.error('❌ [UNASSIGN_2] Could not fetch fresh booking:', fetchError);
+        const errorMsg = 'Could not find booking in database';
+        if (Platform.OS === 'web') {
+          window.alert('Error: ' + errorMsg);
+        } else {
+          Alert.alert('Error', errorMsg);
+        }
+        return;
+      }
+      
+      console.log('📋 [DEBUG] FRESH booking from database:', {
+        id: freshBooking.id,
+        user_id: freshBooking.user_id,
+        class_id: freshBooking.class_id,
+        status: freshBooking.status,
+        userEmail: (freshBooking.users as any)?.email,
+        userName: (freshBooking.users as any)?.name
+      });
+      
+      const clientName = (freshBooking.users as any)?.name || 'Unknown Client';
+      
+      // Use cancelClientBooking with FRESH user_id from database
       // It will refund ONLY if the client was actually charged for the class
       // Pass shouldRefund parameter to control refund behavior
       const response = await (bookingService.cancelClientBooking as any)(
-        booking.user_id,
+        freshBooking.user_id,  // ✅ USING FRESH DATA FROM DATABASE!
         classItem.id,
         undefined, // notes
         shouldRefund
@@ -2614,8 +2657,8 @@ function PCClassManagement() {
         try {
           const pushNotificationService = (await import('../../services/pushNotificationService')).pushNotificationService;
           await pushNotificationService.cancelClassReminder(
-            booking.user_id, 
-            booking.class_id || classItem.id
+            freshBooking.user_id,  // ✅ Using fresh data
+            freshBooking.class_id || classItem.id
           );
         } catch (reminderError) {
           // Don't fail the operation if reminder cancellation fails
@@ -2629,7 +2672,7 @@ function PCClassManagement() {
             staff_role: user.role as 'reception' | 'instructor' | 'admin',
             activity_type: 'client_unassigned_from_class',
             activity_description: `Removed ${clientName} from "${classItem.name}"`,
-            client_id: String(booking.user_id),
+            client_id: String(freshBooking.user_id),  // ✅ Using fresh data
             client_name: clientName,
             metadata: {
               classId: classItem.id,
@@ -2638,8 +2681,8 @@ function PCClassManagement() {
               classTime: classItem.time,
               instructor: classItem.instructor_name,
               category: classItem.category,
-              bookingId: booking.id,
-              bookingStatus: booking.status,
+              bookingId: freshBooking.id,  // ✅ Using fresh data
+              bookingStatus: freshBooking.status,  // ✅ Using fresh data
               creditRestored: response.data?.creditRestored || false,
               waitlistPromoted: response.data?.waitlistPromoted || false,
               promotedClient: response.data?.promotedClientName || null,
@@ -2649,29 +2692,14 @@ function PCClassManagement() {
         }
         
         // Send notification to the removed client
-        // 🔒 CRITICAL FIX: Fetch fresh booking data to ensure correct user_id
+        // ✅ We already have fresh booking data, no need to fetch again!
         try {
           const staffName = user?.name || 'Studio Staff';
-          
-          // Fetch the actual cancelled booking from database to get correct user_id
-          const { data: actualBooking, error: bookingFetchError } = await supabase
-            .from('bookings')
-            .select('user_id, users(id, name, email)')
-            .eq('id', booking.id)
-            .eq('class_id', classItem.id)
-            .eq('status', 'cancelled')
-            .single();
-          
-          if (bookingFetchError || !actualBooking) {
-            console.error('❌ [UNASSIGN_NOTIFICATION_2] Could not fetch cancelled booking:', bookingFetchError);
-            return;
-          }
-          
-          const removedUserId = actualBooking.user_id;
+          const removedUserId = freshBooking.user_id;
           
           console.log('🔔 [UNASSIGN_NOTIFICATION_2] Sending to user ID from FRESH DB data:', removedUserId);
-          console.log('🔔 [UNASSIGN_NOTIFICATION_2] User from DB:', (actualBooking.users as any)?.email);
-          console.log('🔔 [UNASSIGN_NOTIFICATION_2] Booking ID:', booking.id);
+          console.log('🔔 [UNASSIGN_NOTIFICATION_2] User from DB:', (freshBooking.users as any)?.email);
+          console.log('🔔 [UNASSIGN_NOTIFICATION_2] Booking ID:', freshBooking.id);
           
           const notificationResult = await notificationService.createTranslatedNotification(
             removedUserId,

@@ -412,6 +412,10 @@ class AuthService {
     try {
       devLog('📝 [authService] Starting user registration');
       
+      if (!supabaseAdmin) {
+        return { success: false, error: 'Admin operations not available. Please set SUPABASE_SERVICE_ROLE_KEY in your environment variables.' };
+      }
+
       // Create auth user using admin API to bypass email confirmation
       const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
         email: userData.email,

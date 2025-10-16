@@ -1319,6 +1319,18 @@ class InstructorClientService {
         return { success: false, error: cancelError.message };
       }
 
+      // 🚨 CRITICAL FIX: Cancel any class reminders for this user
+      try {
+        const { pushNotificationService } = await import('./pushNotificationService');
+        await pushNotificationService.cancelClassReminder(clientId, classId);
+        const { notificationService } = await import('./notificationService');
+        await notificationService.cancelUserClassNotifications(clientId, classId);
+        devLog('✅ [instructorClientService] Class reminder notifications cancelled');
+      } catch (reminderError) {
+        devError('⚠️ [instructorClientService] Failed to cancel reminder (non-blocking):', reminderError);
+        // Don't fail the unassignment if reminder cancellation fails
+      }
+
       // Check if this was an override assignment (don't restore credits)
       // Normal assignments have subscription_id (used subscription credits)
       // Override assignments have subscription_id = null (no subscription used)

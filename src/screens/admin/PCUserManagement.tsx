@@ -537,8 +537,8 @@ function PCUserManagement({ navigation, onViewProfile, hideAdminUsers = false }:
               metadata: {
                 planName: selectedPlan?.name,
                 planId: selectedPlanId,
-                monthlyPrice: selectedPlan?.monthlyPrice,
-                monthlyClasses: selectedPlan?.monthlyClasses,
+                monthlyPrice: selectedPlan?.monthly_price,
+                monthlyClasses: selectedPlan?.monthly_classes,
                 notes: subscriptionNotes
               }
             });
@@ -587,7 +587,7 @@ function PCUserManagement({ navigation, onViewProfile, hideAdminUsers = false }:
         userId,
         planId,
         assignmentNotes,
-        option as 'new' | 'replace' | 'extend' | 'queue' // Cast the option string
+        option as 'new' | 'replace' | 'extend' | 'queue' | 'upgrade' | 'downgrade' // Cast the option string
       );
 
       if (response && response.success) {
@@ -603,6 +603,11 @@ function PCUserManagement({ navigation, onViewProfile, hideAdminUsers = false }:
           successMessage = `Successfully replaced subscription.`;
         } else if (operationType === 'queued') {
           successMessage = `New subscription has been queued.`;
+        } else if (operationType === 'upgraded') {
+          successMessage = `Successfully upgraded subscription.`;
+        } else if (operationType === 'downgraded') {
+          const refundAmount = responseData?.refundAmount || 0;
+          successMessage = `Successfully downgraded subscription${refundAmount > 0 ? ` with ${refundAmount.toLocaleString()} ALL refund` : ''}.`;
         } else {
           successMessage = `Successfully assigned subscription.`;
         }
@@ -619,6 +624,10 @@ function PCUserManagement({ navigation, onViewProfile, hideAdminUsers = false }:
             `Replaced subscription with: ${conflictData.newPlan.name}` :
             operationType === 'queued' ?
             `Queued subscription: ${conflictData.newPlan.name}` :
+            operationType === 'upgraded' ?
+            `Upgraded subscription to: ${conflictData.newPlan.name}` :
+            operationType === 'downgraded' ?
+            `Downgraded subscription to: ${conflictData.newPlan.name}` :
             `Assigned subscription: ${conflictData.newPlan.name}`;
 
           await activityService.logActivity({
@@ -1679,7 +1688,7 @@ function PCUserManagement({ navigation, onViewProfile, hideAdminUsers = false }:
                               styles.planOptionPrice,
                               selectedPlanId === plan.id && styles.planOptionPriceActive
                             ]}>
-                              ${plan.monthly_price}/month
+                              {plan.monthly_price} ALL/month
                             </Text>
                           </View>
                           <Text style={[

@@ -1,6 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Button, Caption, Modal, Card as PaperCard, Portal, Text, Title } from 'react-native-paper';
 import { useThemeColor } from '../../../hooks/useThemeColor';
@@ -124,9 +125,65 @@ interface RevenueData {
   }>;
 }
 
+// Utility function to convert data to CSV and download
+const exportToCSV = (data: any[], filename: string, headers: string[]) => {
+  if (data.length === 0) {
+    alert('No data to export');
+    return;
+  }
+
+  // Create CSV content
+  const csvRows = [];
+  
+  // Add headers
+  csvRows.push(headers.join(','));
+  
+  // Add data rows
+  data.forEach(row => {
+    const values = headers.map(header => {
+      const key = header.toLowerCase().replace(/ /g, '_');
+      let value = row[key] !== undefined ? row[key] : '';
+      
+      // Handle special cases
+      if (value === null || value === undefined) value = '';
+      if (typeof value === 'string' && value.includes(',')) {
+        value = `"${value}"`;
+      }
+      
+      return value;
+    });
+    csvRows.push(values.join(','));
+  });
+  
+  const csvString = csvRows.join('\n');
+  
+  // Create blob and download for web
+  if (Platform.OS === 'web') {
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${filename}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } else {
+    // For mobile, would need additional setup with file system
+    console.log('CSV Export:', csvString);
+    alert('Export feature is optimized for web. Please use desktop browser.');
+  }
+};
+
 const ReportsAnalytics: React.FC = () => {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'clients' | 'subscriptions' | 'revenue' | 'instructors' | 'sources'>('overview');
+  
+  // Error and loading states for better UX
+  const [error, setError] = useState<string | null>(null);
+  const [tabLoading, setTabLoading] = useState<{[key: string]: boolean}>({});
+  
   const [overviewStats, setOverviewStats] = useState<OverviewStats>({
     totalClients: 0,
     activeSubscriptionClients: 0,
@@ -358,39 +415,51 @@ const ReportsAnalytics: React.FC = () => {
   const loadOverviewStats = async () => {
     try {
       setLoading(true);
+      setError(null);
       const { supabase } = require('../../config/supabase.config');
       
       // 1. Total Clients
-      const { data: allClients } = await supabase
+      const { data: allClients, error: clientsError } = await supabase
         .from('users')
         .select('id')
         .eq('role', 'client')
         .eq('status', 'active');
 
+      if (clientsError) throw clientsError;
+
       const totalClients = allClients?.length || 0;
 
-      // 2. Clients with Active Subscriptions
-      const { data: activeSubscriptions } = await supabase
+      // 2. Clients with Active Subscriptions (FIX: Get distinct user_ids)
+      const { data: activeSubscriptions, error: subscriptionsError } = await supabase
         .from('user_subscriptions')
         .select('user_id')
         .eq('status', 'active');
 
-      const activeSubscriptionClients = activeSubscriptions?.length || 0;
+      if (subscriptionsError) throw subscriptionsError;
+
+      // Count unique clients with active subscriptions
+      const uniqueActiveUserIds = new Set(activeSubscriptions?.map(sub => sub.user_id) || []);
+      const activeSubscriptionClients = uniqueActiveUserIds.size;
 
       // 3. Clients without Subscription
       const clientsWithoutSubscription = totalClients - activeSubscriptionClients;
 
-      // 4. Clients Ending Soon (10 days or less)
+      // 4. Clients Ending Soon (10 days or less) - FIX: Use UTC date consistently
       const tenDaysFromNow = new Date();
       tenDaysFromNow.setDate(tenDaysFromNow.getDate() + 10);
+      const tenDaysStr = tenDaysFromNow.toISOString().split('T')[0];
 
-      const { data: endingSoon } = await supabase
+      const { data: endingSoon, error: endingSoonError } = await supabase
         .from('user_subscriptions')
         .select('user_id')
         .eq('status', 'active')
-        .lte('end_date', tenDaysFromNow.toISOString().split('T')[0]);
+        .lte('end_date', tenDaysStr);
 
-      const clientsEndingSoon = endingSoon?.length || 0;
+      if (endingSoonError) throw endingSoonError;
+
+      // Count unique clients with subscriptions ending soon
+      const uniqueEndingSoonIds = new Set(endingSoon?.map(sub => sub.user_id) || []);
+      const clientsEndingSoon = uniqueEndingSoonIds.size;
 
       setOverviewStats({
         totalClients,
@@ -401,6 +470,7 @@ const ReportsAnalytics: React.FC = () => {
 
     } catch (error) {
       console.error('❌ Error loading overview stats:', error);
+      setError('Failed to load overview statistics. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -408,6 +478,7 @@ const ReportsAnalytics: React.FC = () => {
 
   const loadBusinessActivityStats = async () => {
     try {
+      setTabLoading({ ...tabLoading, businessActivity: true });
       const { supabase } = require('../../config/supabase.config');
       
       const now = new Date();
@@ -515,6 +586,9 @@ const ReportsAnalytics: React.FC = () => {
 
     } catch (error) {
       console.error('❌ Error loading business activity stats:', error);
+      setError('Failed to load business activity data. Please try again.');
+    } finally {
+      setTabLoading({ ...tabLoading, businessActivity: false });
     }
   };
 
@@ -737,6 +811,7 @@ const ReportsAnalytics: React.FC = () => {
 
   const loadClientsData = async () => {
     try {
+      setTabLoading({ ...tabLoading, clients: true });
       const { supabase } = require('../../config/supabase.config');
       
       // 1. New Clients (last 7 days)
@@ -810,61 +885,73 @@ const ReportsAnalytics: React.FC = () => {
 
     } catch (error) {
       console.error('❌ Error loading clients data:', error);
+      setError('Failed to load client data. Please try again.');
+    } finally {
+      setTabLoading({ ...tabLoading, clients: false });
     }
   };
 
   const loadSubscriptionsData = async () => {
     try {
+      setTabLoading({ ...tabLoading, subscriptions: true });
       const { supabase } = require('../../config/supabase.config');
       
+      // FIX: Use single query instead of N+1 pattern
       // Get all subscription plans
-      const { data: subscriptionPlans } = await supabase
+      const { data: subscriptionPlans, error: plansError } = await supabase
         .from('subscription_plans')
         .select('id, name, description, monthly_price, monthly_classes, equipment_access, category')
         .eq('is_active', true)
         .order('name');
 
+      if (plansError) throw plansError;
       if (!subscriptionPlans) return;
 
-      // Get active subscriptions with client details for each plan
-      const subscriptionsWithClients = await Promise.all(
-        subscriptionPlans.map(async (plan) => {
-          const { data: activeSubscriptions } = await supabase
-            .from('user_subscriptions')
-            .select(`
-              id,
-              start_date,
-              end_date,
-              status,
-              remaining_classes,
-              users!user_id(
-                id,
-                name,
-                email,
-                phone
-              )
-            `)
-            .eq('plan_id', plan.id)
-            .eq('status', 'active');
+      // Get all active subscriptions with client details in a single query
+      const { data: activeSubscriptions, error: subscriptionsError } = await supabase
+        .from('user_subscriptions')
+        .select(`
+          id,
+          plan_id,
+          start_date,
+          end_date,
+          status,
+          remaining_classes,
+          users!user_id(
+            id,
+            name,
+            email,
+            phone
+          )
+        `)
+        .eq('status', 'active');
 
-          const clients = activeSubscriptions?.map(sub => ({
-            id: sub.users.id,
-            name: sub.users.name,
-            email: sub.users.email,
-            phone: sub.users.phone,
-            start_date: sub.start_date,
-            end_date: sub.end_date,
-            status: sub.status,
-            remaining_classes: sub.remaining_classes
-          })) || [];
+      if (subscriptionsError) throw subscriptionsError;
 
-          return {
-            ...plan,
-            client_count: clients.length,
-            clients
-          };
-        })
-      );
+      // Group subscriptions by plan_id
+      const subscriptionsByPlan = (activeSubscriptions || []).reduce((acc, sub) => {
+        if (!acc[sub.plan_id]) {
+          acc[sub.plan_id] = [];
+        }
+        acc[sub.plan_id].push({
+          id: sub.users.id,
+          name: sub.users.name,
+          email: sub.users.email,
+          phone: sub.users.phone,
+          start_date: sub.start_date,
+          end_date: sub.end_date,
+          status: sub.status,
+          remaining_classes: sub.remaining_classes
+        });
+        return acc;
+      }, {} as Record<string, any[]>);
+
+      // Combine plans with their clients
+      const subscriptionsWithClients = subscriptionPlans.map(plan => ({
+        ...plan,
+        clients: subscriptionsByPlan[plan.id] || [],
+        client_count: (subscriptionsByPlan[plan.id] || []).length
+      }));
 
       // Sort by client count (highest first)
       const sortedSubscriptions = subscriptionsWithClients.sort((a, b) => b.client_count - a.client_count);
@@ -873,11 +960,15 @@ const ReportsAnalytics: React.FC = () => {
 
     } catch (error) {
       console.error('❌ Error loading subscriptions data:', error);
+      setError('Failed to load subscription data. Please try again.');
+    } finally {
+      setTabLoading({ ...tabLoading, subscriptions: false });
     }
   };
 
   const loadRevenueData = async () => {
     try {
+      setTabLoading({ ...tabLoading, revenue: true });
       const { supabase } = require('../../config/supabase.config');
       
       const startDateStr = revenueStartDate.toISOString().split('T')[0];
@@ -895,9 +986,10 @@ const ReportsAnalytics: React.FC = () => {
 
       if (paymentsError) {
         console.error('❌ Payments query error:', paymentsError);
-    } else {
-        console.log('✅ Payments data:', payments?.length || 0, 'records');
+        throw paymentsError;
       }
+      
+      console.log('✅ Payments data:', payments?.length || 0, 'records');
 
       // Get manual credits data
       const { data: credits, error: creditsError } = await supabase
@@ -909,13 +1001,14 @@ const ReportsAnalytics: React.FC = () => {
 
       if (creditsError) {
         console.error('❌ Credits query error:', creditsError);
-      } else {
-        console.log('✅ Credits data:', credits?.length || 0, 'records');
+        throw creditsError;
       }
+      
+      console.log('✅ Credits data:', credits?.length || 0, 'records');
 
-      // Calculate total revenue (handle errors gracefully)
-      const validPayments = paymentsError ? [] : (payments || []);
-      const validCredits = creditsError ? [] : (credits || []);
+      // Calculate total revenue
+      const validPayments = payments || [];
+      const validCredits = credits || [];
       
       const paymentsTotal = validPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
       const creditsTotal = validCredits.reduce((sum, c) => sum + (c.amount || 0), 0);
@@ -923,23 +1016,26 @@ const ReportsAnalytics: React.FC = () => {
 
       // Calculate this week revenue
       const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      const thisWeekPayments = validPayments.filter(p => new Date(p.payment_date) >= oneWeekAgo);
-      const thisWeekCredits = validCredits.filter(c => new Date(c.created_at) >= oneWeekAgo);
+      const oneWeekAgoStr = oneWeekAgo.toISOString().split('T')[0];
+      const thisWeekPayments = validPayments.filter(p => p.payment_date >= oneWeekAgoStr);
+      const thisWeekCredits = validCredits.filter(c => c.created_at.split('T')[0] >= oneWeekAgoStr);
       const thisWeekRevenue = thisWeekPayments.reduce((sum, p) => sum + p.amount, 0) + 
                               thisWeekCredits.reduce((sum, c) => sum + c.amount, 0);
 
       // Calculate this month revenue (current calendar month)
       const now = new Date();
-      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const thisMonthPayments = validPayments.filter(p => new Date(p.payment_date) >= firstDayOfMonth);
-      const thisMonthCredits = validCredits.filter(c => new Date(c.created_at) >= firstDayOfMonth);
+      const firstDayOfMonth = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
+      const firstDayStr = firstDayOfMonth.toISOString().split('T')[0];
+      const thisMonthPayments = validPayments.filter(p => p.payment_date >= firstDayStr);
+      const thisMonthCredits = validCredits.filter(c => c.created_at.split('T')[0] >= firstDayStr);
       const thisMonthRevenue = thisMonthPayments.reduce((sum, p) => sum + p.amount, 0) + 
                                thisMonthCredits.reduce((sum, c) => sum + c.amount, 0);
 
-      // Calculate today's revenue
-      const today = new Date().toISOString().split('T')[0];
-      const todayPayments = validPayments.filter(p => p.payment_date === today);
-      const todayCredits = validCredits.filter(c => c.created_at.split('T')[0] === today);
+      // FIX: Calculate today's revenue with consistent UTC date handling
+      const todayUTC = new Date();
+      const todayStr = todayUTC.toISOString().split('T')[0];
+      const todayPayments = validPayments.filter(p => p.payment_date === todayStr);
+      const todayCredits = validCredits.filter(c => c.created_at.split('T')[0] === todayStr);
       const todayRevenue = todayPayments.reduce((sum, p) => sum + p.amount, 0) + 
                            todayCredits.reduce((sum, c) => sum + c.amount, 0);
 
@@ -966,17 +1062,19 @@ const ReportsAnalytics: React.FC = () => {
       
       const growthPercentage = previousRevenue > 0 ? ((totalRevenue - previousRevenue) / previousRevenue) * 100 : 0;
 
-      // Calculate revenue by source
-      const paymentMethods = payments?.reduce((acc, p) => {
-        const method = p.payment_method || 'Unknown';
-        acc[method] = (acc[method] || 0) + p.amount;
+      // FIX: Calculate revenue by source with proper null handling
+      const paymentMethods = validPayments.reduce((acc, p) => {
+        // Ensure payment_method is always a string, default to 'Unknown'
+        const method = (p.payment_method && p.payment_method.trim()) ? p.payment_method : 'Unknown';
+        const amount = Number(p.amount) || 0;
+        acc[method] = (acc[method] || 0) + amount;
         return acc;
-      }, {} as Record<string, number>) || {};
+      }, {} as Record<string, number>);
 
       const revenueBySource = [
         ...Object.entries(paymentMethods).map(([method, amount]) => {
           const numAmount = Number(amount) || 0;
-    return {
+          return {
             source: `Payments (${method})`,
             amount: numAmount,
             percentage: totalRevenue > 0 ? (numAmount / totalRevenue) * 100 : 0
@@ -1019,6 +1117,9 @@ const ReportsAnalytics: React.FC = () => {
 
     } catch (error) {
       console.error('❌ Error loading revenue data:', error);
+      setError('Failed to load revenue data. Please try again.');
+    } finally {
+      setTabLoading({ ...tabLoading, revenue: false });
     }
   };
 
@@ -1264,6 +1365,7 @@ const ReportsAnalytics: React.FC = () => {
 
   const loadOverviewDetails = async (type: string) => {
     try {
+      setTabLoading({ ...tabLoading, [type]: true });
       const { supabase } = require('../../config/supabase.config');
       let title = '';
       let clients = [];
@@ -1271,11 +1373,14 @@ const ReportsAnalytics: React.FC = () => {
       switch (type) {
         case 'total':
           title = 'All Clients';
-          const { data: allClients } = await supabase
+          const { data: allClients, error: allClientsError } = await supabase
             .from('users')
             .select('id, name, email, phone, join_date, status')
+            .eq('role', 'client')  // FIX: Add missing role filter
             .eq('status', 'active')
             .order('join_date', { ascending: false });
+          
+          if (allClientsError) throw allClientsError;
           clients = allClients || [];
           break;
 
@@ -1347,6 +1452,9 @@ const ReportsAnalytics: React.FC = () => {
 
     } catch (error) {
       console.error('❌ Error loading overview details:', error);
+      setError('Failed to load client details. Please try again.');
+    } finally {
+      setTabLoading({ ...tabLoading, [type]: false });
     }
   };
 
@@ -1378,6 +1486,7 @@ const ReportsAnalytics: React.FC = () => {
 
   const loadInstructorData = async (instructorId: string) => {
     try {
+      setTabLoading({ ...tabLoading, instructors: true });
       const { supabase } = require('../../config/supabase.config');
       
       // Get current week dates
@@ -1388,7 +1497,7 @@ const ReportsAnalytics: React.FC = () => {
       endOfWeek.setDate(startOfWeek.getDate() + 6); // End of week (Saturday)
 
       // Get instructor's classes for this week
-      const { data: weeklyClasses } = await supabase
+      const { data: weeklyClasses, error: weeklyError } = await supabase
         .from('classes')
         .select('id, name, date, time, duration, category, enrolled, capacity, status')
         .eq('instructor_id', instructorId)
@@ -1396,37 +1505,44 @@ const ReportsAnalytics: React.FC = () => {
         .lte('date', endOfWeek.toISOString().split('T')[0])
         .order('date', { ascending: true });
 
+      if (weeklyError) throw weeklyError;
+
       // Get instructor's attendance statistics using selected date range
       const startDateStr = instructorStartDate.toISOString().split('T')[0];
       const endDateStr = instructorEndDate.toISOString().split('T')[0];
 
-      // Get all classes (not just completed) to count total students
-      const { data: allClassesInRange } = await supabase
+      // FIX: Get only completed classes for consistent statistics
+      const { data: completedClassesInRange, error: completedError } = await supabase
         .from('classes')
-        .select('id, name, date, time, duration, enrolled, capacity, status, category')
-        .eq('instructor_id', instructorId)
-        .gte('date', startDateStr)
-        .lte('date', endDateStr);
-
-      // Get only completed classes for class count statistics
-      const { data: completedClassesInRange } = await supabase
-        .from('classes')
-        .select('id, enrolled, capacity, status, category')
+        .select('id, name, date, time, duration, capacity, status, category')
         .eq('instructor_id', instructorId)
         .gte('date', startDateStr)
         .lte('date', endDateStr)
         .eq('status', 'completed');
 
-      // Calculate attendance stats
-      const totalClasses = completedClassesInRange?.length || 0;
-      // Count students from all classes (scheduled, completed, etc.) not just completed
-      const totalStudents = allClassesInRange?.reduce((sum, cls) => sum + (cls.enrolled || 0), 0) || 0;
-      
-      // Count personal classes from completed classes only
-      const personalClasses = completedClassesInRange?.filter(cls => cls.category === 'personal')?.length || 0;
+      if (completedError) throw completedError;
 
-      // Get detailed personal classes information
-      const personalClassesDetails = allClassesInRange?.filter(cls => cls.category === 'personal') || [];
+      // FIX: Count actual students by querying bookings for accurate enrollment
+      const completedClassIds = completedClassesInRange?.map(cls => cls.id) || [];
+      
+      let totalStudents = 0;
+      if (completedClassIds.length > 0) {
+        const { data: bookings, error: bookingsError } = await supabase
+          .from('bookings')
+          .select('id, class_id')
+          .in('class_id', completedClassIds)
+          .in('status', ['confirmed', 'checked_in']);
+        
+        if (bookingsError) throw bookingsError;
+        totalStudents = bookings?.length || 0;
+      }
+
+      // FIX: Calculate attendance stats from completed classes only
+      const totalClasses = completedClassesInRange?.length || 0;
+      
+      // FIX: Count personal classes and details from same source (completed classes)
+      const personalClasses = completedClassesInRange?.filter(cls => cls.category === 'personal')?.length || 0;
+      const personalClassesDetails = completedClassesInRange?.filter(cls => cls.category === 'personal') || [];
       
       console.log('🏋️ Personal classes found:', personalClassesDetails.length);
       if (personalClassesDetails.length > 0) {
@@ -1583,6 +1699,9 @@ const ReportsAnalytics: React.FC = () => {
 
     } catch (error) {
       console.error('❌ Error loading instructor data:', error);
+      setError('Failed to load instructor data. Please try again.');
+    } finally {
+      setTabLoading({ ...tabLoading, instructors: false });
     }
   };
 
@@ -1626,6 +1745,47 @@ const ReportsAnalytics: React.FC = () => {
     if (selectedDate) {
       setInstructorEndDate(selectedDate);
     }
+  };
+
+  // Export handlers for different data types
+  const handleExportOverview = () => {
+    const data = [
+      { metric: 'Total Clients', value: overviewStats.totalClients },
+      { metric: 'Clients with Active Subscriptions', value: overviewStats.activeSubscriptionClients },
+      { metric: 'Clients without Subscription', value: overviewStats.clientsWithoutSubscription },
+      { metric: 'Subscriptions Ending Soon', value: overviewStats.clientsEndingSoon },
+    ];
+    exportToCSV(data, 'overview_stats', ['Metric', 'Value']);
+  };
+
+  const handleExportClients = () => {
+    const allClients = [
+      ...clientsData.newClients.map(c => ({ ...c, category: 'New Client' })),
+      ...clientsData.neverSubscribed.map(c => ({ ...c, category: 'Never Subscribed' })),
+      ...clientsData.didntRenew.map(c => ({ ...c, category: 'Didn\'t Renew' })),
+      ...clientsData.prospects.map(c => ({ ...c, category: 'Prospect' })),
+    ];
+    exportToCSV(allClients, 'clients_report', ['Category', 'Name', 'Email', 'Phone', 'Status']);
+  };
+
+  const handleExportSubscriptions = () => {
+    const subscriptionList = subscriptionsData.flatMap(plan => 
+      plan.clients.map(client => ({
+        plan_name: plan.name,
+        client_name: client.name,
+        client_email: client.email,
+        client_phone: client.phone || '',
+        start_date: client.start_date,
+        end_date: client.end_date,
+        remaining_classes: client.remaining_classes,
+        monthly_price: plan.monthly_price,
+      }))
+    );
+    exportToCSV(subscriptionList, 'subscriptions_report', ['Plan Name', 'Client Name', 'Client Email', 'Client Phone', 'Start Date', 'End Date', 'Remaining Classes', 'Monthly Price']);
+  };
+
+  const handleExportRevenue = () => {
+    exportToCSV(revenueData.dailyRevenue, 'revenue_report', ['Date', 'Amount']);
   };
 
   useEffect(() => {
@@ -3201,6 +3361,17 @@ const ReportsAnalytics: React.FC = () => {
           </Caption>
         </View>
 
+        {/* Error Message Banner */}
+        {error && (
+          <View style={[styles.errorBanner, { backgroundColor: errorColor + '20', borderColor: errorColor }]}>
+            <MaterialIcons name="error-outline" size={20} color={errorColor} />
+            <Text style={[styles.errorText, { color: errorColor }]}>{error}</Text>
+            <TouchableOpacity onPress={() => setError(null)}>
+              <MaterialIcons name="close" size={20} color={errorColor} />
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Tab Navigation */}
         <View style={styles.tabContainer}>
                 <TouchableOpacity
@@ -3332,15 +3503,25 @@ const ReportsAnalytics: React.FC = () => {
 
         {/* Tab Content */}
         {activeTab === 'overview' && (
-          <View style={styles.overviewGrid}>
-            {renderOverviewCard(
-              'Total Clients',
-              overviewStats.totalClients,
-              'people',
-              primaryColor,
-              'All active clients',
-              'total'
-            )}
+          <>
+            <View style={styles.exportButtonContainer}>
+              <TouchableOpacity 
+                style={[styles.exportButton, { backgroundColor: primaryColor }]}
+                onPress={handleExportOverview}
+              >
+                <MaterialIcons name="file-download" size={20} color="white" />
+                <Text style={styles.exportButtonText}>Export to CSV</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.overviewGrid}>
+              {renderOverviewCard(
+                'Total Clients',
+                overviewStats.totalClients,
+                'people',
+                primaryColor,
+                'All active clients',
+                'total'
+              )}
 
             {renderOverviewCard(
               'Active Subscriptions',
@@ -3370,19 +3551,30 @@ const ReportsAnalytics: React.FC = () => {
             )}
 
             {renderBusinessActivityCard()}
-          </View>
+            </View>
+          </>
         )}
 
         {activeTab === 'clients' && (
-          <View style={styles.overviewGrid}>
-            {renderClientCard(
-              'New Clients',
-              clientsData.newClients.length,
-              clientsData.newClients,
-              'person-add',
-              primaryColor,
-              'new'
-            )}
+          <>
+            <View style={styles.exportButtonContainer}>
+              <TouchableOpacity 
+                style={[styles.exportButton, { backgroundColor: primaryColor }]}
+                onPress={handleExportClients}
+              >
+                <MaterialIcons name="file-download" size={20} color="white" />
+                <Text style={styles.exportButtonText}>Export to CSV</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.overviewGrid}>
+              {renderClientCard(
+                'New Clients',
+                clientsData.newClients.length,
+                clientsData.newClients,
+                'person-add',
+                primaryColor,
+                'new'
+              )}
 
             {renderClientCard(
               'Never Subscribed',
@@ -3410,18 +3602,40 @@ const ReportsAnalytics: React.FC = () => {
               successColor,
               'prospects'
             )}
-                  </View>
+            </View>
+          </>
         )}
 
         {activeTab === 'subscriptions' && (
-          <View style={styles.overviewGrid}>
-            {subscriptionsData.map((subscription) => renderSubscriptionCard(subscription))}
-                  </View>
+          <>
+            <View style={styles.exportButtonContainer}>
+              <TouchableOpacity 
+                style={[styles.exportButton, { backgroundColor: primaryColor }]}
+                onPress={handleExportSubscriptions}
+              >
+                <MaterialIcons name="file-download" size={20} color="white" />
+                <Text style={styles.exportButtonText}>Export to CSV</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.overviewGrid}>
+              {subscriptionsData.map((subscription) => renderSubscriptionCard(subscription))}
+            </View>
+          </>
         )}
 
         {activeTab === 'revenue' && (
-          <View>
-            {renderDatePicker()}
+          <>
+            <View style={styles.exportButtonContainer}>
+              <TouchableOpacity 
+                style={[styles.exportButton, { backgroundColor: primaryColor }]}
+                onPress={handleExportRevenue}
+              >
+                <MaterialIcons name="file-download" size={20} color="white" />
+                <Text style={styles.exportButtonText}>Export to CSV</Text>
+              </TouchableOpacity>
+            </View>
+            <View>
+              {renderDatePicker()}
             
             <View style={styles.overviewGrid}>
               {renderRevenueCard(
@@ -3473,8 +3687,9 @@ const ReportsAnalytics: React.FC = () => {
                 undefined,
                 () => loadRevenueDetails('average')
             )}
-                  </View>
-          </View>
+            </View>
+            </View>
+          </>
         )}
 
         {activeTab === 'instructors' && (
@@ -3990,6 +4205,44 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     fontSize: 16,
     textAlign: 'center',
+  },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  errorText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  exportButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.sm,
+  },
+  exportButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  exportButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
   },
   overviewGrid: {
     flexDirection: 'row',
